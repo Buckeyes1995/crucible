@@ -9,7 +9,7 @@ from adapters.llama_cpp import LlamaCppAdapter
 from adapters.ollama import OllamaAdapter
 from adapters.external import ExternalAdapter
 from models.schemas import ModelEntry
-from clients import sync_opencode
+from clients import sync_all_clients
 import webhooks as wh
 
 router = APIRouter()
@@ -37,7 +37,7 @@ async def stop_model(request: Request) -> dict:
         model_id = adapter.model_id
         await adapter.stop()
         request.app.state.active_adapter = None
-        sync_opencode(None)
+        sync_all_clients(None)
         asyncio.create_task(wh.fire("model.unloaded", {"model_id": model_id}))
     return {"status": "stopped"}
 
@@ -90,7 +90,7 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
             yield _sse(event_type, {"data": data})
             if event_type == "done":
                 request.app.state.active_adapter = adapter
-                sync_opencode(model_id, base_url="http://127.0.0.1:7777/v1")
+                sync_all_clients(model_id, base_url="http://127.0.0.1:7777/v1")
                 asyncio.create_task(wh.fire("model.loaded", {
                     "model_id": model.id,
                     "model_name": model.name,

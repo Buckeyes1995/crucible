@@ -1,4 +1,5 @@
 import json
+import time
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -103,6 +104,33 @@ async def _regression_detail(db, run_id: str) -> dict[str, dict]:
                 "is_regression": is_reg,
             }
     return result
+
+
+MARKETPLACE_URL = "https://raw.githubusercontent.com/Buckeyes1995/crucible/main/marketplace/prompts.json"
+_marketplace_cache: dict = {"data": None, "fetched_at": 0.0}
+_CACHE_TTL = 300  # 5 minutes
+
+
+@router.get("/benchmark/marketplace")
+async def get_marketplace() -> dict:
+    """Fetch community prompts from the GitHub-hosted marketplace JSON (cached 5 min)."""
+    import httpx
+    now = time.time()
+    if _marketplace_cache["data"] and now - _marketplace_cache["fetched_at"] < _CACHE_TTL:
+        return _marketplace_cache["data"]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(MARKETPLACE_URL)
+            r.raise_for_status()
+            data = r.json()
+            _marketplace_cache["data"] = data
+            _marketplace_cache["fetched_at"] = now
+            return data
+    except Exception as e:
+        # Return cached stale data if available, else error
+        if _marketplace_cache["data"]:
+            return _marketplace_cache["data"]
+        raise HTTPException(status_code=502, detail=f"Failed to fetch marketplace: {e}")
 
 
 @router.get("/benchmark/prompts")

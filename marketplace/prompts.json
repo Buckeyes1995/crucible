@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "updated": "2026-04-11",
+  "prompts": [
+    {
+      "id": "mkt-code-fizzbuzz",
+      "category": "Coding",
+      "tags": ["python", "basics"],
+      "author": "crucible",
+      "text": "Write a Python function that implements FizzBuzz for numbers 1-100, printing 'Fizz' for multiples of 3, 'Buzz' for multiples of 5, and 'FizzBuzz' for multiples of both."
+    },
+    {
+      "id": "mkt-code-async",
+      "category": "Coding",
+      "tags": ["python", "async", "intermediate"],
+      "author": "crucible",
+      "text": "Write an async Python function that fetches data from three URLs concurrently using aiohttp, handles errors gracefully, and returns a list of (url, status_code, body) tuples."
+    },
+    {
+      "id": "mkt-code-btree",
+      "category": "Coding",
+      "tags": ["algorithms", "data-structures"],
+      "author": "crucible",
+      "text": "Implement a binary search tree in Python with insert, search, and in-order traversal methods. Include docstrings and type hints."
+    },
+    {
+      "id": "mkt-code-sql",
+      "category": "Coding",
+      "tags": ["sql", "databases"],
+      "author": "crucible",
+      "text": "Write a SQL query that finds the top 5 customers by total order value in the last 90 days, joining orders and customers tables, excluding cancelled orders, and showing their name, order count, and total spend."
+    },
+    {
+      "id": "mkt-code-react",
+      "category": "Coding",
+      "tags": ["react", "typescript", "frontend"],
+      "author": "crucible",
+      "text": "Create a React hook called useDebounce that takes a value and delay in milliseconds, and returns the debounced value. Include TypeScript types and a usage example."
+    },
+    {
+      "id": "mkt-code-refactor",
+      "category": "Coding",
+      "tags": ["refactoring", "code-quality"],
+      "author": "crucible",
+      "text": "Refactor this code to be more maintainable, adding error handling and type hints:\n\ndef process(data):\n    result = []\n    for i in data:\n        if i > 0:\n            result.append(i * 2)\n    return result"
+    },
+    {
+      "id": "mkt-reason-logic",
+      "category": "Reasoning",
+      "tags": ["logic", "puzzles"],
+      "author": "crucible",
+      "text": "Five houses in a row are each painted a different color. The owners have different nationalities, drink different beverages, smoke different brands, and keep different pets. Use the given clues to determine who keeps fish: The Brit lives in the red house. The Swede keeps dogs. The Dane drinks tea. The green house is left of the white house. The green house owner drinks coffee. The person who smokes Pall Mall keeps birds. The yellow house owner smokes Dunhill. The man in the center drinks milk. The Norwegian lives in the first house. The Blend smoker lives next to the cat owner. The horse owner lives next to the Dunhill smoker. The BlueMaster smoker drinks beer. The German smokes Prince. The Norwegian lives next to the blue house. The Blend smoker has a neighbor who drinks water."
+    },
+    {
+      "id": "mkt-reason-chain",
+      "category": "Reasoning",
+      "tags": ["chain-of-thought", "analysis"],
+      "author": "crucible",
+      "text": "A bat and a ball together cost $1.10. The bat costs $1.00 more than the ball. How much does the ball cost? Think step by step and explain your reasoning carefully."
+    },
+    {
+      "id": "mkt-reason-debate",
+      "category": "Reasoning",
+      "tags": ["argumentation", "critical-thinking"],
+      "author": "crucible",
+      "text": "Present three compelling arguments for and three compelling arguments against the proposition: 'Open-source AI models are net beneficial to society.' Then give your reasoned conclusion."
+    },
+    {
+      "id": "mkt-math-primes",
+      "category": "Math",
+      "tags": ["number-theory", "primes"],
+      "author": "crucible",
+      "text": "Prove that there are infinitely many prime numbers. Then provide a Python implementation of the Sieve of Eratosthenes to find all primes up to 10000 and list the primes between 9900 and 10000."
+    },
+    {
+      "id": "mkt-math-calculus",
+      "category": "Math",
+      "tags": ["calculus", "optimization"],
+      "author": "crucible",
+      "text": "A farmer has 2400 feet of fencing and wants to fence off a rectangular field that borders a straight river. The farmer needs no fence along the river. What dimensions maximize the enclosed area? Show all work."
+    },
+    {
+      "id": "mkt-math-statistics",
+      "category": "Math",
+      "tags": ["statistics", "probability"],
+      "author": "crucible",
+      "text": "A factory produces light bulbs with a mean lifetime of 1200 hours and standard deviation of 100 hours. What percentage of bulbs last more than 1350 hours? What percentage last between 1000 and 1400 hours? Assume normal distribution."
+    },
+    {
+      "id": "mkt-instruct-summarize",
+      "category": "Instruction-following",
+      "tags": ["summarization", "format"],
+      "author": "crucible",
+      "text": "Summarize the history of the internet in exactly 5 bullet points. Each bullet must be one sentence, start with a year, and focus on a different decade from the 1960s to the 2000s."
+    },
+    {
+      "id": "mkt-instruct-format",
+      "category": "Instruction-following",
+      "tags": ["formatting", "structured-output"],
+      "author": "crucible",
+      "text": "List the top 7 programming languages by popularity in a markdown table with columns: Rank, Language, Paradigm, Primary Use Case, Year Created. Sort by rank ascending."
+    },
+    {
+      "id": "mkt-instruct-constrained",
+      "category": "Instruction-following",
+      "tags": ["constraints", "creative"],
+      "author": "crucible",
+      "text": "Write a short story about a robot learning to paint. Constraints: exactly 150 words, must use the words 'canvas', 'algorithm', and 'soul', must end with a question."
+    },
+    {
+      "id": "mkt-long-analysis",
+      "category": "Long",
+      "tags": ["analysis", "comprehensive"],
+      "author": "crucible",
+      "text": "Write a comprehensive technical analysis of microservices architecture vs monolithic architecture. Cover: definition and key characteristics of each, advantages and disadvantages, when to choose each approach, migration strategies from monolith to microservices, real-world examples of companies that have made this transition, and current industry trends. Minimum 800 words."
+    },
+    {
+      "id": "mkt-long-code-review",
+      "category": "Long",
+      "tags": ["code-review", "best-practices"],
+      "author": "crucible",
+      "text": "You are a senior software engineer conducting a code review. Review the following Python web scraper and provide detailed feedback on correctness, performance, security, error handling, and style. Then rewrite it with all improvements applied:\n\nimport requests\nfrom bs4 import BeautifulSoup\n\ndef scrape(url):\n    r = requests.get(url)\n    soup = BeautifulSoup(r.text, 'html.parser')\n    links = []\n    for a in soup.find_all('a'):\n        links.append(a['href'])\n    return links"
+    },
+    {
+      "id": "mkt-creative-scifi",
+      "category": "Creative",
+      "tags": ["fiction", "sci-fi"],
+      "author": "crucible",
+      "text": "Write the opening chapter (approximately 400 words) of a science fiction novel set in 2157. Humanity has colonized Mars but communication with Earth has been cut off for 50 years. Focus on a single character discovering a fragmented transmission from Earth."
+    },
+    {
+      "id": "mkt-creative-explain",
+      "category": "Creative",
+      "tags": ["explanation", "analogy"],
+      "author": "crucible",
+      "text": "Explain how neural networks work using only analogies to things found in a kitchen. No technical jargon allowed. The explanation should be understandable to someone who has never studied computer science, and should cover: what a neuron is, what training means, and what inference means."
+    }
+  ]
+}

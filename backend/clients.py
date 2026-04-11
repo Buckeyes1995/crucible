@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Optional
 
 OPENCODE_CONFIG = Path.home() / ".config" / "opencode" / "opencode.json"
+AIDER_CONFIG = Path.home() / ".aider.conf.yml"
+ZED_SETTINGS = Path.home() / "Library" / "Application Support" / "Zed" / "settings.json"
 
 log = logging.getLogger(__name__)
 
@@ -99,3 +101,66 @@ def sync_opencode(model_id: Optional[str], base_url: Optional[str] = None) -> No
     cfg["model"] = ref
     OPENCODE_CONFIG.write_text(json.dumps(cfg, indent=2))
     log.info("sync_opencode: set model → %s", ref)
+
+
+def sync_aider(model_id: Optional[str], base_url: str = "http://127.0.0.1:7777/v1") -> None:
+    """
+    Update ~/.aider.conf.yml to use the currently loaded model via Crucible's proxy.
+    Only writes if the file already exists (user opted into aider).
+    """
+    if not AIDER_CONFIG.exists():
+        return
+    try:
+        import re
+        text = AIDER_CONFIG.read_text()
+        model_key = _model_key_from_crucible_id(model_id) if model_id else ""
+
+        def _set(key: str, value: str, text: str) -> str:
+            pattern = rf"^{key}:.*$"
+            replacement = f"{key}: {value}"
+            if re.search(pattern, text, re.MULTILINE):
+                return re.sub(pattern, replacement, text, flags=re.MULTILINE)
+            return text + f"\n{replacement}"
+
+        text = _set("openai-api-base", base_url, text)
+        text = _set("openai-api-key", "crucible", text)
+        if model_key:
+            text = _set("model", f"openai/{model_key}", text)
+        AIDER_CONFIG.write_text(text)
+        log.info("sync_aider: model=%s base=%s", model_key, base_url)
+    except Exception as e:
+        log.warning("sync_aider: failed: %s", e)
+
+
+def sync_zed(model_id: Optional[str], base_url: str = "http://127.0.0.1:7777/v1") -> None:
+    """
+    Update Zed settings.json to use the currently loaded model via Crucible's proxy.
+    Only writes if the file already exists.
+    """
+    if not ZED_SETTINGS.exists():
+        return
+    try:
+        cfg = json.loads(ZED_SETTINGS.read_text())
+        model_key = _model_key_from_crucible_id(model_id) if model_id else ""
+
+        # Zed uses language_models.openai section for custom OpenAI-compatible endpoints
+        lm = cfg.setdefault("language_models", {})
+        openai = lm.setdefault("openai", {})
+        openai["api_url"] = base_url
+        if model_key:
+            # Set as default model for assistant panel
+            cfg.setdefault("assistant", {})["default_model"] = {
+                "provider": "openai",
+                "model": model_key,
+            }
+        ZED_SETTINGS.write_text(json.dumps(cfg, indent=2))
+        log.info("sync_zed: model=%s base=%s", model_key, base_url)
+    except Exception as e:
+        log.warning("sync_zed: failed: %s", e)
+
+
+def sync_all_clients(model_id: Optional[str], base_url: str = "http://127.0.0.1:7777/v1") -> None:
+    """Sync all configured external clients. Called on model load/unload."""
+    sync_opencode(model_id, base_url=base_url)
+    sync_aider(model_id, base_url=base_url)
+    sync_zed(model_id, base_url=base_url)

@@ -22,6 +22,20 @@ export type BenchmarkPrompt = {
   estimated_tokens?: number;
 };
 
+export type MarketplacePrompt = {
+  id: string;
+  category: string;
+  text: string;
+  author?: string;
+  tags?: string[];
+};
+
+export type MarketplaceData = {
+  version: number;
+  updated: string;
+  prompts: MarketplacePrompt[];
+};
+
 export type BenchmarkConfig = {
   model_ids: string[];
   prompt_ids?: string[];
@@ -225,6 +239,7 @@ export const api = {
     delete: (id: string) => del<{ status: string }>(`/benchmark/run/${id}`),
     modelHistory: (modelId: string, limit = 50) =>
       get<ModelBenchmarkPoint[]>(`/benchmark/model/${encodeURIComponent(modelId)}/history?limit=${limit}`),
+    marketplace: () => get<MarketplaceData>("/benchmark/marketplace"),
   },
   hf: {
     search: (q: string, limit = 20) => get<HFSearchResult[]>(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),

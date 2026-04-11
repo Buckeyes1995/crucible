@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useModelsStore } from "@/lib/stores/models";
-import { api, readSSE, type BenchmarkPrompt } from "@/lib/api";
+import { api, readSSE, type BenchmarkPrompt, type MarketplacePrompt } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,13 @@ export default function NewBenchmarkPage() {
   const [modelSearch, setModelSearch] = useState("");
   const [promptSearch, setPromptSearch] = useState("");
 
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [marketplacePrompts, setMarketplacePrompts] = useState<MarketplacePrompt[]>([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [marketplaceError, setMarketplaceError] = useState("");
+  const [marketplaceSearch, setMarketplaceSearch] = useState("");
+  const [marketplaceSelected, setMarketplaceSelected] = useState<Set<string>>(new Set());
+
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<string[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
@@ -70,6 +77,31 @@ export default function NewBenchmarkPage() {
   const addCustom = () => {
     const t = customPrompt.trim();
     if (t) { setCustomPrompts(p => [...p, t]); setCustomPrompt(""); }
+  };
+
+  const openMarketplace = async () => {
+    setMarketplaceOpen(true);
+    if (marketplacePrompts.length > 0) return;
+    setMarketplaceLoading(true);
+    setMarketplaceError("");
+    try {
+      const data = await api.benchmark.marketplace();
+      setMarketplacePrompts(data.prompts ?? []);
+    } catch (e) {
+      setMarketplaceError(`Failed to load marketplace: ${String(e)}`);
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  };
+
+  const importMarketplacePrompts = () => {
+    const toImport = marketplacePrompts
+      .filter(p => marketplaceSelected.has(p.id))
+      .map(p => p.text)
+      .filter(t => !customPrompts.includes(t));
+    setCustomPrompts(prev => [...prev, ...toImport]);
+    setMarketplaceSelected(new Set());
+    setMarketplaceOpen(false);
   };
 
   const totalPrompts = selectedPrompts.length + customPrompts.length;
@@ -183,6 +215,16 @@ export default function NewBenchmarkPage() {
         title="Prompts"
         hint={totalPrompts > 0 ? `${totalPrompts} selected` : "none"}
       >
+        {/* Marketplace button */}
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={openMarketplace}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-900/10 text-violet-300 text-xs font-medium hover:border-violet-400/50 hover:bg-violet-900/20 transition-all"
+          >
+            <span>★</span> Browse Marketplace
+          </button>
+        </div>
+
         {/* Presets */}
         <div className="flex gap-2 mb-4">
           {Object.entries(PRESET_META).map(([key, meta]) => (
@@ -379,6 +421,122 @@ export default function NewBenchmarkPage() {
               </Button>
             </div>
           )}
+        </div>
+      )}
+      {/* Marketplace modal */}
+      {marketplaceOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+              <div>
+                <h2 className="text-base font-semibold text-zinc-100">Prompt Marketplace</h2>
+                <p className="text-xs text-zinc-500 mt-0.5">Community benchmark prompts — select to import as custom prompts</p>
+              </div>
+              <button onClick={() => setMarketplaceOpen(false)} className="text-zinc-500 hover:text-zinc-200 text-lg transition-colors">✕</button>
+            </div>
+
+            {/* Search */}
+            <div className="px-5 py-3 border-b border-white/5">
+              <Input
+                placeholder="Search prompts…"
+                value={marketplaceSearch}
+                onChange={e => setMarketplaceSearch(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {marketplaceLoading && (
+                <div className="flex items-center justify-center py-12 text-zinc-500 text-sm">
+                  <span className="animate-pulse">Loading marketplace…</span>
+                </div>
+              )}
+              {marketplaceError && (
+                <div className="text-red-400 text-sm py-4 text-center">{marketplaceError}</div>
+              )}
+              {!marketplaceLoading && !marketplaceError && (() => {
+                const filtered = marketplacePrompts.filter(p =>
+                  !marketplaceSearch ||
+                  p.text.toLowerCase().includes(marketplaceSearch.toLowerCase()) ||
+                  p.category.toLowerCase().includes(marketplaceSearch.toLowerCase()) ||
+                  (p.tags ?? []).some(t => t.includes(marketplaceSearch.toLowerCase()))
+                );
+                const byCategory: Record<string, MarketplacePrompt[]> = {};
+                for (const p of filtered) {
+                  (byCategory[p.category] ??= []).push(p);
+                }
+                return Object.entries(byCategory).map(([cat, catPrompts]) => (
+                  <div key={cat} className="space-y-1.5">
+                    <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide pt-2">{cat}</div>
+                    {catPrompts.map(p => {
+                      const sel = marketplaceSelected.has(p.id);
+                      const alreadyImported = customPrompts.includes(p.text);
+                      return (
+                        <button
+                          key={p.id}
+                          disabled={alreadyImported}
+                          onClick={() => {
+                            if (alreadyImported) return;
+                            setMarketplaceSelected(s => {
+                              const next = new Set(s);
+                              sel ? next.delete(p.id) : next.add(p.id);
+                              return next;
+                            });
+                          }}
+                          className={cn(
+                            "w-full text-left px-3 py-2.5 rounded-lg border transition-all flex items-start gap-3",
+                            alreadyImported
+                              ? "border-zinc-700/30 bg-zinc-800/20 opacity-40 cursor-not-allowed"
+                              : sel
+                              ? "border-violet-500/50 bg-violet-950/20"
+                              : "border-white/5 bg-zinc-800/30 hover:border-white/10"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-4 h-4 rounded border shrink-0 mt-0.5 flex items-center justify-center",
+                            sel ? "bg-violet-500 border-violet-400" : "border-zinc-600"
+                          )}>
+                            {sel && <span className="text-white text-xs leading-none">✓</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-zinc-300 line-clamp-2">{p.text}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              {(p.tags ?? []).map(tag => (
+                                <span key={tag} className="px-1.5 py-0.5 rounded text-zinc-500 bg-zinc-800 text-[10px]">{tag}</span>
+                              ))}
+                              {alreadyImported && <span className="text-[10px] text-green-500">✓ imported</span>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-4 border-t border-white/5">
+              <span className="text-xs text-zinc-500">
+                {marketplaceSelected.size > 0 ? `${marketplaceSelected.size} selected` : "Click prompts to select"}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { setMarketplaceOpen(false); setMarketplaceSelected(new Set()); }}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={marketplaceSelected.size === 0}
+                  onClick={importMarketplacePrompts}
+                >
+                  Import {marketplaceSelected.size > 0 ? `${marketplaceSelected.size} prompt${marketplaceSelected.size !== 1 ? "s" : ""}` : ""}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
