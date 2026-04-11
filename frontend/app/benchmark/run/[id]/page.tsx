@@ -10,7 +10,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import type { RegressionAlert } from "@/lib/api";
 
 type Metrics = {
   ttft_ms?: number;
@@ -42,6 +43,7 @@ type RunDetail = {
   config: Record<string, unknown>;
   summary: Record<string, unknown>;
   results: Result[];
+  regression?: Record<string, RegressionAlert>;
 };
 
 export default function RunDetailPage() {
@@ -107,6 +109,19 @@ export default function RunDetailPage() {
             <p className="text-sm text-indigo-300 mt-1">
               Best: {formatTps(run.summary.best_tps as number)}
             </p>
+          )}
+          {run.regression && Object.values(run.regression).some((r) => r.is_regression) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {Object.entries(run.regression)
+                .filter(([, r]) => r.is_regression)
+                .map(([mid, r]) => (
+                  <div key={mid} className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-950/40 border border-amber-700/30 rounded-full px-3 py-1">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    <span className="font-mono truncate max-w-48" title={mid}>{mid.split("/").pop()}</span>
+                    <span>{Math.abs(r.delta_pct ?? 0).toFixed(1)}% below baseline ({r.baseline_avg_tps?.toFixed(1)} tok/s, {r.baseline_run_count} runs)</span>
+                  </div>
+                ))}
+            </div>
           )}
         </div>
 

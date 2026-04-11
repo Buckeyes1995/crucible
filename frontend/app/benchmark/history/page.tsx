@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { formatTps, cn } from "@/lib/utils";
-import { Trash2, ExternalLink } from "lucide-react";
+import { Trash2, ExternalLink, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 
 type RunSummary = {
@@ -14,6 +14,7 @@ type RunSummary = {
   model_ids?: string[];
   prompt_count?: number;
   best_tps?: number;
+  has_regression?: boolean;
 };
 
 export default function HistoryPage() {
@@ -64,18 +65,19 @@ export default function HistoryPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-4 px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">
             <span>Name / Date</span>
             <span>Models</span>
             <span>Prompts</span>
             <span>Best tok/s</span>
+            <span />
             <span />
           </div>
           {runs.map((run) => (
             <Link
               key={run.run_id}
               href={`/benchmark/run/${run.run_id}`}
-              className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 items-center px-4 py-3 rounded-lg border border-white/8 bg-zinc-900/40 hover:border-white/20 transition-all group"
+              className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-4 items-center px-4 py-3 rounded-lg border border-white/8 bg-zinc-900/40 hover:border-white/20 transition-all group"
             >
               <div>
                 <div className="text-sm font-medium text-zinc-100">
@@ -90,6 +92,12 @@ export default function HistoryPage() {
               <span className={cn("text-sm font-mono", run.best_tps ? "text-indigo-300" : "text-zinc-600")}>
                 {formatTps(run.best_tps)}
               </span>
+              {run.has_regression ? (
+                <span title="Performance regression detected (>10% drop vs. historical baseline)"
+                      className="flex items-center gap-1 text-xs text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                </span>
+              ) : <span />}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
                 <button

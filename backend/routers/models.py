@@ -42,6 +42,15 @@ async def stop_model(request: Request) -> dict:
     return {"status": "stopped"}
 
 
+@router.post("/models/compare/stop")
+async def stop_compare_model(request: Request) -> dict:
+    adapter = request.app.state.compare_adapter
+    if adapter:
+        await adapter.stop()
+        request.app.state.compare_adapter = None
+    return {"status": "stopped"}
+
+
 @router.post("/models/{model_id:path}/load")
 async def load_model(model_id: str, request: Request) -> StreamingResponse:
     registry = request.app.state.registry
@@ -87,6 +96,56 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
                     "model_name": model.name,
                     "elapsed_ms": data.get("elapsed_ms", 0),
                 }))
+            elif event_type == "error":
+                return
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/models/{model_id:path}/load-compare")
+async def load_compare_model(model_id: str, request: Request) -> StreamingResponse:
+    """Load a model into slot B (compare slot) without disturbing slot A."""
+    registry = request.app.state.registry
+    config = request.app.state.config
+
+    model = registry.get(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
+
+    async def _stream():
+        # Stop any currently running compare adapter
+        current = request.app.state.compare_adapter
+        if current and current.is_loaded():
+            await current.stop()
+            request.app.state.compare_adapter = None
+
+        # Build adapter — GGUF gets separate compare port; MLX reuses oMLX; Ollama is always multi-model
+        if model.kind == "mlx":
+            if config.mlx_external_url:
+                adapter = ExternalAdapter(base_url=config.mlx_external_url)
+            else:
+                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir)
+        elif model.kind == "gguf":
+            adapter = LlamaCppAdapter(
+                server_path=config.llama_server,
+                port=config.llama_compare_port,
+            )
+        elif model.kind == "ollama":
+            adapter = OllamaAdapter(host=config.ollama_host)
+        else:
+            yield _sse("error", {"data": {"message": f"Unknown kind: {model.kind}"}})
+            return
+
+        async for evt in adapter.load(model):
+            event_type = evt.get("event", "stage")
+            data = evt.get("data", {})
+            yield _sse(event_type, {"data": data})
+            if event_type == "done":
+                request.app.state.compare_adapter = adapter
             elif event_type == "error":
                 return
 

@@ -12,6 +12,7 @@ import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
+import { ModelTpsChart } from "@/components/ModelTpsChart";
 
 type SortKey = "name" | "size" | "tps";
 
@@ -419,6 +420,11 @@ function ModelCard({
               </span>
             ))}
           </div>
+        )}
+
+        {/* tok/s sparkline — only shows if model has been benchmarked */}
+        {model.avg_tps != null && (
+          <ModelTpsChart modelId={model.id} height={48} />
         )}
 
         {/* Loading bar */}

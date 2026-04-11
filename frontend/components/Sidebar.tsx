@@ -13,6 +13,7 @@ const NAV = [
   { href: "/benchmark/history", label: "History", icon: "📋" },
   { href: "/humaneval", label: "HumanEval", icon: "🧪" },
   { href: "/chat", label: "Chat", icon: "💬" },
+  { href: "/chat/compare", label: "Compare", icon: "⇔" },
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/downloads", label: "Downloads", icon: "↓" },
   { href: "/schedules", label: "Schedules", icon: "⏱" },

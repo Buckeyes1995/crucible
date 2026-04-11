@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
     from adapters.port_utils import kill_port
 
     cfg = app.state.config
-    for port in {cfg.mlx_port, cfg.llama_port}:
+    for port in {cfg.mlx_port, cfg.llama_port, cfg.llama_compare_port}:
         await kill_port(port)
 
     await init_db()
@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
     app.state.registry = ModelRegistry(app.state.config)
     await app.state.registry.refresh()
     app.state.active_adapter = None
+    app.state.compare_adapter = None
     app.state.record_activity = record_activity
 
     ttl_task = asyncio.create_task(_ttl_watcher(app))
@@ -95,6 +96,8 @@ async def lifespan(app: FastAPI):
     scheduler_task.cancel()
     if app.state.active_adapter:
         await app.state.active_adapter.stop()
+    if app.state.compare_adapter:
+        await app.state.compare_adapter.stop()
 
 
 app = FastAPI(title="Crucible", version="0.2.0", lifespan=lifespan)

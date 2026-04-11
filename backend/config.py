@@ -10,6 +10,7 @@ class CrucibleConfig(BaseModel):
     gguf_dir: str = "/Volumes/DataNVME/models/gguf"
     llama_server: str = "~/.local/bin/llama-server"
     llama_port: int = 8080
+    llama_compare_port: int = 8081
     mlx_port: int = 8010
     mlx_python: str = "~/.venvs/mlx/bin/python"
     # If set, Crucible uses this existing OpenAI-compatible server for MLX models

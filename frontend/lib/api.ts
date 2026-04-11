@@ -83,6 +83,23 @@ export type DownloadJob = {
   downloaded_bytes: number;
 };
 
+export type ModelBenchmarkPoint = {
+  run_id: string;
+  created_at: string;
+  run_name?: string;
+  avg_tps: number | null;
+  avg_ttft_ms: number | null;
+  sample_count: number;
+};
+
+export type RegressionAlert = {
+  current_avg_tps: number;
+  baseline_avg_tps: number | null;
+  baseline_run_count: number;
+  delta_pct: number | null;
+  is_regression: boolean;
+};
+
 export type Webhook = {
   id: string;
   url: string;
@@ -167,6 +184,8 @@ export const api = {
     refresh: () => post<ModelEntry[]>("/models/refresh"),
     stop: () => post<{ status: string }>("/models/stop"),
     load: (id: string) => stream(`/models/${encodeURIComponent(id)}/load`, {}),
+    loadCompare: (id: string) => stream(`/models/${encodeURIComponent(id)}/load-compare`, {}),
+    stopCompare: () => post<{ status: string }>("/models/compare/stop"),
     getParams: (id: string) => get<ModelParams>(`/models/${encodeURIComponent(id)}/params`),
     setParams: (id: string, params: ModelParams) => put<ModelParams>(`/models/${encodeURIComponent(id)}/params`, params),
     resetParams: (id: string) => del<{ status: string }>(`/models/${encodeURIComponent(id)}/params`),
@@ -185,6 +204,7 @@ export const api = {
   },
   status: () => get<{
     active_model_id: string | null;
+    compare_model_id: string | null;
     engine_state: string;
     memory_pressure: number | null;
     thermal_state: string;
@@ -193,6 +213,8 @@ export const api = {
   }>("/status"),
   chat: (body: { messages: ChatMessage[]; temperature: number; max_tokens: number }) =>
     stream("/chat", body),
+  chatCompare: (body: { messages: ChatMessage[]; temperature: number; max_tokens: number }) =>
+    stream("/chat/compare", body),
   benchmark: {
     prompts: () => get<BenchmarkPrompt[]>("/benchmark/prompts"),
     presets: () => get<Record<string, string[]>>("/benchmark/presets"),
@@ -200,6 +222,8 @@ export const api = {
     history: () => get<unknown[]>("/benchmark/history"),
     getrun: (id: string) => get<unknown>(`/benchmark/run/${id}`),
     delete: (id: string) => del<{ status: string }>(`/benchmark/run/${id}`),
+    modelHistory: (modelId: string, limit = 50) =>
+      get<ModelBenchmarkPoint[]>(`/benchmark/model/${encodeURIComponent(modelId)}/history?limit=${limit}`),
   },
   hf: {
     search: (q: string, limit = 20) => get<HFSearchResult[]>(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),

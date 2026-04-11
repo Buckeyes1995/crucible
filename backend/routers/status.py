@@ -22,8 +22,10 @@ async def get_status(request: Request) -> dict:
         asyncio.get_event_loop().run_in_executor(None, get_thermal_state),
     )
     mem_bytes = _get_memory_bytes()
+    compare = request.app.state.compare_adapter
     return {
         "active_model_id": adapter.model_id if adapter and adapter.is_loaded() else None,
+        "compare_model_id": compare.model_id if compare and compare.is_loaded() else None,
         "engine_state": "loaded" if adapter and adapter.is_loaded() else "idle",
         "memory_pressure": mem,
         "thermal_state": thermal,
