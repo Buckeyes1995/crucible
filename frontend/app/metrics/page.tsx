@@ -99,10 +99,10 @@ export default function MetricsPage() {
               )}
               {connState !== "connected" ? "Disconnected" : lastPayload?.active_model ? "Live" : "No model loaded"}
             </span>
+            <span className={cn("text-xs font-bold px-2 py-0.5 rounded-full border capitalize", statusColor, thermalBorder)}>
+              {thermal}
+            </span>
           </div>
-        </div>
-        <div className={cn("text-xs font-bold px-3 py-1 rounded-full border capitalize", statusColor, thermalBorder)}>
-          {thermal}
         </div>
       </div>
 
@@ -118,17 +118,14 @@ export default function MetricsPage() {
         {/* Stats row */}
         <div className="backdrop-blur border border-white/10 bg-white/5 rounded-xl p-4">
           <h3 className="text-xs font-medium text-zinc-500 mb-3">Current Values</h3>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Stat label="Gen tok/s" value={fmt(latestTps)} color="text-indigo-300" />
             <Stat label="Prompt tok/s" value={fmt(latestPromptTps)} color="text-violet-300" />
             <Stat label="TTFT (ms)" value={fmt(latestTtft, 0)} color="text-amber-300" />
             <Stat label="Memory" value={lastPayload?.memory_used_gb
-              ? `${lastPayload.memory_used_gb}/${lastPayload.memory_total_gb} GB` : "—"}
+              ? `${Number(lastPayload.memory_used_gb).toFixed(1)}/${Number(lastPayload.memory_total_gb).toFixed(1)} GB` : "—"}
+              sub={lastPayload?.memory_pressure != null ? `${(lastPayload.memory_pressure * 100).toFixed(0)}% pressure` : undefined}
               color="text-emerald-300" nowrap />
-            <Stat label="Pressure" value={lastPayload?.memory_pressure != null
-              ? `${(lastPayload.memory_pressure * 100).toFixed(0)}%` : "—"}
-              color="text-emerald-300" />
-            <Stat label="Thermal" value={thermal} color={statusColor} capitalize />
           </div>
         </div>
 
@@ -190,8 +187,8 @@ function ChartCard({ title, color, data, domain }: {
   );
 }
 
-function Stat({ label, value, color, nowrap, capitalize }: {
-  label: string; value: string; color?: string; nowrap?: boolean; capitalize?: boolean;
+function Stat({ label, value, sub, color, nowrap, capitalize }: {
+  label: string; value: string; sub?: string; color?: string; nowrap?: boolean; capitalize?: boolean;
 }) {
   return (
     <div>
@@ -199,6 +196,7 @@ function Stat({ label, value, color, nowrap, capitalize }: {
       <p className={cn("text-xl font-mono", color ?? "text-zinc-100", nowrap && "whitespace-nowrap", capitalize && "capitalize")}>
         {value}
       </p>
+      {sub && <p className="text-xs text-zinc-200 mt-0.5">{sub}</p>}
     </div>
   );
 }
