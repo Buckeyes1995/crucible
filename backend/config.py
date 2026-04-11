@@ -21,6 +21,7 @@ class CrucibleConfig(BaseModel):
     # LAN serving
     bind_host: str = "127.0.0.1"  # set to "0.0.0.0" for LAN access
     api_key: str = ""              # if set, require X-API-Key or Bearer token
+    omlx_api_key: str = "123456"   # API key for the oMLX subprocess
 
 
 def load_config() -> CrucibleConfig:

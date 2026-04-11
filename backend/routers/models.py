@@ -72,7 +72,7 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
             if config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=config.mlx_external_url)
             else:
-                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir)
+                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir, api_key=config.omlx_api_key)
         elif model.kind == "gguf":
             adapter = LlamaCppAdapter(
                 server_path=config.llama_server,
@@ -128,7 +128,7 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
             if config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=config.mlx_external_url)
             else:
-                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir)
+                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir, api_key=config.omlx_api_key)
         elif model.kind == "gguf":
             adapter = LlamaCppAdapter(
                 server_path=config.llama_server,

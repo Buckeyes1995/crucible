@@ -16,8 +16,9 @@ async def proxy_models(request: Request):
     base_url = getattr(adapter, "_base_url", None)
     if base_url:
         try:
+            headers = getattr(adapter, "_headers", lambda: {})()
             async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(f"{base_url}/v1/models")
+                r = await client.get(f"{base_url}/v1/models", headers=headers)
                 return JSONResponse(r.json(), status_code=r.status_code)
         except Exception:
             pass

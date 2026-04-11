@@ -38,6 +38,7 @@ export type CrucibleConfig = {
   gguf_dir: string;
   llama_server: string;
   llama_port: number;
+  llama_compare_port: number;
   mlx_port: number;
   mlx_python: string;
   mlx_external_url: string;

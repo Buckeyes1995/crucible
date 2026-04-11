@@ -18,15 +18,15 @@ from models.schemas import ModelEntry, ChatMessage
 
 log = logging.getLogger(__name__)
 
-API_KEY = "123456"
 OMLX_BINARY = Path.home() / ".venvs" / "omlx" / "bin" / "omlx"
 OMLX_CACHE_DIR = "/Volumes/DataNVME/omlx-cache"
 
 
 class OMLXAdapter(BaseAdapter):
-    def __init__(self, base_url: str = "http://127.0.0.1:8000", model_dir: str = ""):
+    def __init__(self, base_url: str = "http://127.0.0.1:8000", model_dir: str = "", api_key: str = "123456"):
         self._base_url = base_url
         self._model_dir = model_dir
+        self._api_key = api_key
         self._port = int(base_url.rstrip("/").rsplit(":", 1)[-1])
         self._process: Optional[asyncio.subprocess.Process] = None
         self._model: Optional[ModelEntry] = None
@@ -40,7 +40,7 @@ class OMLXAdapter(BaseAdapter):
         return self._model is not None
 
     def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {API_KEY}"}
+        return {"Authorization": f"Bearer {self._api_key}"}
 
     async def _is_running(self) -> bool:
         try:
@@ -60,7 +60,7 @@ class OMLXAdapter(BaseAdapter):
             "--model-dir", self._model_dir,
             "--port", str(self._port),
             "--paged-ssd-cache-dir", OMLX_CACHE_DIR,
-            "--api-key", API_KEY,
+            "--api-key", self._api_key,
         ]
         self._process = await asyncio.create_subprocess_exec(
             *cmd,

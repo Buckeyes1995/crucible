@@ -14,7 +14,10 @@ export default function SettingsPage() {
   const { favoritesOnly, setFavoritesOnly, favorites } = useFavoritesStore();
   const [draft, setDraft] = useState<CrucibleConfig | null>(null);
 
-  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+  useEffect(() => {
+    setDraft(null); // clear stale draft so it re-initialises from fresh fetch
+    fetchSettings();
+  }, [fetchSettings]);
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
   if (loading || !draft) {
