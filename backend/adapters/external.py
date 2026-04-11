@@ -1,0 +1,161 @@
+"""External adapter — uses an already-running OpenAI-compatible server (e.g. oMLX).
+
+oMLX is a multi-model LRU server: send a chat request with a model ID and it
+automatically loads that model, evicting the current one if memory is needed.
+Crucible just needs to trigger the load via a warmup request and wait.
+"""
+import asyncio
+import json
+import logging
+import time
+from pathlib import Path
+from typing import AsyncGenerator, Optional
+
+import httpx
+
+from adapters.base import BaseAdapter
+from models.schemas import ModelEntry, ChatMessage
+
+log = logging.getLogger(__name__)
+
+
+def _external_model_id(model: ModelEntry) -> str:
+    """Map a Crucible model entry to its ID as known by the external server.
+
+    oMLX identifies models by their directory/file name under --model-dir:
+      mlx:Qwen3-Coder-Next-MLX-4bit  →  Qwen3-Coder-Next-MLX-4bit
+      gguf:subdir/Model-Q4_K_M        →  Model-Q4_K_M.gguf  (if path available)
+    """
+    if model.path:
+        p = Path(model.path)
+        # For GGUF files, include the extension; MLX dirs have none.
+        return p.name
+    return model.name
+
+
+class ExternalAdapter(BaseAdapter):
+    """
+    Wraps an existing multi-model OpenAI-compatible inference server.
+    Triggers model loading by sending a warmup request with the target model ID,
+    then waits until the server responds successfully.
+    """
+
+    def __init__(self, base_url: str):
+        self._base_url = base_url.rstrip("/")
+        self._model: Optional[ModelEntry] = None
+        self._ext_model_id: Optional[str] = None
+
+    @property
+    def model_id(self) -> str | None:
+        return self._model.id if self._model else None
+
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
+    async def load(self, model: ModelEntry) -> AsyncGenerator[dict, None]:
+        ext_id = _external_model_id(model)
+
+        yield {"event": "stage", "data": {"stage": "connecting", "message": f"Connecting to {self._base_url}…"}}
+
+        # Verify server is reachable
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(f"{self._base_url}/v1/models")
+                r.raise_for_status()
+        except Exception as e:
+            yield {"event": "error", "data": {"message": f"Cannot reach {self._base_url}: {e}"}}
+            return
+
+        yield {"event": "stage", "data": {"stage": "loading", "message": f"Requesting {model.name} from oMLX (may swap current model)…"}}
+
+        # Send a warmup request with the target model ID.
+        # oMLX will evict the current model and load the new one automatically.
+        t0 = time.monotonic()
+        warmup_ok = False
+        last_ping = t0
+
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            while time.monotonic() - t0 < 600:
+                try:
+                    r = await client.post(
+                        f"{self._base_url}/v1/chat/completions",
+                        json={
+                            "model": ext_id,
+                            "messages": [{"role": "user", "content": "hi"}],
+                            "max_tokens": 16,
+                            "temperature": 0.0,
+                        },
+                        timeout=60.0,
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        if data.get("choices"):
+                            warmup_ok = True
+                            break
+                        # choices present but empty — still loading
+                    elif r.status_code == 404:
+                        yield {"event": "error", "data": {"message": f"Model '{ext_id}' not found on oMLX. Check that the model directory is within oMLX's --model-dir."}}
+                        return
+                except httpx.TimeoutException:
+                    pass
+                except Exception:
+                    pass
+
+                now = time.monotonic()
+                if now - last_ping >= 5:
+                    elapsed = int(now - t0)
+                    yield {"event": "stage", "data": {"stage": "loading", "message": f"Loading {model.name}… ({elapsed}s)"}}
+                    last_ping = now
+                await asyncio.sleep(2.0)
+
+        if not warmup_ok:
+            yield {"event": "error", "data": {"message": f"Timed out waiting for oMLX to load '{ext_id}'"}}
+            return
+
+        self._model = model
+        self._ext_model_id = ext_id
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        yield {"event": "done", "data": {"model_id": model.id, "elapsed_ms": elapsed_ms}}
+
+    async def stop(self) -> None:
+        # We don't own the server. Just clear local tracking.
+        self._model = None
+        self._ext_model_id = None
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncGenerator[dict, None]:
+        ext_id = self._ext_model_id or (
+            _external_model_id(self._model) if self._model else "local"
+        )
+        payload = {
+            "model": ext_id,
+            "messages": [m.model_dump() for m in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/v1/chat/completions",
+                json=payload,
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    chunk = line[6:]
+                    if chunk.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(chunk)
+                        delta = data["choices"][0]["delta"]
+                        content = delta.get("content") or delta.get("reasoning") or ""
+                        if content:
+                            yield {"token": content, "done": False}
+                    except Exception:
+                        continue
+        yield {"token": "", "done": True}
