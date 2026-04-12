@@ -149,6 +149,34 @@ def scan_gguf(gguf_dir: str) -> list[ModelEntry]:
     return models
 
 
+async def scan_mlx_studio(url: str) -> list[ModelEntry]:
+    """Query a running MLX Studio server for its available models."""
+    models = []
+    if not url:
+        return models
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url.rstrip('/')}/v1/models")
+            if resp.status_code != 200:
+                return models
+            data = resp.json()
+            for m in data.get("data", []):
+                server_id = m.get("id", "")
+                if not server_id:
+                    continue
+                name = server_id.split("/")[-1] if "/" in server_id else server_id
+                models.append(ModelEntry(
+                    id=f"mlx_studio:{server_id}",
+                    name=name,
+                    kind="mlx_studio",
+                    path=server_id,  # ExternalAdapter uses path as the model ID sent to the server
+                    backend_meta={"server_model_id": server_id},
+                ))
+    except Exception:
+        pass
+    return models
+
+
 async def scan_ollama(ollama_host: str) -> list[ModelEntry]:
     models = []
     try:
@@ -186,6 +214,7 @@ class ModelRegistry:
         models.extend(scan_mlx(self.config.mlx_dir))
         models.extend(scan_gguf(self.config.gguf_dir))
         models.extend(await scan_ollama(self.config.ollama_host))
+        models.extend(await scan_mlx_studio(self.config.mlx_studio_url))
         stats = _load_stats()
         for m in models:
             if m.id in stats:

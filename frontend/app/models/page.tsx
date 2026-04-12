@@ -403,8 +403,8 @@ function ModelCard({
                 </button>
               </>
             )}
-            <Badge variant={model.kind as "mlx" | "gguf" | "ollama"}>
-              {model.kind.toUpperCase()}
+            <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio"}>
+              {model.kind === "mlx_studio" ? "MLX Studio" : model.kind.toUpperCase()}
             </Badge>
             <button
               onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}

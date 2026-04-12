@@ -58,6 +58,7 @@ export type CrucibleConfig = {
   mlx_python: string;
   mlx_external_url: string;
   ollama_host: string;
+  mlx_studio_url: string;
   default_model: string;
   bind_host: string;
   api_key: string;

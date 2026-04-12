@@ -66,7 +66,7 @@ class ExternalAdapter(BaseAdapter):
             yield {"event": "error", "data": {"message": f"Cannot reach {self._base_url}: {e}"}}
             return
 
-        yield {"event": "stage", "data": {"stage": "loading", "message": f"Requesting {model.name} from oMLX (may swap current model)…"}}
+        yield {"event": "stage", "data": {"stage": "loading", "message": f"Requesting {model.name} from {self._base_url}…"}}
 
         # Send a warmup request with the target model ID.
         # oMLX will evict the current model and load the new one automatically.
@@ -94,7 +94,7 @@ class ExternalAdapter(BaseAdapter):
                             break
                         # choices present but empty — still loading
                     elif r.status_code == 404:
-                        yield {"event": "error", "data": {"message": f"Model '{ext_id}' not found on oMLX. Check that the model directory is within oMLX's --model-dir."}}
+                        yield {"event": "error", "data": {"message": f"Model '{ext_id}' not found on {self._base_url}."}}
                         return
                 except httpx.TimeoutException:
                     pass
@@ -109,7 +109,7 @@ class ExternalAdapter(BaseAdapter):
                 await asyncio.sleep(2.0)
 
         if not warmup_ok:
-            yield {"event": "error", "data": {"message": f"Timed out waiting for oMLX to load '{ext_id}'"}}
+            yield {"event": "error", "data": {"message": f"Timed out waiting for {self._base_url} to load '{ext_id}'"}}
             return
 
         self._model = model

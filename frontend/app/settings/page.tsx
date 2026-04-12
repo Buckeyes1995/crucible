@@ -79,6 +79,19 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle>MLX Studio</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <Field
+            label="Gateway URL (leave blank to disable)"
+            placeholder="http://localhost:8090"
+            value={draft.mlx_studio_url ?? ""}
+            onChange={(v) => set("mlx_studio_url", v)}
+          />
+          <p className="text-xs text-zinc-500">Models loaded in MLX Studio will appear in the Crucible model list after a refresh.</p>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle>LAN Serving</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <Field
@@ -135,11 +148,13 @@ function Field({
   value,
   onChange,
   type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  placeholder?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -149,6 +164,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="font-mono text-xs"
+        placeholder={placeholder}
       />
     </div>
   );
