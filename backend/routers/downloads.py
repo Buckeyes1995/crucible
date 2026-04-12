@@ -44,17 +44,52 @@ class StartDownloadRequest(BaseModel):
     dest_dir: str | None = None  # defaults from config
 
 
+def _model_to_dict(m) -> dict:
+    size_bytes = _size_from_safetensors(m)
+    return {
+        "repo_id": m.id,
+        "name": m.id.split("/")[-1],
+        "author": getattr(m, "author", None) or "",
+        "downloads": getattr(m, "downloads", 0) or 0,
+        "likes": getattr(m, "likes", 0) or 0,
+        "last_modified": str(getattr(m, "last_modified", "")),
+        "tags": list(getattr(m, "tags", []) or [])[:10],
+        "pipeline_tag": getattr(m, "pipeline_tag", "") or "",
+        "size_bytes": size_bytes,
+    }
+
+
 @router.get("/hf/search")
 async def search_models(q: str, limit: int = 20, request: Request = None) -> list[dict]:
     """Search HuggingFace for models matching query."""
     try:
         from huggingface_hub import HfApi
-        api = HfApi()
-
+        hf = HfApi()
         loop = asyncio.get_event_loop()
+
+        results: list[dict] = []
+        seen_ids: set[str] = set()
+
+        # If the query looks like an exact repo ID (contains /), try direct lookup first
+        q_stripped = q.strip()
+        if "/" in q_stripped:
+            # Strip any trailing kind suffix (e.g. "JANGQ-AI/Model mlx" → "JANGQ-AI/Model")
+            candidate = q_stripped.split()[0]
+            if "/" in candidate:
+                try:
+                    info = await loop.run_in_executor(
+                        None,
+                        lambda: hf.model_info(candidate, expand=["downloads", "likes", "safetensors"]),
+                    )
+                    d = _model_to_dict(info)
+                    results.append(d)
+                    seen_ids.add(info.id)
+                except Exception:
+                    pass
+
         models = await loop.run_in_executor(
             None,
-            lambda: list(api.list_models(
+            lambda: list(hf.list_models(
                 search=q,
                 limit=limit,
                 sort="downloads",
@@ -62,25 +97,15 @@ async def search_models(q: str, limit: int = 20, request: Request = None) -> lis
             ))
         )
 
-        results = []
-        gguf_indices = []
-
-        for i, m in enumerate(models):
-            size_bytes = _size_from_safetensors(m)
-            results.append({
-                "repo_id": m.id,
-                "name": m.id.split("/")[-1],
-                "author": m.author or "",
-                "downloads": getattr(m, "downloads", 0) or 0,
-                "likes": getattr(m, "likes", 0) or 0,
-                "last_modified": str(getattr(m, "last_modified", "")),
-                "tags": list(getattr(m, "tags", []) or [])[:10],
-                "pipeline_tag": getattr(m, "pipeline_tag", "") or "",
-                "size_bytes": size_bytes,
-            })
-            # Queue GGUF repos for size lookup (no safetensors metadata)
-            if size_bytes is None:
-                gguf_indices.append(i)
+        gguf_indices: list[int] = []
+        for m in models:
+            if m.id in seen_ids:
+                continue
+            d = _model_to_dict(m)
+            results.append(d)
+            seen_ids.add(m.id)
+            if d["size_bytes"] is None:
+                gguf_indices.append(len(results) - 1)
 
         # Fetch GGUF sizes in parallel (cap at 10 to avoid hammering HF)
         if gguf_indices:
