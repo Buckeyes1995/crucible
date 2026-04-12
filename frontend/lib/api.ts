@@ -11,6 +11,7 @@ export type ModelEntry = {
   backend_meta?: Record<string, unknown>;
   avg_tps?: number;
   last_loaded?: string;
+  hidden?: boolean;
 };
 
 export type ChatMessage = { role: string; content: string };
@@ -115,6 +116,32 @@ export type RegressionAlert = {
   is_regression: boolean;
 };
 
+export type FinetuneJob = {
+  id: string;
+  model_id: string;
+  data_path: string;
+  output_dir: string;
+  num_iters: number;
+  learning_rate: number;
+  lora_rank: number;
+  batch_size: number;
+  grad_checkpoint: boolean;
+  status: "queued" | "running" | "done" | "error" | "cancelled";
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string;
+  loss_log: { iter: number; loss: number; val_loss: number | null }[];
+};
+
+export type PromptTemplate = {
+  id: string;
+  name: string;
+  content: string;
+  description: string;
+  created_at: string;
+};
+
 export type Webhook = {
   id: string;
   url: string;
@@ -139,6 +166,7 @@ export type ModelParams = {
   // MLX-specific
   cache_limit_gb?: number;
   num_draft_tokens?: number;
+  draft_model?: string;  // path to small draft model for speculative decoding
   // GGUF-specific
   batch_size?: number;
   ubatch_size?: number;
@@ -185,11 +213,12 @@ async function del<T>(path: string): Promise<T> {
 }
 
 /** Returns a fetch Response for SSE streams — caller reads .body */
-function stream(path: string, body?: unknown): Promise<Response> {
+function stream(path: string, body?: unknown, signal?: AbortSignal): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 }
 
@@ -198,7 +227,7 @@ export const api = {
     list: () => get<ModelEntry[]>("/models"),
     refresh: () => post<ModelEntry[]>("/models/refresh"),
     stop: () => post<{ status: string }>("/models/stop"),
-    load: (id: string) => stream(`/models/${encodeURIComponent(id)}/load`, {}),
+    load: (id: string, signal?: AbortSignal) => stream(`/models/${encodeURIComponent(id)}/load`, {}, signal),
     loadCompare: (id: string) => stream(`/models/${encodeURIComponent(id)}/load-compare`, {}),
     stopCompare: () => post<{ status: string }>("/models/compare/stop"),
     getParams: (id: string) => get<ModelParams>(`/models/${encodeURIComponent(id)}/params`),
@@ -207,6 +236,8 @@ export const api = {
     getNotes: (id: string) => get<{ notes: string; tags: string[] }>(`/models/${encodeURIComponent(id)}/notes`),
     setNotes: (id: string, notes: string, tags: string[]) =>
       put<{ notes: string; tags: string[] }>(`/models/${encodeURIComponent(id)}/notes`, { notes, tags }),
+    setHidden: (id: string, hidden: boolean) =>
+      put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
   },
   tags: {
     list: () => get<string[]>("/tags"),
@@ -226,7 +257,7 @@ export const api = {
     total_memory_bytes: number;
     available_memory_bytes: number;
   }>("/status"),
-  chat: (body: { messages: ChatMessage[]; temperature: number; max_tokens: number }) =>
+  chat: (body: { messages: ChatMessage[]; temperature: number; max_tokens: number; rag_session_id?: string }) =>
     stream("/chat", body),
   chatCompare: (body: { messages: ChatMessage[]; temperature: number; max_tokens: number }) =>
     stream("/chat/compare", body),
@@ -260,6 +291,48 @@ export const api = {
   settings: {
     get: () => get<CrucibleConfig>("/settings"),
     save: (cfg: CrucibleConfig) => put<CrucibleConfig>("/settings", cfg),
+  },
+  rag: {
+    info: (sessionId: string) => get<{ chunk_count: number; files: Record<string, number> }>(`/rag/${sessionId}/info`),
+    clear: (sessionId: string) => del<{ status: string }>(`/rag/${sessionId}`),
+    addText: (sessionId: string, name: string, text: string) =>
+      post<{ status: string; chunks_added: number; chunk_count: number; files: Record<string, number> }>(
+        "/rag/add-text", { session_id: sessionId, name, text }
+      ),
+    addPath: (sessionId: string, path: string) =>
+      post<{ status: string; chunks_added: number; chunk_count: number; files: Record<string, number> }>(
+        "/rag/add-path", { session_id: sessionId, path }
+      ),
+    upload: async (sessionId: string, file: File) => {
+      const form = new FormData();
+      form.append("session_id", sessionId);
+      form.append("file", file);
+      const res = await fetch(`${BASE}/rag/upload?session_id=${encodeURIComponent(sessionId)}`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      return res.json() as Promise<{ status: string; chunks_added: number; chunk_count: number; files: Record<string, number> }>;
+    },
+  },
+  finetune: {
+    list: () => get<FinetuneJob[]>("/finetune/jobs"),
+    create: (body: {
+      model_id: string; data_path: string; output_dir: string;
+      num_iters?: number; learning_rate?: number; lora_rank?: number;
+      batch_size?: number; grad_checkpoint?: boolean;
+    }) => post<FinetuneJob>("/finetune/jobs", body),
+    run: (id: string) => stream(`/finetune/jobs/${id}/run`, {}),
+    cancel: (id: string) => post<{ status: string }>(`/finetune/jobs/${id}/cancel`),
+    delete: (id: string) => del<{ status: string }>(`/finetune/jobs/${id}`),
+  },
+  templates: {
+    list: () => get<PromptTemplate[]>("/templates"),
+    create: (name: string, content: string, description?: string) =>
+      post<PromptTemplate>("/templates", { name, content, description: description || "" }),
+    update: (id: string, patch: Partial<Pick<PromptTemplate, "name" | "content" | "description">>) =>
+      put<PromptTemplate>(`/templates/${id}`, patch),
+    delete: (id: string) => del<{ status: string }>(`/templates/${id}`),
   },
   webhooks: {
     list: () => get<Webhook[]>("/webhooks"),

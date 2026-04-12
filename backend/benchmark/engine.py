@@ -16,6 +16,7 @@ from benchmark.metrics import (
     compute_tps_from_timestamps,
 )
 from benchmark.prompts import get_prompts_for_run
+from powermetrics import PowerSampler
 from models.schemas import BenchmarkConfig, MetricsResult, ChatMessage
 
 
@@ -158,6 +159,8 @@ async def run_benchmark(
                 step += 1
                 yield {"event": "progress", "step": step, "model_id": model_id, "prompt_id": prompt["id"], "rep": rep, "status": "running"}
 
+                sampler = PowerSampler()
+                power_available = await sampler.start()
                 try:
                     metrics, response_text = await _run_single(
                         adapter,
@@ -166,8 +169,13 @@ async def run_benchmark(
                         config.temperature,
                     )
                 except Exception as e:
+                    await sampler.stop()
                     yield {"event": "error", "step": step, "model_id": model_id, "message": str(e)}
                     continue
+
+                power = await sampler.stop() if power_available else {}
+                # Attach power stats to metrics dict when persisting
+                metrics_extra = {**metrics.model_dump(), **power}
 
                 if metrics.throughput_tps is not None:
                     all_tps.append(metrics.throughput_tps)
@@ -177,7 +185,7 @@ async def run_benchmark(
                         datetime.now(timezone.utc).isoformat(),
                     )
 
-                result_dict = metrics.model_dump()
+                result_dict = metrics_extra
                 yield {
                     "event": "result",
                     "step": step,

@@ -10,6 +10,7 @@ from adapters.ollama import OllamaAdapter
 from adapters.external import ExternalAdapter
 from models.schemas import ModelEntry
 from clients import sync_all_clients
+import model_notes
 import webhooks as wh
 
 router = APIRouter()
@@ -19,15 +20,22 @@ def _sse(event: str, data: dict) -> str:
     return f"data: {json.dumps({'event': event, **data})}\n\n"
 
 
+def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
+    hidden_map = model_notes.all_hidden()
+    for m in models:
+        m.hidden = hidden_map.get(m.id, False)
+    return models
+
+
 @router.get("/models", response_model=list[ModelEntry])
 async def list_models(request: Request) -> list[ModelEntry]:
-    return request.app.state.registry.all()
+    return _annotate_hidden(request.app.state.registry.all())
 
 
 @router.post("/models/refresh", response_model=list[ModelEntry])
 async def refresh_models(request: Request) -> list[ModelEntry]:
     await request.app.state.registry.refresh()
-    return request.app.state.registry.all()
+    return _annotate_hidden(request.app.state.registry.all())
 
 
 @router.post("/models/stop")

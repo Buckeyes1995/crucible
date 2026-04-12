@@ -13,6 +13,7 @@ class ModelEntry(BaseModel):
     backend_meta: dict[str, Any] = {}
     avg_tps: Optional[float] = None
     last_loaded: Optional[str] = None
+    hidden: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -24,6 +25,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     temperature: float = 0.7
     max_tokens: int = 1024
+    rag_session_id: str | None = None  # inject BM25 context when set
 
 
 class BenchmarkConfig(BaseModel):

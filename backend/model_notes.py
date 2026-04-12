@@ -24,14 +24,34 @@ def _save(data: dict) -> None:
 
 
 def get_note(model_id: str) -> dict[str, Any]:
-    return _load().get(model_id, {"notes": "", "tags": []})
+    return _load().get(model_id, {"notes": "", "tags": [], "hidden": False})
 
 
 def set_note(model_id: str, notes: str, tags: list[str]) -> dict[str, Any]:
     data = _load()
-    data[model_id] = {"notes": notes, "tags": [t.strip() for t in tags if t.strip()]}
+    existing = data.get(model_id, {})
+    data[model_id] = {
+        "notes": notes,
+        "tags": [t.strip() for t in tags if t.strip()],
+        "hidden": existing.get("hidden", False),
+    }
     _save(data)
     return data[model_id]
+
+
+def set_hidden(model_id: str, hidden: bool) -> dict[str, Any]:
+    data = _load()
+    existing = data.get(model_id, {"notes": "", "tags": []})
+    existing["hidden"] = hidden
+    data[model_id] = existing
+    _save(data)
+    return existing
+
+
+def all_hidden() -> dict[str, bool]:
+    """Return map of model_id → hidden for all models that have hidden=True."""
+    data = _load()
+    return {mid: entry.get("hidden", False) for mid, entry in data.items()}
 
 
 def all_tags() -> list[str]:

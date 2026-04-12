@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
 import { ModelTpsChart } from "@/components/ModelTpsChart";
@@ -19,7 +19,7 @@ type SortKey = "name" | "size" | "tps";
 export default function ModelsPage() {
   const {
     models, loading, activeModelId, loadingModelId, loadStage, error,
-    fetchModels, refreshModels, loadModel, stopModel, syncStatus,
+    fetchModels, refreshModels, loadModel, cancelLoad, stopModel, syncStatus,
   } = useModelsStore();
   const { favorites, favoritesOnly, toggle: toggleFavorite, isFavorite, setFavoritesOnly } = useFavoritesStore();
   const { getAlias, setAlias, clearAlias } = useAliasesStore();
@@ -33,6 +33,7 @@ export default function ModelsPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
   useEffect(() => {
@@ -47,8 +48,11 @@ export default function ModelsPage() {
 
   const effectiveFavoritesOnly = favoritesOnly && favorites.length > 0;
 
+  const hiddenCount = models.filter(m => m.hidden).length;
+
   const filtered = models
     .filter((m) => {
+      if (m.hidden && !showHidden) return false;
       if (effectiveFavoritesOnly && !isFavorite(m.id)) return false;
       if (filterKind !== "all" && m.kind !== filterKind) return false;
       const alias = getAlias(m.id) ?? "";
@@ -81,10 +85,19 @@ export default function ModelsPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Models</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {models.length} models · {favorites.length} favorited
+            {models.length} models · {favorites.length} favorited{hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {loadingModelId && (
+            <button
+              onClick={cancelLoad}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              Stop loading
+            </button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setShowGlobalParams(true)}>
             <Settings2 className="w-4 h-4" />
             Defaults
@@ -139,6 +152,21 @@ export default function ModelsPage() {
           <Star className={cn("w-3.5 h-3.5", effectiveFavoritesOnly && "fill-amber-400")} />
           Favorites{favorites.length > 0 && ` (${favorites.length})`}
         </button>
+
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setShowHidden(v => !v)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              showHidden
+                ? "bg-zinc-600/40 text-zinc-300 border border-zinc-500/40"
+                : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+            )}
+          >
+            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {showHidden ? "Hiding hidden" : `Hidden (${hiddenCount})`}
+          </button>
+        )}
 
         {allTags.length > 0 && (
           <div className="flex gap-1 flex-wrap">
@@ -199,8 +227,12 @@ export default function ModelsPage() {
               isFavorite={isFavorite(m.id)}
               tags={modelNotes[m.id]?.tags ?? []}
               onLoad={() => loadModel(m.id)}
+              onCancelLoad={cancelLoad}
               onStop={stopModel}
               onToggleFavorite={() => toggleFavorite(m.id)}
+              onToggleHidden={() => {
+                api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
+              }}
               onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
               onOpenParams={() => setParamsModelId(m.id)}
               onOpenNotes={() => setNotesModelId(m.id)}
@@ -248,7 +280,7 @@ export default function ModelsPage() {
 // ── Model card ────────────────────────────────────────────────────────────────
 
 function ModelCard({
-  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onStop, onToggleFavorite, onSetAlias, onOpenParams, onOpenNotes,
+  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onSetAlias, onOpenParams, onOpenNotes,
 }: {
   model: ModelEntry;
   alias?: string;
@@ -258,8 +290,10 @@ function ModelCard({
   isFavorite: boolean;
   tags: string[];
   onLoad: () => void;
+  onCancelLoad: () => void;
   onStop: () => void;
   onToggleFavorite: () => void;
+  onToggleHidden: () => void;
   onSetAlias: (alias: string) => void;
   onOpenParams: () => void;
   onOpenNotes: () => void;
@@ -398,6 +432,18 @@ function ModelCard({
             >
               <Star className={cn("w-4 h-4", isFavorite && "fill-amber-400")} />
             </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleHidden(); }}
+              className={cn(
+                "p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100",
+                model.hidden
+                  ? "text-zinc-400 hover:text-zinc-200 opacity-100"
+                  : "text-zinc-600 hover:text-zinc-400"
+              )}
+              title={model.hidden ? "Unhide model" : "Hide model"}
+            >
+              {model.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
@@ -429,8 +475,18 @@ function ModelCard({
 
         {/* Loading bar */}
         {isLoading && (
-          <div className="space-y-1">
-            <div className="text-xs text-indigo-400">{loadStage}</div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-indigo-400 truncate">{loadStage || "Loading…"}</div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onCancelLoad(); }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors shrink-0"
+                title="Cancel loading"
+              >
+                <Square className="w-2.5 h-2.5 fill-current" />
+                Cancel
+              </button>
+            </div>
             <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
               <div className="h-full bg-indigo-500 rounded-full animate-pulse w-3/4" />
             </div>
@@ -473,7 +529,8 @@ const PARAM_DEFAULTS: Record<string, { label: string; type: "number" | "bool" | 
   repetition_penalty: { label: "Repetition penalty",  type: "number", step: 0.05, min: 1,   max: 2,   placeholder: "—",         tip: "Qwen3-Coder: 1.05 · others: 1.0" },
   presence_penalty:   { label: "Presence penalty",    type: "number", step: 0.1,  min: -2,  max: 2,   placeholder: "—",         tip: "Qwen3.5 no-think: 1.5 · think: 0.0" },
   cache_limit_gb:     { label: "Cache limit (GB)",    type: "number", step: 1,    min: 1,             placeholder: "unlimited",  kinds: ["mlx"] },
-  num_draft_tokens:   { label: "Draft tokens",        type: "number", step: 1,    min: 1,             placeholder: "off",        kinds: ["mlx"], tip: "Speculative decoding" },
+  draft_model:        { label: "Draft model path",    type: "text",                                   placeholder: "e.g. /path/to/mlx/Qwen3-0.6B", kinds: ["mlx"], tip: "Small model for speculative decoding — must match tokenizer of main model" },
+  num_draft_tokens:   { label: "Draft tokens",        type: "number", step: 1,    min: 1,             placeholder: "off",        kinds: ["mlx"], tip: "Number of tokens the draft model generates per step (5–10 recommended)" },
   batch_size:         { label: "Batch size (-b)",     type: "number", step: 64,   min: 1,             placeholder: "—",          kinds: ["gguf"] },
   ubatch_size:        { label: "μBatch size (-ub)",   type: "number", step: 64,   min: 1,             placeholder: "—",          kinds: ["gguf"] },
   threads:            { label: "Threads",             type: "number", step: 1,    min: 1,             placeholder: "—",          kinds: ["gguf"] },
@@ -569,7 +626,7 @@ function ModelParamsDialog({ model, onClose }: { model: ModelEntry; onClose: () 
 
               {model.kind === "mlx" && (
                 <Section title="MLX">
-                  {visibleKeys.filter(([k]) => ["cache_limit_gb","num_draft_tokens"].includes(k)).map(([key, meta]) => (
+                  {visibleKeys.filter(([k]) => ["cache_limit_gb","draft_model","num_draft_tokens"].includes(k)).map(([key, meta]) => (
                     <ParamRow key={key} paramKey={key} meta={meta} params={params} defaults={defaults} set={set} />
                   ))}
                 </Section>

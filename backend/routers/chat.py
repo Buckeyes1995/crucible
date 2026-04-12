@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from models.schemas import ChatRequest, ChatMessage
 from pydantic import BaseModel
+import rag
 
 router = APIRouter()
 
@@ -21,26 +22,52 @@ async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
     if record:
         record()
 
+    # Inject RAG context into the last user message if a session is active
+    messages = list(req.messages)
+    if req.rag_session_id:
+        last_user = next((m for m in reversed(messages) if m.role == "user"), None)
+        if last_user:
+            ctx = rag.get_context(req.rag_session_id, last_user.content)
+            if ctx:
+                # Prepend context as a system message
+                messages = [ChatMessage(role="system", content=ctx)] + [
+                    m for m in messages if m.role != "system"
+                ]
+
     async def _stream():
         t_start = time.monotonic()
         t_first: float | None = None
         token_count = 0
+        _last_tps_update = 0.0
 
-        async for chunk in adapter.chat(req.messages, req.temperature, req.max_tokens):
+        async for chunk in adapter.chat(messages, req.temperature, req.max_tokens):
             if chunk.get("done"):
                 elapsed = time.monotonic() - t_start
                 ttft = (t_first - t_start) * 1000 if t_first else None
                 gen_time = elapsed - ((t_first - t_start) if t_first else elapsed)
                 tps = token_count / gen_time if gen_time > 0 and token_count > 0 else None
+                # Update adapter attributes so Live Metrics WebSocket picks them up
+                if ttft is not None:
+                    adapter.last_ttft_ms = round(ttft, 2)
+                if tps is not None:
+                    adapter.last_tps = round(tps, 2)
                 yield f"data: {json.dumps({'event': 'done', 'ttft_ms': round(ttft, 2) if ttft else None, 'tps': round(tps, 2) if tps else None, 'output_tokens': token_count})}\n\n"
                 break
 
             token = chunk.get("token", "")
             if not token:
                 continue
+            now = time.monotonic()
             if t_first is None:
-                t_first = time.monotonic()
+                t_first = now
+                adapter.last_ttft_ms = round((now - t_start) * 1000, 2)
             token_count += 1
+            # Update rolling live TPS every ~0.5s so metrics WS sees it during streaming
+            if now - _last_tps_update >= 0.5:
+                gen_time = now - t_first
+                if gen_time > 0:
+                    adapter.last_tps = round(token_count / gen_time, 2)
+                _last_tps_update = now
             yield f"data: {json.dumps({'event': 'token', 'token': token})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")

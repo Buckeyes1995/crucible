@@ -61,6 +61,8 @@ class MLXAdapter(BaseAdapter):
             cmd += ["--max-tokens", str(ctx)]
         if p.get("cache_limit_gb"):
             cmd += ["--prompt-cache-bytes", str(int(p["cache_limit_gb"] * 1024 ** 3))]
+        if p.get("draft_model"):
+            cmd += ["--draft-model", str(p["draft_model"])]
         if p.get("num_draft_tokens"):
             cmd += ["--num-draft-tokens", str(p["num_draft_tokens"])]
         if p.get("extra_args"):

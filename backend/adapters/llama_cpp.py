@@ -31,13 +31,13 @@ class LlamaCppAdapter(BaseAdapter):
         return self._process is not None and self._process.returncode is None
 
     async def load(self, model: ModelEntry) -> AsyncGenerator[dict, None]:
-        await self.stop()
-        await kill_port(self._port)
-
         yield {
             "event": "stage",
             "data": {"stage": "starting", "message": "Starting llama-server…"},
         }
+
+        await self.stop()
+        await kill_port(self._port)
 
         if not self._server_path.exists():
             yield {
@@ -81,7 +81,7 @@ class LlamaCppAdapter(BaseAdapter):
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError:
             yield {
@@ -105,12 +105,18 @@ class LlamaCppAdapter(BaseAdapter):
 
         await asyncio.sleep(2.0)
         if self._process.returncode is not None:
-            yield {
-                "event": "error",
-                "data": {
-                    "message": "llama-server failed to start (port already in use?)"
-                },
-            }
+            stderr_out = ""
+            if self._process.stderr:
+                try:
+                    raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
+                    stderr_out = raw.decode(errors="replace").strip()
+                except Exception:
+                    pass
+            msg = f"llama-server exited (code {self._process.returncode})"
+            if stderr_out:
+                last_lines = "\n".join(stderr_out.splitlines()[-5:])
+                msg += f":\n{last_lines}"
+            yield {"event": "error", "data": {"message": msg}}
             return
 
         t0 = time.monotonic()
@@ -118,10 +124,18 @@ class LlamaCppAdapter(BaseAdapter):
         async with httpx.AsyncClient() as client:
             while time.monotonic() - t0 < 180:
                 if self._process.returncode is not None:
-                    yield {
-                        "event": "error",
-                        "data": {"message": "llama-server exited unexpectedly"},
-                    }
+                    stderr_out = ""
+                    if self._process.stderr:
+                        try:
+                            raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
+                            stderr_out = raw.decode(errors="replace").strip()
+                        except Exception:
+                            pass
+                    msg = "llama-server exited unexpectedly"
+                    if stderr_out:
+                        last_lines = "\n".join(stderr_out.splitlines()[-5:])
+                        msg += f":\n{last_lines}"
+                    yield {"event": "error", "data": {"message": msg}}
                     return
                 try:
                     r = await client.get(f"{self._base_url}/health", timeout=2.0)
@@ -216,8 +230,12 @@ class LlamaCppAdapter(BaseAdapter):
                         break
                     try:
                         data = json.loads(chunk)
+                        # Extract prompt eval speed from llama-server timings
+                        timings = data.get("timings") or {}
+                        if timings.get("prompt_per_second"):
+                            self.last_prompt_tps = round(timings["prompt_per_second"], 2)
                         delta = data["choices"][0]["delta"]
-                        content = delta.get("content", "")
+                        content = delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning") or ""
                         if content:
                             if first_token_time is None:
                                 first_token_time = time.monotonic()

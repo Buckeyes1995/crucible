@@ -8,7 +8,7 @@
 - `scan_mlx(dir)` — walks `mlx_dir`, finds subdirs with `config.json`, parses architecture/context/quant
 - `scan_gguf(dir)` — walks `gguf_dir`, finds `.gguf` files and single-file subdirs, parses GGUF metadata
 - `scan_ollama(host)` — `GET {host}/api/tags`, returns name + size
-- Unified `ModelEntry` schema: `{id, name, kind, path, size_bytes, context_window, quant, backend_meta}`
+- Unified `ModelEntry` schema: `{id, name, kind, path, size_bytes, context_window, quant, backend_meta, hidden}`
 - Model registry rebuilt on startup and on `POST /api/models/refresh`
 - Context window parsed from `config.json` (MLX), GGUF metadata, or Ollama API
 - `avg_tps` persisted to `~/.config/crucible/model_stats.json` across restarts
@@ -18,13 +18,15 @@
 - Grid of model cards
 - Each card: name, backend badge (color-coded: indigo=MLX, amber=GGUF, emerald=Ollama), size, context window, quant, avg tok/s from history, last loaded time
 - Active model: pulsing green dot, "Active" badge — sorts first
-- Loading: animated progress bar with stage labels
+- Loading: animated progress bar with stage labels, Cancel button
+- Stop Loading button in header while any model is loading
 - Click card → load model (confirm if another is active)
 - Search/filter bar: by name, backend kind, tags
 - Sort: by name, size, avg tok/s, last used
 - Alias display on cards (hover to see configured alias)
 - Tags displayed as indigo pills on cards
-- Hover icons: notes (StickyNote), params (Settings2)
+- Hide/unhide models — hidden models filtered from list by default, "Hidden (N)" toggle to reveal
+- Hover icons: notes (StickyNote), params (Settings2), hide (EyeOff)
 
 **Loading flow (SSE):**
 ```
@@ -35,29 +37,30 @@
 {event: "error", data: {message}}
 ```
 
+**GGUF loading fixes:**
+- `kill_port` uses `-sTCP:LISTEN` so only the listening server is killed (not browser client connections)
+- First SSE event is yielded before blocking on `kill_port` to keep the browser connection alive
+- `stderr=PIPE` on llama-server subprocess — last 5 lines of stderr included in error messages
+
 ---
 
 ### 2. Benchmarking (Hero Feature)
 
-#### Run Configuration UI (`/benchmark/new`)
+#### New Benchmark UI (`/benchmark2`) — Redesigned
 
-**Step 1 — Select Models:**
-- Multi-select from model registry
-- Option: "Run same model on all available backends"
+Two-pane layout:
+- **Left rail (320px):** config steps, always-visible Run button at bottom
+  - Step 1: Models — checkbox list with search filter, LOADED badge, internal scroll so steps 2/3 always visible
+  - Step 2: Prompts — Quick / Standard / Deep / Custom preset cards; Custom shows category chips + custom text input
+  - Step 3: Settings — collapsed accordion with reps, max tokens, temperature, run name
+  - Temperature auto-populated from selected model's merged params
+  - Run button shows `Nm × Pp × Rr` summary; disabled with hints when config incomplete
+- **Right panel:** idle = recent history; loading = spinner; running/done = live per-model summary cards
 
-**Step 2 — Prompts:**
-- Built-in prompt library with categories: Short, Medium, Long, Coding, Reasoning, Creative, Instruction-following
-- Multi-select prompts
-- Custom prompt input with token count estimate
-- Number of reps per prompt (1–10)
-
-**Step 3 — Parameters:**
-- Max output tokens (default 2048)
-- Temperature (default 0.0 for deterministic benchmarking)
-- N warmup runs before timing (default 1)
-- Context length override (optional)
-
-**Step 4 — Review & Run**
+**Per-model summary cards (live):**
+- Avg tok/s, Best tok/s, Avg TTFT
+- Per-prompt result rows with tok/s
+- Progress indicator while running
 
 #### Metrics Collected Per Generation
 
@@ -72,6 +75,7 @@
 | Memory pressure at start | macOS `vm_stat` |
 | Memory pressure peak | polled during run |
 | Thermal state | macOS IOKit sysctl |
+| CPU watts / GPU watts / ANE watts | powermetrics (if available) |
 
 **Note:** Qwen3 thinking models stream tokens in `delta.reasoning` — all adapters handle this fallback.
 
@@ -84,8 +88,6 @@
 {event: "done",     data: {run_id, summary}}
 {event: "error",    data: {message}}
 ```
-
-Live progress bar in UI during run. Results populate the chart in real time as each generation completes.
 
 #### Results View (`/benchmark/run/{id}`)
 
@@ -103,7 +105,7 @@ Live progress bar in UI during run. Results populate the chart in real time as e
 - Grouped bars per prompt category
 
 **Metrics Table**
-- Columns: Model, Backend, Prompt, Reps, TTFT (ms), tok/s mean, tok/s p90, Prompt eval tok/s, Tokens out, Memory, Thermal
+- Columns: Model, Backend, Prompt, Reps, TTFT (ms), tok/s mean, tok/s p90, Prompt eval tok/s, Tokens out, Memory, Thermal, CPU W, GPU W
 - Sortable, export JSON/CSV/Markdown
 
 **Baseline Comparison**
@@ -133,10 +135,10 @@ CREATE TABLE benchmark_results (id, run_id, model_id, model_name, backend_kind, 
 - Real-time stats bar: TTFT and tok/s update as tokens arrive
 - Multi-turn conversation, scrollable history
 - "New Chat" clears history
-- Collapsible system prompt field (saved to localStorage)
-- Inline controls: temperature slider, max tokens stepper
-- Markdown output with syntax-highlighted code blocks, per-block copy button
-- Reasoning token display (Qwen3 thinking models)
+- System prompt bar with template picker (BookOpen dropdown)
+- RAG context bar: attach files, "Use context" checkbox, chunk count display
+- Inline controls: temperature slider, max tokens input (default 8192, max 32768)
+- Prompt tok/s shown in live metrics (from `usage.prompt_tokens_per_second` or computed from TTFT)
 
 ---
 
@@ -148,6 +150,7 @@ Sections:
 - **Ollama** — host URL
 - **LAN Serving** — bind_host (127.0.0.1 or 0.0.0.0), API key for external clients
 - **Defaults** — default model
+- **Prompt Templates** — CRUD for saved system prompt templates (name, description, content)
 
 Saved to `~/.config/crucible/config.json` via `PUT /api/settings`.
 
@@ -162,6 +165,7 @@ Per-model overrides for inference parameters. Merges with global defaults (model
 **MLX parameters:**
 - `temperature`, `max_tokens`, `top_k`, `top_p`, `min_p`, `repetition_penalty`, `presence_penalty`
 - `cache_limit_gb` — limits KV cache memory
+- `draft_model` — path to draft model for speculative decoding
 - `num_draft_tokens` — speculative decoding draft count
 
 **GGUF / llama.cpp parameters:**
@@ -239,18 +243,20 @@ macOS menu bar app (Python + rumps):
 
 ---
 
-### 2.6 Model Notes and Tagging
+### 2.6 Model Notes, Tagging, and Hiding
 
 - Per-model notes (free text) and comma-separated tags
 - Tags shown as indigo pills on model cards
 - Tag filter pills in search bar for one-click filtering
 - StickyNote hover icon on cards opens notes dialog
+- **Hide/unhide models:** EyeOff icon on card hover; hidden models excluded from model list and benchmark by default; "Hidden (N)" toggle in filter bar to reveal; persists across restarts
 
 **Storage:** `~/.config/crucible/model_notes.json`
 
 **API:**
-- `GET /api/models/{id}/notes` — get notes + tags
-- `PUT /api/models/{id}/notes` — save notes + tags
+- `GET /api/models/{id}/notes` — get notes + tags + hidden flag
+- `PUT /api/models/{id}/notes` — save notes + tags (preserves hidden)
+- `PUT /api/models/{id}/hidden` — set hidden: true/false
 - `GET /api/tags` — all unique tags
 
 ---
@@ -272,8 +278,8 @@ macOS menu bar app (Python + rumps):
 
 On model load, Crucible automatically updates:
 - **opencode** — `~/.config/opencode/opencode.json` (model name + baseURL `http://127.0.0.1:7777/v1`)
-
-Planned: Zed settings.json, Aider `.aider.conf.yml` (per-client toggle in settings)
+- **Aider** — `.aider.conf.yml` in home dir
+- **Zed** — `~/.config/zed/settings.json`
 
 ---
 
@@ -287,32 +293,157 @@ Supports both streaming and non-streaming. Any OpenAI-compatible client pointed 
 
 ---
 
-## Phase 3 — Inference Intelligence (Planned)
+## Phase 3 — Inference Intelligence (Complete)
 
-See `docs/PHASES_3_4_5.md` for full details.
+### 3.1 Multi-Model Side-by-Side Chat (`/chat/compare`)
 
-- **3.1** Multi-model side-by-side chat
-- **3.2** Prompt templates & system prompt library with variable substitution
-- **3.3** RAG / context injection (BM25, file drop)
-- **3.4** Real-time metrics dashboard (tok/s, TTFT, memory — live charts)
-- **3.5** Performance regression alerts
+- Split-pane layout: two independent chat sessions, same prompt sent to both
+- Model A: active model; Model B: independently loaded via compare adapter slot
+- Real-time streaming to both panes simultaneously
+- Stats bar per pane: TTFT, tok/s
 
-## Phase 4 — Ecosystem Integration (Planned)
+---
 
-- **4.1** VS Code extension (status bar, quick-load)
-- **4.2** Aider / Zed config sync
-- **4.3** Model comparison database (charts over time)
-- **4.4** Prompt benchmark marketplace
-- **4.5** REST API webhooks
+### 3.2 Prompt Templates
 
-## Phase 5 — Advanced & Experimental (Planned)
+- Named system prompt templates with optional description
+- Template picker in chat system prompt bar (BookOpen dropdown)
+- Full CRUD in Settings → Prompt Templates section
 
-- **5.1** Multi-node Forge (mDNS discovery, proxy chat across nodes)
-- **5.2** Speculative decoding orchestration
-- **5.3** Fine-tune launcher (mlx_lm.lora, live loss chart)
-- **5.4** GGUF model merge UI
-- **5.5** Local model hub (LAN model sharing)
-- **5.6** Thermal & power profiling (powermetrics integration)
+**Storage:** `~/.config/crucible/prompt_templates.json`
+
+**API:**
+- `GET /api/templates` — list all templates
+- `POST /api/templates` — create template
+- `PUT /api/templates/{id}` — update template
+- `DELETE /api/templates/{id}` — delete template
+
+---
+
+### 3.3 RAG / Context Injection
+
+Pure-Python BM25 retrieval, no external dependencies.
+
+- File upload in chat context bar (txt, md, py, ts, tsx, js, json, csv, yaml, html, rst)
+- Files chunked at 400 words with 80-word overlap
+- BM25 scoring for top-k retrieval at chat time
+- Retrieved context injected as system message before user turn
+- Session-scoped: each chat session has its own RAG store
+- "Use context" checkbox to enable/disable per-message
+- File chips show name + chunk count
+
+**Backend:** `rag.py` — `BM25` class, `get_context(session_id, query, k)`, file/text ingestion
+
+**API:**
+- `POST /api/rag/{session_id}/upload` — upload file, returns chunk count
+- `POST /api/rag/{session_id}/add-text` — add raw text
+- `GET /api/rag/{session_id}/context?q={query}` — retrieve top-k chunks
+- `GET /api/rag/{session_id}/info` — session stats
+- `DELETE /api/rag/{session_id}` — clear session
+
+---
+
+### 3.4 Real-Time Metrics Dashboard (`/metrics`)
+
+Live charts updated via WebSocket, polling `/api/status` every second:
+- Tok/s sparkline (rolling 60s window)
+- TTFT bar
+- Memory pressure gauge
+- Thermal state badge
+- Prompt tok/s metric
+- CPU / GPU / ANE watts (when powermetrics available)
+
+---
+
+### 3.5 Performance Regression Alerts
+
+- After each benchmark run, compare avg tok/s to rolling baseline (last N runs for same model)
+- Regression threshold configurable (default 10%)
+- Alert badge on history list rows
+- AlertTriangle icon on benchmark2 history entries
+
+---
+
+## Phase 4 — Ecosystem Integration (Complete)
+
+### 4.2 Aider / Zed Config Sync
+
+On model load, updates:
+- `~/.aider.conf.yml` — `model: openai/{model_name}`, `openai-api-base`, `openai-api-key`
+- `~/.config/zed/settings.json` — `language_models.openai` provider with model + api_url
+
+---
+
+### 4.3 Model History Charts
+
+Per-model tok/s trend chart on model cards:
+- Recharts sparkline showing last N benchmark results
+- `GET /api/benchmark/model/{id}/history` — returns time-series data
+
+---
+
+### 4.4 Prompt Benchmark Marketplace
+
+Built-in curated prompt library with categories (Short, Medium, Long, Coding, Reasoning, Math).
+Presets map category names to prompt ID lists:
+- **Quick** — 3 prompts, ~30s
+- **Standard** — 7 prompts, ~2 min
+- **Deep** — all prompts, ~10 min
+- **Custom** — pick by category chip or add your own
+
+**API:**
+- `GET /api/benchmark/prompts` — all built-in prompts
+- `GET /api/benchmark/presets` — preset name → prompt ID list
+
+---
+
+### 4.5 REST API Webhooks
+
+- Fire HTTP POST on model load/unload events
+- Configurable URL + optional secret in Settings
+
+---
+
+## Phase 5 — Advanced & Experimental (Implemented)
+
+### 5.2 Speculative Decoding
+
+- `draft_model` param in per-model MLX parameters
+- Passed as `--draft-model` to `mlx_lm.server` on load
+- `num_draft_tokens` controls draft count
+
+---
+
+### 5.3 Fine-Tune Launcher (`/finetune`)
+
+- Create fine-tune jobs with model path, dataset path, output dir, learning rate, iterations, batch size
+- Runs `mlx_lm.lora` as subprocess
+- SSE stream of training output with loss parsing (regex `Iter \d+.*Train loss [\d.]+`)
+- Live Recharts loss chart: train loss (indigo) + val loss (amber)
+- Job list with status, Play/Stop/Delete actions
+- Job persistence across restarts
+
+**Backend:** `finetune.py` — `FinetuneJob` dataclass, `run_job()` async generator, `cancel_job()`
+
+**Storage:** `~/.config/crucible/finetune_jobs.json`
+
+**API:**
+- `GET /api/finetune/jobs` — list jobs
+- `POST /api/finetune/jobs` — create job
+- `POST /api/finetune/jobs/{id}/run` — start job (SSE)
+- `POST /api/finetune/jobs/{id}/cancel` — cancel
+- `DELETE /api/finetune/jobs/{id}` — delete
+
+---
+
+### 5.6 Thermal & Power Profiling
+
+- `PowerSampler` class runs `sudo -n powermetrics --samplers cpu_power -i 500 -f json`
+- Wraps each benchmark rep to capture CPU/GPU/ANE watts
+- Power stats merged into benchmark metrics: `cpu_watts`, `gpu_watts`, `ane_watts`
+- Shown in benchmark results table and model summary cards
+
+**Backend:** `powermetrics.py` — `PowerSampler.start()` / `stop()`
 
 ---
 
@@ -339,8 +470,10 @@ See `docs/PHASES_3_4_5.md` for full details.
 | File | Purpose |
 |---|---|
 | `~/.config/crucible/config.json` | Main config |
-| `~/.config/crucible/model_params.json` | Per-model + global default parameters |
+| `~/.config/crucible/model_params.json` | Per-model + global default inference parameters |
 | `~/.config/crucible/model_stats.json` | Persistent avg_tps per model |
-| `~/.config/crucible/model_notes.json` | Notes and tags per model |
+| `~/.config/crucible/model_notes.json` | Notes, tags, and hidden flag per model |
 | `~/.config/crucible/schedules.json` | Scheduled switching rules |
-| `~/.config/crucible/forge.db` | SQLite benchmark history |
+| `~/.config/crucible/prompt_templates.json` | Saved system prompt templates |
+| `~/.config/crucible/finetune_jobs.json` | Fine-tune job definitions |
+| `~/.config/crucible/crucible.db` | SQLite benchmark history |

@@ -23,6 +23,9 @@ type Metrics = {
   output_tokens?: number;
   token_timestamps?: number[];
   thermal_state?: string;
+  cpu_watts?: number;
+  gpu_watts?: number;
+  ane_watts?: number;
 };
 
 type Result = {
@@ -223,7 +226,7 @@ export default function RunDetailPage() {
               <table className="w-full text-sm text-zinc-300">
                 <thead>
                   <tr className="border-b border-white/10 text-xs text-zinc-500">
-                    {["Model", "Backend", "Prompt", "Rep", "TTFT", "tok/s", "p90 tok/s", "Tokens", "Thermal"].map((h) => (
+                    {["Model", "Backend", "Prompt", "Rep", "TTFT", "tok/s", "p90 tok/s", "Tokens", "Thermal", "CPU W", "GPU W"].map((h) => (
                       <th key={h} className="text-left py-2 px-3 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -255,6 +258,8 @@ export default function RunDetailPage() {
                         <td className="py-2 px-3">{formatTps(r.metrics.p90_tps)}</td>
                         <td className="py-2 px-3">{r.metrics.output_tokens ?? "—"}</td>
                         <td className="py-2 px-3 capitalize text-zinc-500">{r.metrics.thermal_state ?? "—"}</td>
+                        <td className="py-2 px-3 text-zinc-400 font-mono">{r.metrics.cpu_watts != null ? `${r.metrics.cpu_watts}W` : "—"}</td>
+                        <td className="py-2 px-3 text-zinc-400 font-mono">{r.metrics.gpu_watts != null ? `${r.metrics.gpu_watts}W` : "—"}</td>
                       </tr>
                       {expandedRow === i && (
                         <tr className="border-b border-white/5 bg-zinc-950/60">
@@ -327,10 +332,12 @@ export default function RunDetailPage() {
                         </div>
 
                         {/* Metrics strip */}
-                        <div className="grid grid-cols-3 divide-x divide-white/5 border-b border-white/5">
+                        <div className={`grid divide-x divide-white/5 border-b border-white/5 ${r.metrics.cpu_watts != null ? "grid-cols-5" : "grid-cols-3"}`}>
                           <MetricCell label="tok/s" value={formatTps(r.metrics.throughput_tps)} highlight={isBest} />
                           <MetricCell label="TTFT" value={formatMs(r.metrics.ttft_ms)} />
                           <MetricCell label="Tokens" value={String(r.metrics.output_tokens ?? "—")} />
+                          {r.metrics.cpu_watts != null && <MetricCell label="CPU W" value={`${r.metrics.cpu_watts}W`} />}
+                          {r.metrics.gpu_watts != null && <MetricCell label="GPU W" value={`${r.metrics.gpu_watts}W`} />}
                         </div>
 
                         {/* Response text */}

@@ -19,7 +19,7 @@ type ChatState = {
   stats: ChatStats | null;
   error: string | null;
 
-  sendMessage: (text: string, temperature: number, maxTokens: number) => Promise<void>;
+  sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
   clearMessages: () => void;
 };
 
@@ -29,7 +29,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   stats: null,
   error: null,
 
-  sendMessage: async (text, temperature, maxTokens) => {
+  sendMessage: async (text, temperature, maxTokens, systemPrompt, ragSessionId) => {
     const userMsg: ChatMsg = { role: "user", content: text };
     const msgs = [...get().messages, userMsg];
     set({ messages: msgs, streaming: true, error: null, stats: null });
@@ -38,13 +38,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const assistantIdx = msgs.length;
     set({ messages: [...msgs, { role: "assistant", content: "" }] });
 
-    const apiMessages: ChatMessage[] = msgs.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const apiMessages: ChatMessage[] = [
+      ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+      ...msgs.map((m) => ({ role: m.role, content: m.content })),
+    ];
 
     try {
-      const resp = await api.chat({ messages: apiMessages, temperature, max_tokens: maxTokens });
+      const resp = await api.chat({ messages: apiMessages, temperature, max_tokens: maxTokens, rag_session_id: ragSessionId });
       await readSSE(
         resp,
         (data) => {

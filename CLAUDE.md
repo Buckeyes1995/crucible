@@ -101,6 +101,7 @@ DELETE /api/params/defaults             # reset global defaults
 
 GET  /api/models/{id}/notes             # get model notes + tags
 PUT  /api/models/{id}/notes             # save model notes + tags
+PUT  /api/models/{id}/hidden            # set model hidden flag
 GET  /api/tags                          # all unique tags
 
 GET  /api/schedules                     # list switching rules
@@ -144,8 +145,9 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 | `~/.config/crucible/config.json` | Main config |
 | `~/.config/crucible/model_params.json` | Per-model + global default inference parameters |
 | `~/.config/crucible/model_stats.json` | Persistent avg_tps per model (survives restarts) |
-| `~/.config/crucible/model_notes.json` | Notes and tags per model |
+| `~/.config/crucible/model_notes.json` | Notes, tags, and hidden flag per model |
 | `~/.config/crucible/schedules.json` | Scheduled switching rules |
+| `~/.config/crucible/prompt_templates.json` | Saved prompt templates (marketplace) |
 | `~/.config/crucible/crucible.db` | SQLite benchmark history |
 
 ## UI Design Language
@@ -172,8 +174,16 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Model params**: `get_params()` merges global defaults + model-specific (model wins); `get_params_raw()` returns model-only
 - **Proxy at `/v1/*`**: rewrites `"model"` field to `_server_model_id` (full path) before forwarding to mlx_lm.server
 
+## Key Gotchas
+
+- **GGUF load stuck at "starting"**: `kill_port` must use `-sTCP:LISTEN` flag with `lsof` — without it, Chrome Helper connections to port 8080 get killed, disconnecting the browser before the generator starts
+- **SSE generator must yield before blocking**: Starlette cancels the async generator if the client disconnects; always yield the first SSE event before any `await kill_port()` or `await self.stop()` calls
+- **Multiple uvicorn instances**: `run.sh` starts uvicorn — never start a second one manually; use `pkill -9 -f uvicorn` to clean up if needed
+- **Benchmark2**: The redesigned benchmark page is at `/benchmark2` — the old `/benchmark/new` still exists but Sidebar links to `/benchmark2`
+- **Model hiding**: `model_notes.json` stores the `hidden` flag; `all_hidden()` returns a dict; `_annotate_hidden()` in `routers/models.py` stamps it onto `ModelEntry` for both list and refresh routes; hidden models are filtered from the benchmark model picker
+
 ## Current Status
 
-**Phase 1 — Complete. Phase 2 — Complete.** See SPEC.md for Phase 3/4/5 plans.
+**Phases 1–5 — Complete.** See SPEC.md for full feature list.
 
 Machine: M2 Max, 96GB, macOS 15. Models at `/Volumes/DataNVME/models/`.

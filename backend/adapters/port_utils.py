@@ -14,7 +14,7 @@ async def kill_port(port: int, timeout: float = 5.0) -> None:
     """
     try:
         proc = await asyncio.create_subprocess_exec(
-            "lsof", "-ti", f":{port}",
+            "lsof", "-ti", f":{port}", "-sTCP:LISTEN",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

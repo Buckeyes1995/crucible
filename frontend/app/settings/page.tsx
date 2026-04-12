@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, WEBHOOK_EVENTS } from "@/lib/api";
-import type { CrucibleConfig, Webhook } from "@/lib/api";
+import type { CrucibleConfig, Webhook, PromptTemplate } from "@/lib/api";
 
 export default function SettingsPage() {
   const { config, loading, saving, error, fetchSettings, saveSettings } = useSettingsStore();
@@ -109,6 +109,8 @@ export default function SettingsPage() {
           />
         </CardContent>
       </Card>
+
+      <PromptTemplatesSection />
 
       <WebhooksSection />
 
@@ -284,6 +286,114 @@ function WebhooksSection() {
             </div>
           </div>
         ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PromptTemplatesSection() {
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [newName, setNewName] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  useEffect(() => {
+    api.templates.list().then(setTemplates).catch(() => {});
+  }, []);
+
+  async function handleCreate() {
+    if (!newName.trim() || !newContent.trim()) return;
+    setSaving(true);
+    try {
+      const t = await api.templates.create(newName.trim(), newContent, newDesc);
+      setTemplates((prev) => [...prev, t]);
+      setNewName(""); setNewContent(""); setNewDesc("");
+    } finally { setSaving(false); }
+  }
+
+  async function handleUpdate(id: string) {
+    setSaving(true);
+    try {
+      const t = await api.templates.update(id, { name: editName, content: editContent, description: editDesc });
+      setTemplates((prev) => prev.map((x) => (x.id === id ? t : x)));
+      setEditId(null);
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete(id: string) {
+    await api.templates.delete(id);
+    setTemplates((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  function startEdit(t: PromptTemplate) {
+    setEditId(t.id); setEditName(t.name); setEditContent(t.content); setEditDesc(t.description);
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Prompt Templates</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {templates.length === 0 && (
+          <p className="text-sm text-zinc-500">No templates saved yet.</p>
+        )}
+        {templates.map((t) => (
+          <div key={t.id} className="rounded-lg border border-white/10 bg-zinc-900/40 p-3 space-y-2">
+            {editId === t.id ? (
+              <>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  placeholder="Template name" />
+                <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-400 focus:outline-none focus:border-indigo-500"
+                  placeholder="Description (optional)" />
+                <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={3}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 resize-none"
+                  placeholder="System prompt content" />
+                <div className="flex gap-2">
+                  <Button variant="primary" size="sm" onClick={() => handleUpdate(t.id)} disabled={saving}>Save</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditId(null)}>Cancel</Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-zinc-200">{t.name}</div>
+                  {t.description && <div className="text-xs text-zinc-500 mt-0.5">{t.description}</div>}
+                  <div className="text-xs text-zinc-600 font-mono mt-1 line-clamp-2">{t.content}</div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(t)}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(t.id)}
+                    className="text-red-400 hover:text-red-300">Delete</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="border-t border-white/5 pt-4 space-y-2">
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">New Template</p>
+          <div className="flex gap-2">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)}
+              placeholder="Name"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500" />
+            <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-400 focus:outline-none focus:border-indigo-500" />
+          </div>
+          <textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} rows={3}
+            placeholder="System prompt content…"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 resize-none" />
+          <Button variant="primary" size="sm" onClick={handleCreate}
+            disabled={saving || !newName.trim() || !newContent.trim()}>
+            {saving ? "Saving…" : "Save template"}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

@@ -9,11 +9,12 @@ import { Activity } from "lucide-react";
 
 const NAV = [
   { href: "/models", label: "Models", icon: "◈" },
-  { href: "/benchmark/new", label: "Benchmark", icon: "⚡" },
+  { href: "/benchmark2", label: "Benchmark", icon: "⚡" },
   { href: "/benchmark/history", label: "History", icon: "📋" },
   { href: "/humaneval", label: "HumanEval", icon: "🧪" },
   { href: "/chat", label: "Chat", icon: "💬" },
   { href: "/chat/compare", label: "Compare", icon: "⇔" },
+  { href: "/finetune", label: "Fine-tune", icon: "⚗" },
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/downloads", label: "Downloads", icon: "↓" },
   { href: "/schedules", label: "Schedules", icon: "⏱" },

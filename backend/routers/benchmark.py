@@ -111,6 +111,18 @@ _marketplace_cache: dict = {"data": None, "fetched_at": 0.0}
 _CACHE_TTL = 300  # 5 minutes
 
 
+def _builtin_as_marketplace() -> dict:
+    """Return built-in prompts in marketplace format as a fallback."""
+    return {
+        "version": 1,
+        "updated": "built-in",
+        "prompts": [
+            {**p, "author": "crucible", "tags": [p["category"].lower()]}
+            for p in BUILTIN_PROMPTS
+        ],
+    }
+
+
 @router.get("/benchmark/marketplace")
 async def get_marketplace() -> dict:
     """Fetch community prompts from the GitHub-hosted marketplace JSON (cached 5 min)."""
@@ -126,11 +138,11 @@ async def get_marketplace() -> dict:
             _marketplace_cache["data"] = data
             _marketplace_cache["fetched_at"] = now
             return data
-    except Exception as e:
-        # Return cached stale data if available, else error
+    except Exception:
+        # Return cached stale data if available, else fall back to built-ins
         if _marketplace_cache["data"]:
             return _marketplace_cache["data"]
-        raise HTTPException(status_code=502, detail=f"Failed to fetch marketplace: {e}")
+        return _builtin_as_marketplace()
 
 
 @router.get("/benchmark/prompts")

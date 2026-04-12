@@ -14,15 +14,18 @@ from routers import (
     benchmark,
     chat,
     downloads,
+    finetune,
     humaneval,
     metrics_ws,
     models,
     notes,
     params,
     proxy,
+    rag,
     schedules,
     settings,
     status,
+    templates,
     webhooks,
 )
 from scheduler import run_scheduler
@@ -140,6 +143,9 @@ app.include_router(humaneval.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(templates.router, prefix="/api")
+app.include_router(finetune.router, prefix="/api")
+app.include_router(rag.router, prefix="/api")
 app.include_router(metrics_ws.router)
 
 

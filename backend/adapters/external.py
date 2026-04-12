@@ -138,6 +138,13 @@ class ExternalAdapter(BaseAdapter):
             "max_tokens": max_tokens,
             "stream": True,
         }
+        t0 = time.monotonic()
+        first_token_time: float | None = None
+        total_tokens = 0
+        prompt_tokens: int | None = None
+        # Reset metrics so stale values don't persist if this chat fails
+        self.last_prompt_tps = None
+
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
@@ -152,10 +159,52 @@ class ExternalAdapter(BaseAdapter):
                         break
                     try:
                         data = json.loads(chunk)
-                        delta = data["choices"][0]["delta"]
-                        content = delta.get("content") or delta.get("reasoning") or ""
+                    except Exception:
+                        continue
+
+                    # Usage/stats chunk (oMLX sends this as a final chunk with choices:[])
+                    usage = data.get("usage") or {}
+                    if usage:
+                        if usage.get("prompt_tokens_per_second"):
+                            self.last_prompt_tps = round(usage["prompt_tokens_per_second"], 2)
+                        if usage.get("generation_tokens_per_second"):
+                            self.last_tps = round(usage["generation_tokens_per_second"], 2)
+                        if usage.get("time_to_first_token"):
+                            self.last_ttft_ms = round(usage["time_to_first_token"] * 1000, 2)
+                        # llama-server compat
+                        if usage.get("prompt_tokens") and not usage.get("prompt_tokens_per_second"):
+                            prompt_tokens = usage["prompt_tokens"]
+                    # llama-server timings block
+                    timings = data.get("timings") or {}
+                    if timings.get("prompt_per_second"):
+                        self.last_prompt_tps = round(timings["prompt_per_second"], 2)
+
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    try:
+                        delta = choices[0]["delta"]
+                        content = delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning") or ""
                         if content:
+                            if first_token_time is None:
+                                first_token_time = time.monotonic()
+                            total_tokens += 1
                             yield {"token": content, "done": False}
                     except Exception:
                         continue
+
+        t1 = time.monotonic()
+
+        # Fallback timing from local wall clock if server didn't send usage stats
+        if first_token_time and not self.last_ttft_ms:
+            self.last_ttft_ms = round((first_token_time - t0) * 1000, 2)
+        if first_token_time and not self.last_tps and total_tokens > 0:
+            gen_time = t1 - first_token_time
+            if gen_time > 0:
+                self.last_tps = round(total_tokens / gen_time, 2)
+        if prompt_tokens and first_token_time and not self.last_prompt_tps:
+            ttft_s = first_token_time - t0
+            if ttft_s > 0:
+                self.last_prompt_tps = round(prompt_tokens / ttft_s, 2)
+
         yield {"token": "", "done": True}
