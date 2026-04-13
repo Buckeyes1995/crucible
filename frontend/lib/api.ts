@@ -1,9 +1,9 @@
-const BASE = "http://localhost:7777/api";
+const BASE = "/api";
 
 export type ModelEntry = {
   id: string;
   name: string;
-  kind: "mlx" | "gguf" | "ollama";
+  kind: "mlx" | "gguf" | "ollama" | "mlx_studio";
   path?: string;
   size_bytes?: number;
   context_window?: number;
