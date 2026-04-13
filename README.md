@@ -55,14 +55,17 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 ```bash
 git clone https://github.com/Buckeyes1995/crucible.git
 cd crucible
-bash run.sh
+bash run.sh          # production mode (recommended)
+bash run.sh --dev    # dev mode with hot reload (local only)
 ```
 
 Opens:
 - **Web UI** → http://localhost:3000
 - **API** → http://localhost:7777
 
-`run.sh` creates the Python venv, installs all dependencies, and starts both servers. Ctrl+C to stop everything.
+`run.sh` creates the Python venv, installs all dependencies, builds the frontend (production mode), and starts both servers. Ctrl+C to stop everything.
+
+> **Remote access:** Production mode is required when accessing Crucible through a reverse proxy or Cloudflare Tunnel — dev mode's WebSocket HMR breaks through tunnels/proxies.
 
 ---
 

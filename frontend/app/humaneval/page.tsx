@@ -5,7 +5,7 @@ import { useStatusStore } from "@/lib/stores/status";
 import { cn } from "@/lib/utils";
 import { Play, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 
-const BASE = "http://localhost:7777/api";
+const BASE = "/api";
 
 type ProblemResult = {
   task_id: string;

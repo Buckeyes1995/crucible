@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useModelsStore } from "@/lib/stores/models";
 import { api, readSSE, type BenchmarkPrompt, type MarketplacePrompt } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,11 @@ const PRESET_META: Record<string, { label: string; desc: string; color: string }
   deep:     { label: "Deep",     desc: "All prompts · ~10 min", color: "border-amber-500/40 bg-amber-900/10 text-amber-300 hover:border-amber-400/60" },
 };
 
-export default function NewBenchmarkPage() {
+export default function NewBenchmarkPageWrapper() {
+  return <Suspense><NewBenchmarkPage /></Suspense>;
+}
+
+function NewBenchmarkPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { models, fetchModels } = useModelsStore();

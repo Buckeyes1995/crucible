@@ -48,14 +48,20 @@ forge/
 ## Commands
 
 ```bash
-# Start everything
+# Start everything (production mode — required for remote/tunnel access)
 bash run.sh
+
+# Start in dev mode (hot reload, local only)
+bash run.sh --dev
 
 # Backend only
 cd backend && source .venv/bin/activate && uvicorn main:app --reload --port 7777
 
-# Frontend only
+# Frontend only (dev)
 cd frontend && pnpm dev
+
+# Frontend only (production)
+cd frontend && pnpm build && pnpm start
 
 # Install backend deps
 cd backend && uv pip install -r requirements.txt
@@ -165,7 +171,8 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 
 - Backend is async throughout — use `asyncio`, `aiofiles`, `aiosqlite`; no blocking calls on the event loop
 - Use Python 3.13 (`/opt/homebrew/bin/python3.13`)
-- Frontend API calls go through `lib/api.ts` — never fetch backend URLs directly in components
+- Frontend API calls go through `lib/api.ts` using relative `/api` paths — never hardcode `localhost:7777` in components
+- Next.js rewrites in `next.config.ts` proxy `/api/*`, `/v1/*`, and `/ws/*` to the backend on port 7777 server-side
 - Zustand stores in `lib/stores/` — one store per domain (models, benchmark, chat, settings)
 - shadcn/ui for all base components — don't reinvent buttons, dialogs, tabs
 - Recharts for all charts — no Chart.js, no D3 directly
@@ -174,6 +181,19 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Model params**: `get_params()` merges global defaults + model-specific (model wins); `get_params_raw()` returns model-only
 - **Proxy at `/v1/*`**: rewrites `"model"` field to `_server_model_id` (full path) before forwarding to mlx_lm.server
 
+## Remote Access
+
+Crucible is accessible remotely via Cloudflare Tunnel at `https://crucible.buckeyes1995.com`, protected by Cloudflare Access (OTP).
+
+- **Tunnel:** `mac-studio` (ID `9661ad14-7a78-4615-80a8-e7318bd4e320`)
+- **Config:** `/etc/cloudflared/config.yaml` (root-owned, daemon reads this — NOT `~/.cloudflared/config.yaml`)
+- **Hostnames:**
+  - `crucible.buckeyes1995.com` → `http://localhost:3000` (Next.js frontend)
+  - `crucible-api.buckeyes1995.com` → `http://localhost:7777` (backend, for WebSocket metrics)
+- **Frontend must run in production mode** (`pnpm build` + `pnpm start`) — dev mode's WebSocket HMR breaks through tunnels
+- **API key not needed** when Cloudflare Access is the auth layer — the backend's `api_key` config should be empty for tunnel use
+- The Next.js rewrite handles `/api/*` → backend server-side, so the browser never talks to port 7777 directly (except WebSocket on `/metrics` page via `crucible-api` hostname)
+
 ## Key Gotchas
 
 - **GGUF load stuck at "starting"**: `kill_port` must use `-sTCP:LISTEN` flag with `lsof` — without it, Chrome Helper connections to port 8080 get killed, disconnecting the browser before the generator starts
@@ -181,6 +201,8 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Multiple uvicorn instances**: `run.sh` starts uvicorn — never start a second one manually; use `pkill -9 -f uvicorn` to clean up if needed
 - **Benchmark2**: The redesigned benchmark page is at `/benchmark2` — the old `/benchmark/new` still exists but Sidebar links to `/benchmark2`
 - **Model hiding**: `model_notes.json` stores the `hidden` flag; `all_hidden()` returns a dict; `_annotate_hidden()` in `routers/models.py` stamps it onto `ModelEntry` for both list and refresh routes; hidden models are filtered from the benchmark model picker
+- **Cloudflared reads `/etc/cloudflared/config.yaml`**: The LaunchDaemon runs as root — editing `~/.cloudflared/config.yaml` has no effect. Must `sudo` edit `/etc/cloudflared/config.yaml` and restart with `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`
+- **Uvicorn proxy_headers**: Uvicorn trusts `X-Forwarded-For` from localhost by default, rewriting `request.client.host` to the real client IP. This means the auth middleware sees external IPs even for requests proxied through Next.js. When using Cloudflare Access as the auth layer, leave `api_key` empty.
 
 ## Current Status
 

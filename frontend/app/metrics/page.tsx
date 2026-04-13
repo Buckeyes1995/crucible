@@ -30,7 +30,10 @@ export default function MetricsPage() {
 
   useEffect(() => {
     const connect = () => {
-      const ws = new WebSocket("ws://localhost:7777/ws/metrics");
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const wsHost = isLocal ? "localhost:7777" : window.location.host.replace("crucible.", "crucible-api.");
+      const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${wsProto}//${wsHost}/ws/metrics`);
       ws.onopen = () => setConnState("connected");
       ws.onmessage = (event) => {
         try {
