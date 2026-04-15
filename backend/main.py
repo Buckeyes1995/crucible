@@ -18,13 +18,18 @@ from routers import (
     dashboard,
     dflash,
     dflash_bench,
+    cost,
     diff,
     downloads,
+    export,
+    groups,
+    heatmap,
     finetune,
     humaneval,
     metrics_ws,
     models,
     notes,
+    optimizer,
     params,
     profiler_api,
     proxy,
@@ -159,7 +164,12 @@ app.include_router(profiler_api.router, prefix="/api")
 app.include_router(recommender_api.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
 app.include_router(dflash_bench.router, prefix="/api")
+app.include_router(cost.router, prefix="/api")
 app.include_router(diff.router, prefix="/api")
+app.include_router(export.router, prefix="/api")
+app.include_router(groups.router, prefix="/api")
+app.include_router(heatmap.router, prefix="/api")
+app.include_router(optimizer.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
 app.include_router(finetune.router, prefix="/api")
