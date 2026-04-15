@@ -27,6 +27,7 @@ from routers import (
     rag,
     schedules,
     settings,
+    smart_router_api,
     status,
     templates,
     webhooks,
@@ -146,6 +147,7 @@ app.include_router(humaneval.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
 app.include_router(arena.router, prefix="/api")
+app.include_router(smart_router_api.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
 app.include_router(dflash_bench.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")

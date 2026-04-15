@@ -42,9 +42,33 @@ async def proxy_chat(request: Request):
     if not base_url or not server_model_id:
         return JSONResponse({"error": "Adapter has no proxy target"}, status_code=503)
 
-    # Rewrite model field to the correct server-side ID (full path for mlx_lm)
+    # Smart routing — auto-select model based on prompt content
     body = await request.json()
-    body["model"] = server_model_id
+    from smart_router import select_model, get_config as get_router_config
+    router_cfg = get_router_config()
+    if router_cfg.get("enabled"):
+        messages = body.get("messages", [])
+        prompt_text = " ".join(m.get("content", "") for m in messages if m.get("role") == "user")
+        if prompt_text:
+            registry = request.app.state.registry
+            available = [
+                {"name": m.name, "kind": m.kind, "size_bytes": m.size_bytes, "node": m.node}
+                for m in registry.all()
+            ]
+            routed_model = select_model(prompt_text, available, router_cfg)
+            if routed_model and routed_model != server_model_id:
+                # Route to the selected model via oMLX (multi-model server)
+                body["model"] = routed_model
+                body["_smart_routed"] = True
+            else:
+                body["model"] = server_model_id
+    else:
+        body["model"] = server_model_id
+
+    # Rewrite model field to the correct server-side ID (full path for mlx_lm)
+    if not body.get("_smart_routed"):
+        body["model"] = server_model_id
+    body.pop("_smart_routed", None)
 
     is_stream = body.get("stream", False)
     if is_stream:

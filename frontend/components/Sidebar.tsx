@@ -20,6 +20,7 @@ const NAV = [
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/downloads", label: "Downloads", icon: "↓" },
   { href: "/schedules", label: "Schedules", icon: "⏱" },
+  { href: "/router", label: "Smart Router", icon: "🔀" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
