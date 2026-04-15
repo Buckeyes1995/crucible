@@ -198,6 +198,12 @@ class DownloadManager:
             asyncio.create_task(wh.fire("download.done", {
                 "repo_id": job.repo_id, "kind": job.kind, "dest_dir": job.dest_dir,
             }))
+            # Auto-benchmark: refresh registry and queue a quick benchmark
+            try:
+                from auto_bench import on_download_complete
+                asyncio.create_task(on_download_complete(job))
+            except Exception as e:
+                log.warning("Auto-benchmark hook failed: %s", e)
         except asyncio.CancelledError:
             job.status = "cancelled"
             job.error = "Cancelled"
