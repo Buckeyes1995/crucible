@@ -65,6 +65,22 @@ export type DFlashToggleResult = {
   settings: Record<string, unknown>;
 };
 
+export type ArenaBattle = { battle_id: string; status: string };
+export type ArenaVoteResult = {
+  model_a: string; model_b: string; winner: string;
+  elo_before: { a: number; b: number };
+  elo_after: { a: number; b: number };
+};
+export type ArenaLeaderboardEntry = {
+  model_id: string; elo: number; wins: number; losses: number;
+  ties: number; battles: number; win_rate: number;
+};
+export type ArenaBattleHistory = {
+  id: string; model_a: string; model_b: string; prompt: string;
+  winner: string; elo_before_a: number; elo_before_b: number;
+  elo_after_a: number; elo_after_b: number; created_at: string;
+};
+
 export type NodeConfig = {
   name: string;
   url: string;
@@ -285,6 +301,15 @@ export const api = {
   },
   nodes: {
     list: () => get<NodeStatus[]>("/nodes"),
+  },
+  arena: {
+    startBattle: () => post<ArenaBattle>("/arena/battle"),
+    chat: (battleId: string, body: { prompt: string; temperature?: number; max_tokens?: number }) =>
+      stream(`/arena/battle/${battleId}/chat`, body),
+    vote: (battleId: string, winner: string) =>
+      post<ArenaVoteResult>(`/arena/battle/${battleId}/vote`, { winner }),
+    leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
+    history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
   dflash: {
     get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),

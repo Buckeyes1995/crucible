@@ -14,6 +14,7 @@ const NAV = [
   { href: "/humaneval", label: "HumanEval", icon: "🧪" },
   { href: "/chat", label: "Chat", icon: "💬" },
   { href: "/chat/compare", label: "Compare", icon: "⇔" },
+  { href: "/arena", label: "Arena", icon: "⚔" },
   { href: "/finetune", label: "Fine-tune", icon: "⚗" },
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/downloads", label: "Downloads", icon: "↓" },

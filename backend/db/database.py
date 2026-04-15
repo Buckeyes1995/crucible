@@ -29,6 +29,31 @@ CREATE TABLE IF NOT EXISTS benchmark_results (
 
 CREATE INDEX IF NOT EXISTS idx_results_run_id ON benchmark_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_results_model_id ON benchmark_results(model_id);
+
+CREATE TABLE IF NOT EXISTS arena_battles (
+    id TEXT PRIMARY KEY,
+    model_a TEXT NOT NULL,
+    model_b TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    response_a TEXT,
+    response_b TEXT,
+    winner TEXT,
+    elo_before_a REAL,
+    elo_before_b REAL,
+    elo_after_a REAL,
+    elo_after_b REAL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS arena_elo (
+    model_id TEXT PRIMARY KEY,
+    elo REAL NOT NULL DEFAULT 1500,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    ties INTEGER NOT NULL DEFAULT 0,
+    battles INTEGER NOT NULL DEFAULT 0,
+    last_battle_at TEXT
+);
 """
 
 

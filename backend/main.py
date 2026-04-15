@@ -11,6 +11,7 @@ from db.database import init_db
 from model_params import get_params
 from registry import ModelRegistry
 from routers import (
+    arena,
     benchmark,
     chat,
     dflash,
@@ -143,6 +144,7 @@ app.include_router(benchmark.router, prefix="/api")
 app.include_router(humaneval.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
+app.include_router(arena.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
