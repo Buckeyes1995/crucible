@@ -14,6 +14,7 @@ const NAV = [
   { href: "/benchmark/history", label: "History", icon: "📋" },
   { href: "/humaneval", label: "HumanEval", icon: "🧪" },
   { href: "/chat", label: "Chat", icon: "💬" },
+  { href: "/chat/history", label: "Chat History", icon: "📜" },
   { href: "/chat/compare", label: "Compare", icon: "⇔" },
   { href: "/arena", label: "Arena", icon: "⚔" },
   { href: "/dflash", label: "DFlash Bench", icon: "⚡" },

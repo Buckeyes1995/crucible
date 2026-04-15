@@ -14,6 +14,7 @@ from routers import (
     arena,
     benchmark,
     chat,
+    chat_history,
     dashboard,
     dflash,
     dflash_bench,
@@ -145,6 +146,7 @@ app.include_router(schedules.router, prefix="/api")
 app.include_router(models.router, prefix="/api")
 app.include_router(params.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(chat_history.router, prefix="/api")
 app.include_router(benchmark.router, prefix="/api")
 app.include_router(humaneval.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
