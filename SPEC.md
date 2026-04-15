@@ -404,6 +404,43 @@ Presets map category names to prompt ID lists:
 
 ---
 
+### 4.6 Remote Nodes (Multi-Node Cluster)
+
+Connect multiple Crucible instances into a cluster. A "hub" node discovers and can load/chat/benchmark models on remote "spoke" nodes.
+
+**Backend:**
+- `NodeConfig` in config: `name`, `url`, `api_key` per remote node
+- `scan_remote_node()` in registry — queries remote `/api/models`, imports entries with `node=<name>` and IDs prefixed `@<name>/`
+- Anti-recursion: skips models where `node != "local"` on the remote side (no transitive proxying)
+- `RemoteNodeAdapter` (`adapters/remote_node.py`) — full adapter implementing load/stop/chat via HTTP to the remote Crucible API
+  - Load: SSE proxy of remote's `/api/models/{id}/load` stream
+  - Chat: streaming proxy of remote's `/v1/chat/completions`
+  - Stop: `POST /api/models/stop` on remote
+  - Discovers `_server_model_id` from remote `/v1/models` after load (for proxy compatibility)
+- `GET /api/nodes` — returns connectivity status, model count, active model, memory/thermal for all configured nodes (parallelized)
+- Registry scanning parallelized with `asyncio.gather` for all nodes
+- `backend_meta` internal routing fields (`_remote_url`, `_remote_api_key`, `_remote_model_id`) stripped before serialization to frontend
+
+**Frontend:**
+- Models page: node filter buttons (All nodes / Local / @node-name), `@node` badge on remote model cards
+- Settings page: Remote Nodes section — add/remove nodes (name, URL, API key), connectivity test with status dots (green=online), model count, active model, memory %
+- `api.ts`: `NodeConfig`, `NodeStatus` types, `api.nodes.list()`
+
+**Config:**
+```json
+{
+  "nodes": [
+    {"name": "mac-mini", "url": "http://192.168.1.181:7777", "api_key": ""}
+  ]
+}
+```
+
+**ModelEntry extension:** `node` field — `"local"` (default) or remote node name.
+
+**Adapter routing:** `models.py`, `benchmark.py` check `model.node != "local"` before kind-based adapter selection. Remote models use `RemoteNodeAdapter`; local models use the existing kind-based logic.
+
+---
+
 ## Phase 5 — Advanced & Experimental (Implemented)
 
 ### 5.2 Speculative Decoding
@@ -461,7 +498,8 @@ Presets map category names to prompt ID lists:
   "ollama_host":    "http://localhost:11434",
   "default_model":  "",
   "bind_host":      "127.0.0.1",
-  "api_key":        ""
+  "api_key":        "",
+  "nodes":          []
 }
 ```
 

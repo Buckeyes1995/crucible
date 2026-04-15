@@ -14,7 +14,7 @@
 forge/
   backend/            FastAPI app
     main.py           entry point (uvicorn)
-    adapters/         one module per backend (llama_cpp.py, mlx_lm.py, ollama.py, external.py)
+    adapters/         one module per backend (llama_cpp.py, mlx_lm.py, ollama.py, external.py, remote_node.py)
     models/           Pydantic schemas
     db/               SQLite helpers + migrations
     benchmark/        benchmark engine, metrics collection
@@ -77,6 +77,7 @@ cd frontend && pnpm install
 | llama-server (llama.cpp) | `"gguf"` | subprocess | 8080 |
 | mlx_lm.server | `"mlx"` | subprocess | 8000 |
 | Ollama | `"ollama"` | external daemon, HTTP API | 11434 |
+| Remote Node | any (proxied) | HTTP proxy to remote Crucible | remote's port |
 
 **Never hardcode ports** — always use the adapter's `port` property which reads from config.
 
@@ -97,6 +98,8 @@ DELETE /api/benchmark/run/{id}          # delete a run
 
 GET  /api/settings                      # current config
 PUT  /api/settings                      # save config
+
+GET  /api/nodes                         # remote node connectivity status
 
 GET  /api/models/{id}/params            # model-specific params (raw, no merge)
 PUT  /api/models/{id}/params            # save model params
@@ -140,7 +143,8 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
   "ollama_host":    "http://localhost:11434",
   "default_model":  "",
   "bind_host":      "127.0.0.1",
-  "api_key":        ""
+  "api_key":        "",
+  "nodes":          []
 }
 ```
 
@@ -180,6 +184,7 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Qwen3 thinking models**: streaming tokens are in `delta.reasoning`, not `delta.content` — all adapters handle this fallback
 - **Model params**: `get_params()` merges global defaults + model-specific (model wins); `get_params_raw()` returns model-only
 - **Proxy at `/v1/*`**: rewrites `"model"` field to `_server_model_id` (full path) before forwarding to mlx_lm.server
+- **Remote nodes**: models from remote Crucible instances have `node != "local"` and IDs prefixed `@node_name/`. Adapter routing checks `model.node` before `model.kind`. `backend_meta` internal fields (`_remote_*`) are stripped before serialization to the frontend.
 
 ## Remote Access
 
@@ -206,6 +211,6 @@ Crucible is accessible remotely via Cloudflare Tunnel at `https://crucible.bucke
 
 ## Current Status
 
-**Phases 1–5 — Complete.** See SPEC.md for full feature list.
+**Phases 1–5 + Remote Nodes (4.6) — Complete.** See SPEC.md for full feature list.
 
 Machine: M2 Max, 96GB, macOS 15. Models at `/Volumes/DataNVME/models/`.

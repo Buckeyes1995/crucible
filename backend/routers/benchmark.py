@@ -6,7 +6,8 @@ from fastapi.responses import StreamingResponse
 from adapters.mlx_lm import MLXAdapter
 from adapters.llama_cpp import LlamaCppAdapter
 from adapters.ollama import OllamaAdapter
-from adapters.external import ExternalAdapter
+from adapters.external import ExternalAdapter, ManagedExternalAdapter
+from adapters.remote_node import RemoteNodeAdapter
 from benchmark.engine import run_benchmark
 from benchmark.prompts import BUILTIN_PROMPTS, PRESETS
 from db.database import DB_PATH
@@ -169,7 +170,14 @@ async def start_benchmark(config: BenchmarkConfig, request: Request) -> Streamin
             yield {"event": "done", "model_id": model.id, "elapsed_ms": 0, "_adapter": active}
             return
 
-        if model.kind == "mlx":
+        if model.node != "local":
+            meta = model.backend_meta or {}
+            adapter = RemoteNodeAdapter(
+                node_url=meta["_remote_url"],
+                remote_model_id=meta["_remote_model_id"],
+                api_key=meta.get("_remote_api_key", ""),
+            )
+        elif model.kind == "mlx":
             if app_config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=app_config.mlx_external_url)
             else:
@@ -179,6 +187,11 @@ async def start_benchmark(config: BenchmarkConfig, request: Request) -> Streamin
                 server_path=app_config.llama_server,
                 port=app_config.llama_port,
             )
+        elif model.kind == "mlx_studio":
+            if not app_config.mlx_studio_url:
+                yield {"event": "error", "message": "MLX Studio URL not configured in Settings"}
+                return
+            adapter = ManagedExternalAdapter(base_url=app_config.mlx_studio_url)
         elif model.kind == "ollama":
             adapter = OllamaAdapter(host=app_config.ollama_host)
         else:

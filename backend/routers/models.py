@@ -7,7 +7,8 @@ from adapters.omlx import OMLXAdapter
 from adapters.mlx_lm import MLXAdapter
 from adapters.llama_cpp import LlamaCppAdapter
 from adapters.ollama import OllamaAdapter
-from adapters.external import ExternalAdapter
+from adapters.external import ExternalAdapter, ManagedExternalAdapter
+from adapters.remote_node import RemoteNodeAdapter
 from models.schemas import ModelEntry
 from clients import sync_all_clients
 import model_notes
@@ -20,10 +21,18 @@ def _sse(event: str, data: dict) -> str:
     return f"data: {json.dumps({'event': event, **data})}\n\n"
 
 
+def _strip_internal_meta(meta: dict | None) -> dict | None:
+    """Remove internal routing fields (API keys, URLs) from backend_meta before sending to clients."""
+    if not meta:
+        return meta
+    return {k: v for k, v in meta.items() if not k.startswith("_remote_")}
+
+
 def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
     hidden_map = model_notes.all_hidden()
     for m in models:
         m.hidden = hidden_map.get(m.id, False)
+        m.backend_meta = _strip_internal_meta(m.backend_meta)
     return models
 
 
@@ -76,7 +85,14 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
             request.app.state.active_adapter = None
 
         # Build adapter for this model kind
-        if model.kind == "mlx":
+        if model.node != "local":
+            meta = model.backend_meta or {}
+            adapter = RemoteNodeAdapter(
+                node_url=meta["_remote_url"],
+                remote_model_id=meta["_remote_model_id"],
+                api_key=meta.get("_remote_api_key", ""),
+            )
+        elif model.kind == "mlx":
             if config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=config.mlx_external_url)
             else:
@@ -85,7 +101,7 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
             if not config.mlx_studio_url:
                 yield _sse("error", {"data": {"message": "MLX Studio URL not configured in Settings"}})
                 return
-            adapter = ExternalAdapter(base_url=config.mlx_studio_url)
+            adapter = ManagedExternalAdapter(base_url=config.mlx_studio_url)
         elif model.kind == "gguf":
             adapter = LlamaCppAdapter(
                 server_path=config.llama_server,
@@ -137,7 +153,14 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
             request.app.state.compare_adapter = None
 
         # Build adapter — GGUF gets separate compare port; MLX reuses oMLX; Ollama is always multi-model
-        if model.kind == "mlx":
+        if model.node != "local":
+            meta = model.backend_meta or {}
+            adapter = RemoteNodeAdapter(
+                node_url=meta["_remote_url"],
+                remote_model_id=meta["_remote_model_id"],
+                api_key=meta.get("_remote_api_key", ""),
+            )
+        elif model.kind == "mlx":
             if config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=config.mlx_external_url)
             else:
@@ -146,7 +169,7 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
             if not config.mlx_studio_url:
                 yield _sse("error", {"data": {"message": "MLX Studio URL not configured in Settings"}})
                 return
-            adapter = ExternalAdapter(base_url=config.mlx_studio_url)
+            adapter = ManagedExternalAdapter(base_url=config.mlx_studio_url)
         elif model.kind == "gguf":
             adapter = LlamaCppAdapter(
                 server_path=config.llama_server,

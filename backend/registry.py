@@ -204,6 +204,44 @@ async def scan_ollama(ollama_host: str) -> list[ModelEntry]:
     return models
 
 
+async def scan_remote_node(node_name: str, node_url: str, api_key: str = "") -> list[ModelEntry]:
+    """Query a remote Crucible instance for its local models."""
+    models = []
+    headers = {}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{node_url.rstrip('/')}/api/models", headers=headers)
+            if resp.status_code != 200:
+                return models
+            data = resp.json()
+            for m in data:
+                # Skip models that are themselves remote (no recursive proxying)
+                if m.get("node", "local") != "local":
+                    continue
+                remote_id = f"@{node_name}/{m['id']}"
+                models.append(ModelEntry(
+                    id=remote_id,
+                    name=m.get("name", ""),
+                    kind=m.get("kind", "mlx"),
+                    path=m.get("path"),
+                    size_bytes=m.get("size_bytes"),
+                    context_window=m.get("context_window"),
+                    quant=m.get("quant"),
+                    backend_meta={
+                        **(m.get("backend_meta") or {}),
+                        "_remote_url": node_url,
+                        "_remote_api_key": api_key,
+                        "_remote_model_id": m["id"],
+                    },
+                    node=node_name,
+                ))
+    except Exception:
+        pass
+    return models
+
+
 class ModelRegistry:
     def __init__(self, config: CrucibleConfig):
         self.config = config
@@ -215,6 +253,13 @@ class ModelRegistry:
         models.extend(scan_gguf(self.config.gguf_dir))
         models.extend(await scan_ollama(self.config.ollama_host))
         models.extend(await scan_mlx_studio(self.config.mlx_studio_url))
+        if self.config.nodes:
+            import asyncio
+            node_results = await asyncio.gather(
+                *(scan_remote_node(n.name, n.url, n.api_key) for n in self.config.nodes)
+            )
+            for result in node_results:
+                models.extend(result)
         stats = _load_stats()
         for m in models:
             if m.id in stats:

@@ -12,6 +12,7 @@ export type ModelEntry = {
   avg_tps?: number;
   last_loaded?: string;
   hidden?: boolean;
+  node?: string;  // "local" or remote node name
 };
 
 export type ChatMessage = { role: string; content: string };
@@ -48,6 +49,22 @@ export type BenchmarkConfig = {
   name?: string;
 };
 
+export type NodeConfig = {
+  name: string;
+  url: string;
+  api_key: string;
+};
+
+export type NodeStatus = {
+  name: string;
+  url: string;
+  status: "online" | "offline";
+  model_count: number;
+  active_model_id: string | null;
+  memory_pressure?: number;
+  thermal_state?: string;
+};
+
 export type CrucibleConfig = {
   mlx_dir: string;
   gguf_dir: string;
@@ -62,6 +79,7 @@ export type CrucibleConfig = {
   default_model: string;
   bind_host: string;
   api_key: string;
+  nodes: NodeConfig[];
 };
 
 export type HFSearchResult = {
@@ -248,6 +266,9 @@ export const api = {
     create: (rule: Omit<ScheduleRule, "id">) => post<ScheduleRule>("/schedules", rule),
     update: (id: string, rule: Omit<ScheduleRule, "id">) => put<ScheduleRule>(`/schedules/${id}`, rule),
     delete: (id: string) => del<{ status: string }>(`/schedules/${id}`),
+  },
+  nodes: {
+    list: () => get<NodeStatus[]>("/nodes"),
   },
   status: () => get<{
     active_model_id: string | null;

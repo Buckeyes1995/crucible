@@ -14,6 +14,7 @@ class ModelEntry(BaseModel):
     avg_tps: Optional[float] = None
     last_loaded: Optional[str] = None
     hidden: bool = False
+    node: str = "local"            # "local" or remote node name
 
 
 class ChatMessage(BaseModel):

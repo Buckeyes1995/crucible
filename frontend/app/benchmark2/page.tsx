@@ -77,7 +77,7 @@ export default function Benchmark2Page() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [reps, setReps] = useState(1);
   const [maxTokens, setMaxTokens] = useState(2048);
-  const [temperature, setTemperature] = useState(0.0);
+  const [temperature, setTemperature] = useState(0.7);
   const [runName, setRunName] = useState("");
 
   // Run state
@@ -102,7 +102,7 @@ export default function Benchmark2Page() {
     api.benchmark.prompts().then(setAllPrompts).catch(() => {});
     api.benchmark.presets().then(setPresets).catch(() => {});
     api.params.getDefaults().then(d => {
-      if (d.temperature != null) setTemperature(d.temperature);
+      setTemperature(d.temperature ?? 0.7);
     }).catch(() => {});
   }, []);
   useEffect(() => {
@@ -118,7 +118,7 @@ export default function Benchmark2Page() {
       api.models.getParams(first).catch(() => ({} as Record<string, unknown>)),
     ]).then(([defaults, modelParams]) => {
       const merged = { ...defaults, ...Object.fromEntries(Object.entries(modelParams).filter(([, v]) => v != null)) };
-      if (merged.temperature != null) setTemperature(merged.temperature as number);
+      setTemperature((merged.temperature as number) ?? 0.7);
     });
   }, [selectedModels[0]]);
 

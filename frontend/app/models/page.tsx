@@ -34,6 +34,7 @@ export default function ModelsPage() {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
   const [showHidden, setShowHidden] = useState(false);
+  const [filterNode, setFilterNode] = useState<string | null>(null);
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
   useEffect(() => {
@@ -55,6 +56,7 @@ export default function ModelsPage() {
       if (m.hidden && !showHidden) return false;
       if (effectiveFavoritesOnly && !isFavorite(m.id)) return false;
       if (filterKind !== "all" && m.kind !== filterKind) return false;
+      if (filterNode && (m.node ?? "local") !== filterNode) return false;
       const alias = getAlias(m.id) ?? "";
       if (search && !m.name.toLowerCase().includes(search.toLowerCase()) && !alias.toLowerCase().includes(search.toLowerCase())) return false;
       if (tagFilter) {
@@ -139,6 +141,46 @@ export default function ModelsPage() {
             </button>
           ))}
         </div>
+
+        {/* Node filter — only show if there are remote models */}
+        {(() => {
+          const nodeNames = [...new Set(models.map(m => m.node ?? "local").filter(n => n !== "local"))];
+          if (nodeNames.length === 0) return null;
+          return (
+            <div className="flex gap-1">
+              <button
+                onClick={() => setFilterNode(null)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                  !filterNode ? "bg-cyan-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                )}
+              >
+                All nodes
+              </button>
+              <button
+                onClick={() => setFilterNode(filterNode === "local" ? null : "local")}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                  filterNode === "local" ? "bg-cyan-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                )}
+              >
+                Local
+              </button>
+              {nodeNames.map(name => (
+                <button
+                  key={name}
+                  onClick={() => setFilterNode(filterNode === name ? null : name)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                    filterNode === name ? "bg-cyan-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                  )}
+                >
+                  @{name}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         <button
           onClick={() => setFavoritesOnly(!favoritesOnly)}
@@ -406,6 +448,11 @@ function ModelCard({
             <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio"}>
               {model.kind === "mlx_studio" ? "MLX Studio" : model.kind.toUpperCase()}
             </Badge>
+            {model.node && model.node !== "local" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 font-medium">
+                @{model.node}
+              </span>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
               className="p-0.5 rounded text-zinc-600 hover:text-zinc-300 transition-colors opacity-0 group-hover:opacity-100"

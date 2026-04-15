@@ -22,6 +22,7 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 - **Per-Model Parameters** — temperature, max_tokens, top_k, top_p, min_p, repetition penalty, context window, TTL — saved per model
 - **Model Notes & Tags** — attach notes and tags to models for organization
 - **Webhooks** — fire-and-forget HTTP callbacks on `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`
+- **Remote Nodes** — connect multiple Crucible instances into a cluster; discover, load, chat, and benchmark models on remote machines
 - **OpenAI-Compatible Proxy** — `/v1/chat/completions` endpoint for external tool integration (opencode, aider, etc.)
 - **LAN Serving** — bind to `0.0.0.0` with optional API key auth for network access
 - **macOS Menu Bar** — companion app showing active model, memory pressure, and quick model switching
@@ -130,6 +131,7 @@ Config is stored at `~/.config/crucible/config.json` and created with defaults o
 | `mlx_external_url` | Use an already-running OpenAI-compatible server for MLX instead of spawning one |
 | `bind_host` | Set to `0.0.0.0` for LAN access |
 | `api_key` | If set, non-localhost requests must provide `Authorization: Bearer <key>` or `X-API-Key: <key>` |
+| `nodes` | Array of remote Crucible instances: `[{"name": "mac-mini", "url": "http://192.168.1.181:7777", "api_key": ""}]` |
 
 ### Data Files
 
@@ -156,6 +158,7 @@ Crucible manages inference servers as subprocesses or connects to running daemon
 | **llama.cpp** | `.gguf` | Spawned subprocess | 8080 |
 | **Ollama** | Ollama library | External daemon | 11434 |
 | **External** | Any OpenAI-compatible | HTTP only (no subprocess) | configurable |
+| **Remote Node** | Any (proxied) | HTTP proxy to remote Crucible | remote's port |
 
 On model load, Crucible kills any orphaned process on the target port, spawns the server, waits for it to be ready, runs a warmup request, then marks the model as loaded.
 
@@ -174,6 +177,7 @@ Crucible exposes a REST API at `http://localhost:7777` and an OpenAI-compatible 
 | `POST` | `/api/models/stop` | Unload active model |
 | `POST` | `/api/models/refresh` | Re-scan model directories |
 | `GET` | `/api/status` | Active model, engine state, memory, thermal |
+| `GET` | `/api/nodes` | Remote node connectivity and status |
 | `POST` | `/api/chat` | Streaming chat (SSE) |
 | `POST` | `/api/benchmark/run` | Run benchmark (SSE) |
 | `GET` | `/api/benchmark/history` | List benchmark runs |
@@ -250,6 +254,7 @@ crucible/
 │   │   ├── llama_cpp.py     # llama.cpp server adapter
 │   │   ├── ollama.py        # Ollama adapter
 │   │   ├── external.py      # External OpenAI-compatible adapter
+│   │   ├── remote_node.py   # Remote Crucible node proxy adapter
 │   │   └── port_utils.py    # Port cleanup utilities
 │   ├── benchmark/
 │   │   ├── engine.py        # Benchmark runner

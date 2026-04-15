@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, WEBHOOK_EVENTS } from "@/lib/api";
-import type { CrucibleConfig, Webhook, PromptTemplate } from "@/lib/api";
+import type { CrucibleConfig, Webhook, PromptTemplate, NodeConfig, NodeStatus } from "@/lib/api";
 
 export default function SettingsPage() {
   const { config, loading, saving, error, fetchSettings, saveSettings } = useSettingsStore();
@@ -122,6 +122,8 @@ export default function SettingsPage() {
           />
         </CardContent>
       </Card>
+
+      <NodesSection draft={draft} setDraft={setDraft} />
 
       <PromptTemplatesSection />
 
@@ -410,6 +412,123 @@ function PromptTemplatesSection() {
             {saving ? "Saving…" : "Save template"}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NodesSection({
+  draft,
+  setDraft,
+}: {
+  draft: CrucibleConfig;
+  setDraft: React.Dispatch<React.SetStateAction<CrucibleConfig | null>>;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUrl, setNewUrl] = useState("");
+  const [newApiKey, setNewApiKey] = useState("");
+  const [nodeStatuses, setNodeStatuses] = useState<NodeStatus[]>([]);
+  const [checking, setChecking] = useState(false);
+
+  const nodes = draft.nodes ?? [];
+
+  async function checkNodes() {
+    setChecking(true);
+    try {
+      const statuses = await api.nodes.list();
+      setNodeStatuses(statuses);
+    } catch {
+      // ignore
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    if (nodes.length > 0) checkNodes();
+  }, [nodes.length]);
+
+  function addNode() {
+    if (!newName.trim() || !newUrl.trim()) return;
+    const node: NodeConfig = { name: newName.trim(), url: newUrl.trim(), api_key: newApiKey.trim() };
+    setDraft((d) => d ? { ...d, nodes: [...(d.nodes ?? []), node] } : d);
+    setNewName("");
+    setNewUrl("");
+    setNewApiKey("");
+    setShowForm(false);
+  }
+
+  function removeNode(name: string) {
+    setDraft((d) => d ? { ...d, nodes: (d.nodes ?? []).filter((n) => n.name !== name) } : d);
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Remote Nodes</CardTitle>
+        <div className="flex gap-2">
+          {nodes.length > 0 && (
+            <Button variant="ghost" onClick={checkNodes} disabled={checking}>
+              {checking ? "Checking…" : "Test"}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Add"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-zinc-500">
+          Add remote Crucible instances to discover and use their models from this node.
+        </p>
+
+        {showForm && (
+          <div className="space-y-3 p-3 rounded-lg border border-white/10 bg-white/5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Name (e.g. mac-mini)</label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} className="font-mono text-xs" placeholder="mac-mini" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">URL</label>
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="font-mono text-xs" placeholder="http://192.168.1.50:7777" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">API Key (optional)</label>
+              <Input value={newApiKey} onChange={(e) => setNewApiKey(e.target.value)} className="font-mono text-xs" placeholder="leave blank if not required" />
+            </div>
+            <Button variant="primary" onClick={addNode} disabled={!newName.trim() || !newUrl.trim()}>
+              Add node
+            </Button>
+          </div>
+        )}
+
+        {nodes.length === 0 && !showForm && (
+          <p className="text-sm text-zinc-500">No remote nodes configured.</p>
+        )}
+
+        {nodes.map((node) => {
+          const st = nodeStatuses.find((s) => s.name === node.name);
+          return (
+            <div key={node.name} className="flex items-center gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
+              <div className={`w-2 h-2 rounded-full ${st?.status === "online" ? "bg-emerald-400" : "bg-zinc-600"}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-200">@{node.name}</p>
+                <p className="text-xs font-mono text-zinc-500 truncate">{node.url}</p>
+                {st?.status === "online" && (
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {st.model_count} models
+                    {st.active_model_id && <> · Active: <span className="text-zinc-300">{st.active_model_id}</span></>}
+                    {st.memory_pressure != null && <> · Mem: {Math.round(st.memory_pressure * 100)}%</>}
+                  </p>
+                )}
+              </div>
+              <Button variant="ghost" onClick={() => removeNode(node.name)} className="text-xs px-2 h-7 text-red-400 hover:text-red-300">
+                Remove
+              </Button>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

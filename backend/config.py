@@ -5,6 +5,12 @@ from pydantic import BaseModel
 CONFIG_PATH = Path.home() / ".config" / "crucible" / "config.json"
 
 
+class NodeConfig(BaseModel):
+    name: str           # e.g. "mac-mini"
+    url: str            # e.g. "http://192.168.1.50:7777"
+    api_key: str = ""   # optional, for remote auth
+
+
 class CrucibleConfig(BaseModel):
     mlx_dir: str = "/Volumes/DataNVME/models/mlx"
     gguf_dir: str = "/Volumes/DataNVME/models/gguf"
@@ -23,6 +29,7 @@ class CrucibleConfig(BaseModel):
     api_key: str = ""              # if set, require X-API-Key or Bearer token
     omlx_api_key: str = "123456"   # API key for the oMLX subprocess
     mlx_studio_url: str = ""       # e.g. "http://localhost:8090" — leave blank to disable
+    nodes: list[NodeConfig] = []   # remote Crucible peers
 
 
 def load_config() -> CrucibleConfig:
