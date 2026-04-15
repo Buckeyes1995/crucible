@@ -4,40 +4,129 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useStatusStore } from "@/lib/stores/status";
-import { useEffect } from "react";
-import { Activity } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  LayoutDashboard, Cpu, MessageSquare, GitCompare, Swords, Trophy,
+  Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
+  DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
+  Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
+  ChevronDown, Search,
+} from "lucide-react";
 
-const NAV = [
-  { href: "/", label: "Dashboard", icon: "⌂" },
-  { href: "/models", label: "Models", icon: "◈" },
-  { href: "/benchmark2", label: "Benchmark", icon: "⚡" },
-  { href: "/benchmark/history", label: "History", icon: "📋" },
-  { href: "/humaneval", label: "HumanEval", icon: "🧪" },
-  { href: "/chat", label: "Chat", icon: "💬" },
-  { href: "/chat/history", label: "Chat History", icon: "📜" },
-  { href: "/chat/compare", label: "Compare", icon: "⇔" },
-  { href: "/visualizer", label: "Visualizer", icon: "👁" },
-  { href: "/diff", label: "Model Diff", icon: "⇋" },
-  { href: "/arena", label: "Arena", icon: "⚔" },
-  { href: "/optimizer", label: "Optimizer", icon: "🧪" },
-  { href: "/dflash", label: "DFlash Bench", icon: "⚡" },
-  { href: "/finetune", label: "Fine-tune", icon: "⚗" },
-  { href: "/profiler", label: "Profiler", icon: "⏱" },
-  { href: "/heatmap", label: "Heatmap", icon: "📅" },
-  { href: "/cost", label: "Cost", icon: "💰" },
-  { href: "/metrics", label: "Metrics", icon: "Activity" },
-  { href: "/groups", label: "Groups", icon: "📁" },
-  { href: "/batch-inference", label: "Batch", icon: "📋" },
-  { href: "/token-analytics", label: "Analytics", icon: "#" },
-  { href: "/downloads", label: "Downloads", icon: "↓" },
-  { href: "/schedules", label: "Schedules", icon: "⏱" },
-  { href: "/notifications", label: "Alerts", icon: "🔔" },
-  { href: "/health", label: "Health", icon: "💚" },
-  { href: "/recommender", label: "Recommender", icon: "✨" },
-  { href: "/router", label: "Smart Router", icon: "🔀" },
-  { href: "/backup", label: "Backup", icon: "💾" },
-  { href: "/settings", label: "Settings", icon: "⚙" },
+type NavItem = { href: string; label: string; icon: React.ReactNode };
+type NavGroup = { label: string; items: NavItem[]; defaultOpen?: boolean };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Overview",
+    defaultOpen: true,
+    items: [
+      { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
+      { href: "/models", label: "Models", icon: <Cpu className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Inference",
+    defaultOpen: true,
+    items: [
+      { href: "/chat", label: "Chat", icon: <MessageSquare className="w-4 h-4" /> },
+      { href: "/chat/history", label: "History", icon: <Clock className="w-4 h-4" /> },
+      { href: "/visualizer", label: "Visualizer", icon: <Eye className="w-4 h-4" /> },
+      { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Compare",
+    defaultOpen: true,
+    items: [
+      { href: "/chat/compare", label: "Side by Side", icon: <GitCompare className="w-4 h-4" /> },
+      { href: "/diff", label: "Model Diff", icon: <GitCompare className="w-4 h-4" /> },
+      { href: "/arena", label: "Arena", icon: <Swords className="w-4 h-4" /> },
+      { href: "/arena/leaderboard", label: "Leaderboard", icon: <Trophy className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Benchmark",
+    items: [
+      { href: "/benchmark2", label: "New Run", icon: <Zap className="w-4 h-4" /> },
+      { href: "/benchmark/history", label: "History", icon: <BarChart3 className="w-4 h-4" /> },
+      { href: "/humaneval", label: "HumanEval", icon: <FlaskConical className="w-4 h-4" /> },
+      { href: "/dflash", label: "DFlash Bench", icon: <Bolt className="w-4 h-4" /> },
+      { href: "/optimizer", label: "Optimizer", icon: <FlaskConical className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { href: "/profiler", label: "Profiler", icon: <Timer className="w-4 h-4" /> },
+      { href: "/heatmap", label: "Heatmap", icon: <Calendar className="w-4 h-4" /> },
+      { href: "/cost", label: "Cost", icon: <DollarSign className="w-4 h-4" /> },
+      { href: "/token-analytics", label: "Tokens", icon: <Hash className="w-4 h-4" /> },
+      { href: "/metrics", label: "Live Metrics", icon: <Activity className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "Manage",
+    items: [
+      { href: "/groups", label: "Groups", icon: <FolderOpen className="w-4 h-4" /> },
+      { href: "/downloads", label: "Downloads", icon: <Download className="w-4 h-4" /> },
+      { href: "/schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },
+      { href: "/finetune", label: "Fine-tune", icon: <Wrench className="w-4 h-4" /> },
+      { href: "/recommender", label: "Recommender", icon: <Sparkles className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { href: "/health", label: "Health", icon: <HeartPulse className="w-4 h-4" /> },
+      { href: "/notifications", label: "Alerts", icon: <Bell className="w-4 h-4" /> },
+      { href: "/router", label: "Smart Router", icon: <GitBranch className="w-4 h-4" /> },
+      { href: "/backup", label: "Backup", icon: <Archive className="w-4 h-4" /> },
+      { href: "/settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
+    ],
+  },
 ];
+
+function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: string }) {
+  const hasActive = group.items.some(
+    (item) => item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(item.href + "/")
+  );
+  const [open, setOpen] = useState(group.defaultOpen ?? hasActive);
+
+  return (
+    <div className="space-y-0.5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-full px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500 hover:text-zinc-400 transition-colors"
+      >
+        {group.label}
+        <ChevronDown className={cn("w-3 h-3 transition-transform", open ? "" : "-rotate-90")} />
+      </button>
+      {open && (
+        <div className="space-y-px">
+          {group.items.map(({ href, label, icon }) => {
+            const active = href === "/" ? pathname === "/" : (pathname === href || pathname.startsWith(href + "/"));
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                  active
+                    ? "bg-indigo-500/15 text-indigo-300 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.2)]"
+                    : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
+                )}
+              >
+                <span className={cn("transition-colors", active ? "text-indigo-400" : "text-zinc-600")}>{icon}</span>
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -49,71 +138,56 @@ export function Sidebar() {
     return () => clearInterval(id);
   }, [fetch]);
 
+  const memPct = status?.memory_pressure != null ? Math.round(status.memory_pressure * 100) : null;
   const thermalColor = {
-    nominal: "text-green-400",
+    nominal: "text-emerald-400",
     fair: "text-yellow-400",
     serious: "text-orange-400",
     critical: "text-red-400",
-    unknown: "text-zinc-500",
-  }[status?.thermal_state ?? "unknown"] ?? "text-zinc-500";
+  }[status?.thermal_state ?? ""] ?? "text-zinc-600";
 
   return (
-    <aside className="flex flex-col w-56 min-h-screen bg-zinc-950 border-r border-white/10 p-4 gap-2 shrink-0">
-      <div className="mb-4 px-2">
-        <span className="text-lg font-bold text-indigo-400 tracking-tight">⚗ Crucible</span>
+    <aside className="flex flex-col w-[var(--sidebar-width)] min-h-screen bg-zinc-950 border-r border-white/[0.06] shrink-0">
+      {/* Logo */}
+      <div className="px-4 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
+            <FlaskConical className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-[15px] font-bold tracking-tight text-zinc-100">Crucible</span>
+        </div>
       </div>
 
-      <nav className="flex flex-col gap-1 flex-1">
-        {NAV.map(({ href, label, icon }) => {
-          const active = href === "/" ? pathname === "/" : (pathname === href || pathname.startsWith(href + "/"));
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                active
-                  ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30"
-                  : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-              )}
-            >
-              {icon === "Activity" ? (
-                <Activity className="w-5 h-5" />
-              ) : (
-                <span className="text-base">{icon}</span>
-              )}
-              {label}
-            </Link>
-          );
-        })}
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-3">
+        {NAV_GROUPS.map((group) => (
+          <NavGroupSection key={group.label} group={group} pathname={pathname} />
+        ))}
       </nav>
 
       {/* Status footer */}
-      <div className="border-t border-white/10 pt-3 mt-2 space-y-2">
-        {status?.memory_pressure != null && (
-          <div className="px-2">
-            <div className="flex justify-between text-xs text-zinc-500 mb-1">
+      <div className="border-t border-white/[0.06] px-3 py-3 space-y-2">
+        {memPct != null && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-[10px] text-zinc-600">
               <span>Memory</span>
-              <span>{Math.round(status.memory_pressure * 100)}%</span>
+              <span className={cn("font-mono", memPct > 80 ? "text-red-400" : memPct > 60 ? "text-yellow-400" : "text-zinc-500")}>{memPct}%</span>
             </div>
-            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div className="h-1 bg-zinc-800/80 rounded-full overflow-hidden">
               <div
                 className={cn(
-                  "h-full rounded-full transition-all",
-                  status.memory_pressure > 0.8
-                    ? "bg-red-500"
-                    : status.memory_pressure > 0.6
-                    ? "bg-yellow-500"
-                    : "bg-green-500"
+                  "h-full rounded-full transition-all duration-500",
+                  memPct > 80 ? "bg-red-500" : memPct > 60 ? "bg-yellow-500" : "bg-indigo-500/70"
                 )}
-                style={{ width: `${Math.round(status.memory_pressure * 100)}%` }}
+                style={{ width: `${memPct}%` }}
               />
             </div>
           </div>
         )}
         {status?.thermal_state && (
-          <div className={cn("px-2 text-xs capitalize", thermalColor)}>
-            ⬡ {status.thermal_state}
+          <div className={cn("flex items-center gap-1.5 text-[10px]", thermalColor)}>
+            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+            <span className="capitalize">{status.thermal_state}</span>
           </div>
         )}
       </div>
