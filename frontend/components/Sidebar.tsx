@@ -17,6 +17,7 @@ const NAV = [
   { href: "/arena", label: "Arena", icon: "⚔" },
   { href: "/dflash", label: "DFlash Bench", icon: "⚡" },
   { href: "/finetune", label: "Fine-tune", icon: "⚗" },
+  { href: "/profiler", label: "Profiler", icon: "⏱" },
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/downloads", label: "Downloads", icon: "↓" },
   { href: "/schedules", label: "Schedules", icon: "⏱" },

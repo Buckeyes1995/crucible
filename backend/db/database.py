@@ -45,6 +45,29 @@ CREATE TABLE IF NOT EXISTS arena_battles (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inference_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    prompt_tokens INTEGER,
+    output_tokens INTEGER,
+    total_ms REAL,
+    ttft_ms REAL,
+    prefill_ms REAL,
+    decode_ms REAL,
+    tps REAL,
+    prompt_tps REAL,
+    memory_pressure_start REAL,
+    memory_pressure_end REAL,
+    thermal_state TEXT,
+    dflash_enabled INTEGER DEFAULT 0,
+    source TEXT DEFAULT 'chat'
+);
+
+CREATE INDEX IF NOT EXISTS idx_profiles_model ON inference_profiles(model_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_created ON inference_profiles(created_at);
+
 CREATE TABLE IF NOT EXISTS arena_elo (
     model_id TEXT PRIMARY KEY,
     elo REAL NOT NULL DEFAULT 1500,

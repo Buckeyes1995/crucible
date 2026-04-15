@@ -1,0 +1,240 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Timer, BarChart3 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from "recharts";
+
+const BASE = "/api";
+
+type Profile = {
+  id: number;
+  model_id: string;
+  model_name: string;
+  created_at: string;
+  prompt_tokens: number | null;
+  output_tokens: number | null;
+  total_ms: number | null;
+  ttft_ms: number | null;
+  prefill_ms: number | null;
+  decode_ms: number | null;
+  tps: number | null;
+  prompt_tps: number | null;
+  memory_pressure_start: number | null;
+  thermal_state: string | null;
+  source: string;
+};
+
+type ModelStat = {
+  model_id: string;
+  model_name: string;
+  request_count: number;
+  avg_tps: number | null;
+  max_tps: number | null;
+  min_tps: number | null;
+  avg_ttft_ms: number | null;
+  avg_total_ms: number | null;
+  avg_prefill_ms: number | null;
+  avg_decode_ms: number | null;
+  total_tokens: number | null;
+  avg_memory: number | null;
+};
+
+export default function ProfilerPage() {
+  const [stats, setStats] = useState<ModelStat[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`${BASE}/profiler/stats`).then((r) => r.json()),
+      fetch(`${BASE}/profiler/profiles?limit=50`).then((r) => r.json()),
+    ]).then(([s, p]) => {
+      setStats(s);
+      setProfiles(p);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (selectedModel) {
+      fetch(`${BASE}/profiler/profiles?model_id=${encodeURIComponent(selectedModel)}&limit=50`)
+        .then((r) => r.json())
+        .then(setProfiles);
+    }
+  }, [selectedModel]);
+
+  const tpsChartData = stats
+    .filter((s) => s.avg_tps)
+    .map((s) => ({ name: s.model_name.slice(0, 20), avg: s.avg_tps, max: s.max_tps, min: s.min_tps }));
+
+  // Time breakdown for selected model or all
+  const filtered = selectedModel ? profiles.filter((p) => p.model_id === selectedModel) : profiles;
+  const avgPrefill = filtered.reduce((sum, p) => sum + (p.prefill_ms ?? 0), 0) / (filtered.length || 1);
+  const avgDecode = filtered.reduce((sum, p) => sum + (p.decode_ms ?? 0), 0) / (filtered.length || 1);
+  const pieData = [
+    { name: "Prefill", value: Math.round(avgPrefill), fill: "#6366f1" },
+    { name: "Decode", value: Math.round(avgDecode), fill: "#f59e0b" },
+  ];
+
+  if (loading) return <div className="p-8 text-zinc-500">Loading…</div>;
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="flex items-center gap-3">
+        <Timer className="w-6 h-6 text-indigo-400" />
+        <h1 className="text-xl font-semibold text-zinc-100">Inference Profiler</h1>
+        <span className="text-xs text-zinc-500">{profiles.length} requests profiled</span>
+      </div>
+
+      {stats.length === 0 ? (
+        <div className="text-center py-16 text-zinc-500">
+          No profiler data yet. Use the Chat page to generate inference profiles.
+        </div>
+      ) : (
+        <>
+          {/* Model filter */}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setSelectedModel(null)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                !selectedModel ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+              )}
+            >
+              All models
+            </button>
+            {stats.map((s) => (
+              <button
+                key={s.model_id}
+                onClick={() => setSelectedModel(s.model_id === selectedModel ? null : s.model_id)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                  selectedModel === s.model_id ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                )}
+              >
+                {s.model_name.slice(0, 25)} ({s.request_count})
+              </button>
+            ))}
+          </div>
+
+          {/* Charts row */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Throughput chart */}
+            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+              <h3 className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" /> Avg Throughput (tok/s)
+              </h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={tpsChartData} layout="vertical">
+                  <XAxis type="number" tick={{ fill: "#a1a1aa", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: "#a1a1aa", fontSize: 11 }} width={150} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }} />
+                  <Bar dataKey="avg" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Time breakdown pie */}
+            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+              <h3 className="text-sm font-medium text-zinc-400 mb-3">Avg Time Breakdown</h3>
+              <div className="flex items-center justify-center gap-8">
+                <ResponsiveContainer width={160} height={160}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2}>
+                      {pieData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2">
+                  {pieData.map((d) => (
+                    <div key={d.name} className="flex items-center gap-2 text-sm">
+                      <div className="w-3 h-3 rounded" style={{ backgroundColor: d.fill }} />
+                      <span className="text-zinc-400">{d.name}</span>
+                      <span className="font-mono text-zinc-200">{d.value}ms</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Model stats table */}
+          <div className="rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left">Model</th>
+                  <th className="px-4 py-3 text-right">Requests</th>
+                  <th className="px-4 py-3 text-right">Avg tok/s</th>
+                  <th className="px-4 py-3 text-right">Max tok/s</th>
+                  <th className="px-4 py-3 text-right">Avg TTFT</th>
+                  <th className="px-4 py-3 text-right">Avg Prefill</th>
+                  <th className="px-4 py-3 text-right">Avg Decode</th>
+                  <th className="px-4 py-3 text-right">Total Tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.map((s) => (
+                  <tr
+                    key={s.model_id}
+                    className={cn(
+                      "border-b border-white/5 cursor-pointer transition-colors",
+                      selectedModel === s.model_id ? "bg-indigo-900/20" : "hover:bg-white/5"
+                    )}
+                    onClick={() => setSelectedModel(s.model_id === selectedModel ? null : s.model_id)}
+                  >
+                    <td className="px-4 py-2.5 text-zinc-200 font-medium">{s.model_name}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.request_count}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-indigo-300">{s.avg_tps ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-300">{s.max_tps ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_ttft_ms ? `${s.avg_ttft_ms}ms` : "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_prefill_ms ? `${s.avg_prefill_ms}ms` : "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_decode_ms ? `${s.avg_decode_ms}ms` : "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-500">{s.total_tokens?.toLocaleString() ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Recent profiles */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Recent Requests</h2>
+            <div className="space-y-1">
+              {filtered.slice(0, 20).map((p) => (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-2 rounded-lg bg-zinc-900/30 text-xs">
+                  <span className="text-zinc-500 w-32 shrink-0 font-mono">
+                    {new Date(p.created_at).toLocaleTimeString()}
+                  </span>
+                  <span className="text-zinc-300 w-48 truncate">{p.model_name}</span>
+                  {/* Time breakdown bar */}
+                  <div className="flex-1 flex items-center gap-1">
+                    {p.prefill_ms != null && (
+                      <div
+                        className="h-3 rounded-sm bg-indigo-500/70"
+                        style={{ width: `${Math.min((p.prefill_ms / (p.total_ms || 1)) * 100, 100)}%`, minWidth: 2 }}
+                        title={`Prefill: ${p.prefill_ms}ms`}
+                      />
+                    )}
+                    {p.decode_ms != null && (
+                      <div
+                        className="h-3 rounded-sm bg-amber-500/70"
+                        style={{ width: `${Math.min((p.decode_ms / (p.total_ms || 1)) * 100, 100)}%`, minWidth: 2 }}
+                        title={`Decode: ${p.decode_ms}ms`}
+                      />
+                    )}
+                  </div>
+                  <span className="font-mono text-indigo-300 w-20 text-right">{p.tps ? `${p.tps} t/s` : "—"}</span>
+                  <span className="font-mono text-zinc-500 w-20 text-right">{p.total_ms ? `${Math.round(p.total_ms)}ms` : "—"}</span>
+                  <span className="text-zinc-600 w-12">{p.source}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

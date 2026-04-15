@@ -11,6 +11,29 @@ import rag
 router = APIRouter()
 
 
+async def _record_chat_profile(adapter, output_tokens, total_ms, ttft_ms, tps):
+    """Record inference profile in background."""
+    from profiler import record_profile
+    from benchmark.metrics import get_memory_pressure
+    model_id = adapter.model_id or "unknown"
+    model_name = model_id.split(":")[-1] if ":" in model_id else model_id
+    dflash = False  # Chat doesn't know DFlash state; profiler page can filter
+    try:
+        mem = get_memory_pressure()
+    except Exception:
+        mem = None
+    await record_profile(
+        model_id=model_id,
+        model_name=model_name,
+        output_tokens=output_tokens,
+        total_ms=total_ms,
+        ttft_ms=ttft_ms,
+        tps=tps,
+        memory_start=mem,
+        source="chat",
+    )
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
     adapter = request.app.state.active_adapter
@@ -52,6 +75,10 @@ async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
                 if tps is not None:
                     adapter.last_tps = round(tps, 2)
                 yield f"data: {json.dumps({'event': 'done', 'ttft_ms': round(ttft, 2) if ttft else None, 'tps': round(tps, 2) if tps else None, 'output_tokens': token_count})}\n\n"
+                # Record inference profile
+                asyncio.create_task(_record_chat_profile(
+                    adapter, token_count, elapsed * 1000, ttft, tps,
+                ))
                 break
 
             token = chunk.get("token", "")
