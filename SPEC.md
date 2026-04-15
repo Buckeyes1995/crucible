@@ -514,6 +514,30 @@ Block diffusion speculative decoding via oMLX's DFlashEngine. A small draft mode
 
 ---
 
+## Phase 6 — Intelligence & Insights (Complete)
+
+### 6.1 Model Arena (`/arena`)
+
+Blind A/B testing with ELO ratings. Two random MLX models compete anonymously — user enters a prompt, both stream responses side-by-side via oMLX, then votes on the winner. ELO ratings (K=32, start=1500) tracked in SQLite. Leaderboard page shows rankings, win rates, and recent battle history.
+
+### 6.2 DFlash Benchmark Dashboard (`/dflash`)
+
+One-click DFlash vs Normal speed comparison for eligible models. Runs same prompts with DFlash off then on, shows speedup multiplier hero stat, tok/s and TTFT comparison bar charts, per-prompt results table.
+
+### 6.3 Smart Router (`/router`)
+
+Auto model selection based on prompt content analysis. Classifies prompts into code/math/reasoning/short/long categories using regex pattern matching. Configurable routing rules with model pattern matching and size filters. Integrated into `/v1/chat/completions` proxy for transparent routing to external tools. Settings page with rule editor and test classifier.
+
+### 6.4 Inference Profiler (`/profiler`)
+
+Records every chat inference to SQLite with prefill/decode time split, tok/s, TTFT, memory pressure, and thermal state. Dashboard shows per-model aggregate stats, throughput chart, prefill vs decode pie chart, and per-request timeline with inline time breakdown bars.
+
+### 6.5 Model Recommender (`/recommender`)
+
+Analyzes model library for redundancy (multiple quants of same base), unused models, slow performers, and DFlash opportunities. Shows size distribution pie chart, insights (RAM warnings, DFlash tips), and prioritized recommendations with actionable advice.
+
+---
+
 ## Config File
 
 `~/.config/crucible/config.json` — created with defaults on first run.

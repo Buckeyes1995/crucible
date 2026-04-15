@@ -105,6 +105,23 @@ GET  /api/nodes                         # remote node connectivity status
 GET  /api/models/{id}/dflash            # DFlash eligibility + status
 PUT  /api/models/{id}/dflash            # enable/disable DFlash for a model
 
+POST /api/arena/battle                  # start blind A/B battle
+POST /api/arena/battle/{id}/chat        # stream both model responses (SSE)
+POST /api/arena/battle/{id}/vote        # vote on winner → ELO update
+GET  /api/arena/leaderboard             # ELO rankings
+GET  /api/arena/history                 # recent battles
+
+POST /api/dflash/benchmark              # DFlash vs normal speed comparison (SSE)
+
+GET  /api/smart-router/config           # smart router rules
+PUT  /api/smart-router/config           # save routing rules
+POST /api/smart-router/classify         # test prompt classification
+
+GET  /api/profiler/profiles             # recent inference profiles
+GET  /api/profiler/stats                # per-model aggregate stats
+
+GET  /api/recommender                   # model library analysis + recommendations
+
 GET  /api/models/{id}/params            # model-specific params (raw, no merge)
 PUT  /api/models/{id}/params            # save model params
 DELETE /api/models/{id}/params          # reset model params
@@ -216,6 +233,6 @@ Crucible is accessible remotely via Cloudflare Tunnel at `https://crucible.bucke
 
 ## Current Status
 
-**Phases 1–5 + Remote Nodes (4.6) + DFlash (5.2) — Complete.** See SPEC.md for full feature list.
+**Phases 1–6 — Complete.** See SPEC.md for full feature list. Phase 6 adds Arena, DFlash Bench, Smart Router, Inference Profiler, and Model Recommender.
 
 Machine: M2 Max, 96GB, macOS 15. Models at `/Volumes/DataNVME/models/`.

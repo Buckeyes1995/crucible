@@ -26,6 +26,10 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 - **Remote Nodes** — connect multiple Crucible instances into a cluster; discover, load, chat, and benchmark models on remote machines
 - **OpenAI-Compatible Proxy** — `/v1/chat/completions` endpoint for external tool integration (opencode, aider, etc.)
 - **LAN Serving** — bind to `0.0.0.0` with optional API key auth for network access
+- **Model Arena** — blind A/B testing with ELO ratings — two anonymous models compete, user picks the winner
+- **Smart Router** — auto model selection based on prompt analysis (code/math/reasoning) behind the OpenAI proxy
+- **Inference Profiler** — per-request performance breakdown: prefill vs decode, tok/s history, memory pressure
+- **Model Recommender** — library analysis with redundancy detection, usage insights, and optimization suggestions
 - **macOS Menu Bar** — companion app showing active model, memory pressure, and quick model switching
 
 ---
