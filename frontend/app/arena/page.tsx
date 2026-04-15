@@ -4,7 +4,9 @@ import { useRef, useState } from "react";
 import { api, readSSE, type ArenaVoteResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Send, Trophy, RotateCcw, Swords } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 type Phase = "idle" | "ready" | "streaming" | "done" | "voted";
@@ -27,13 +29,9 @@ export default function ArenaPage() {
   const bRef = useRef<HTMLDivElement>(null);
 
   async function startBattle() {
-    setError(null);
-    setResponseA("");
-    setResponseB("");
-    setStatsA({ tps: null, ttft_ms: null });
-    setStatsB({ tps: null, ttft_ms: null });
-    setVoteResult(null);
-    setPrompt("");
+    setError(null); setResponseA(""); setResponseB("");
+    setStatsA({ tps: null, ttft_ms: null }); setStatsB({ tps: null, ttft_ms: null });
+    setVoteResult(null); setPrompt("");
     try {
       const result = await api.arena.startBattle();
       setBattleId(result.battle_id);
@@ -45,62 +43,30 @@ export default function ArenaPage() {
 
   async function sendPrompt() {
     if (!battleId || !prompt.trim()) return;
-    setPhase("streaming");
-    setStreamingA(true);
-    setStreamingB(true);
-    setResponseA("");
-    setResponseB("");
-
+    setPhase("streaming"); setStreamingA(true); setStreamingB(true);
+    setResponseA(""); setResponseB("");
     try {
-      const resp = await api.arena.chat(battleId, {
-        prompt: prompt.trim(),
-        temperature,
-        max_tokens: maxTokens,
-      });
+      const resp = await api.arena.chat(battleId, { prompt: prompt.trim(), temperature, max_tokens: maxTokens });
       await readSSE(resp, (data) => {
         const slot = data.slot as string;
         const event = data.event as string;
         if (event === "token") {
           const token = data.token as string;
-          if (slot === "a") {
-            setResponseA((prev) => prev + token);
-            aRef.current?.scrollTo(0, aRef.current.scrollHeight);
-          } else {
-            setResponseB((prev) => prev + token);
-            bRef.current?.scrollTo(0, bRef.current.scrollHeight);
-          }
+          if (slot === "a") { setResponseA((p) => p + token); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
+          else { setResponseB((p) => p + token); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
         } else if (event === "done") {
-          if (slot === "a") {
-            setStreamingA(false);
-            setStatsA({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null });
-          } else {
-            setStreamingB(false);
-            setStatsB({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null });
-          }
-        } else if (event === "complete") {
-          setPhase("done");
-        } else if (event === "error") {
-          setError(`${slot.toUpperCase()}: ${data.message}`);
-        }
+          if (slot === "a") { setStreamingA(false); setStatsA({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
+          else { setStreamingB(false); setStatsB({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
+        } else if (event === "complete") setPhase("done");
       });
-      setPhase("done");
-      setStreamingA(false);
-      setStreamingB(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Stream failed");
-      setPhase("ready");
-    }
+      setPhase("done"); setStreamingA(false); setStreamingB(false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Stream failed"); setPhase("ready"); }
   }
 
   async function vote(winner: string) {
     if (!battleId) return;
-    try {
-      const result = await api.arena.vote(battleId, winner);
-      setVoteResult(result);
-      setPhase("voted");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Vote failed");
-    }
+    try { const result = await api.arena.vote(battleId, winner); setVoteResult(result); setPhase("voted"); }
+    catch (e) { setError(e instanceof Error ? e.message : "Vote failed"); }
   }
 
   const eloDelta = (before: number, after: number) => {
@@ -111,80 +77,57 @@ export default function ArenaPage() {
   return (
     <div className="flex flex-col h-full min-h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <Swords className="w-5 h-5 text-indigo-400" />
-          <h1 className="text-lg font-semibold text-zinc-100">Model Arena</h1>
-          {phase !== "idle" && (
-            <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 capitalize">{phase}</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="px-6 py-4 border-b border-white/[0.04]">
+        <PageHeader icon={<Swords className="w-5 h-5" />} title="Model Arena" description="Blind A/B testing with ELO ratings">
           <Link href="/arena/leaderboard">
-            <Button variant="ghost" className="gap-1.5 text-xs">
-              <Trophy className="w-3.5 h-3.5" /> Leaderboard
+            <Button variant="ghost" size="sm" className="gap-1.5">
+              <Trophy className="w-3.5 h-3.5 text-amber-400" /> Leaderboard
             </Button>
           </Link>
-          <Button onClick={startBattle} variant="primary" className="gap-1.5 text-xs">
-            <RotateCcw className="w-3.5 h-3.5" /> New Battle
+          <Button onClick={startBattle} variant={phase === "idle" ? "glow" : "primary"} size="sm" className="gap-1.5">
+            <RotateCcw className="w-3.5 h-3.5" /> {phase === "idle" ? "Start Battle" : "New Battle"}
           </Button>
-        </div>
+        </PageHeader>
       </div>
 
       {error && (
-        <div className="mx-6 mt-3 px-3 py-2 rounded bg-red-900/30 border border-red-500/30 text-red-300 text-sm">
+        <div className="mx-6 mt-3 px-4 py-2.5 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-sm animate-fade-in">
           {error}
         </div>
       )}
 
       {phase === "idle" ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <Swords className="w-16 h-16 text-zinc-700 mx-auto" />
-            <p className="text-zinc-500 text-lg">Blind A/B model testing with ELO ratings</p>
-            <Button onClick={startBattle} variant="primary" className="gap-2">
-              <Swords className="w-4 h-4" /> Start Battle
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          icon={<Swords className="w-12 h-12" />}
+          title="Ready to rumble?"
+          description="Two random models will compete anonymously. You enter a prompt, both generate responses, and you pick the winner."
+          action={<Button onClick={startBattle} variant="glow" size="lg" className="gap-2"><Swords className="w-4 h-4" /> Start Battle</Button>}
+          className="flex-1"
+        />
       ) : (
         <>
           {/* Prompt input */}
-          <div className="px-6 py-3 border-b border-white/10 flex gap-3">
+          <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
             <input
-              className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/50"
+              className="flex-1 bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all"
               placeholder="Enter a prompt for both models…"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              value={prompt} onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && phase === "ready" && sendPrompt()}
               disabled={phase !== "ready"}
             />
-            <div className="flex items-center gap-2 text-xs text-zinc-500">
-              <label>T:</label>
-              <input
-                type="number" step="0.1" min="0" max="2"
-                className="w-14 bg-zinc-900 border border-white/10 rounded px-1.5 py-1 text-xs text-zinc-300"
-                value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value) || 0.7)}
-              />
-              <label>Max:</label>
-              <input
-                type="number" step="256" min="64" max="32768"
-                className="w-20 bg-zinc-900 border border-white/10 rounded px-1.5 py-1 text-xs text-zinc-300"
-                value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value) || 1024)}
-              />
+            <div className="flex items-center gap-2 text-xs text-zinc-600">
+              <span>T:</span>
+              <input type="number" step="0.1" min="0" max="2"
+                className="w-14 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
+                value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value) || 0.7)} />
             </div>
-            <Button
-              onClick={sendPrompt}
-              disabled={phase !== "ready" || !prompt.trim()}
-              variant="primary"
-              className="gap-1.5"
-            >
+            <Button onClick={sendPrompt} disabled={phase !== "ready" || !prompt.trim()} variant="primary" className="gap-1.5">
               <Send className="w-4 h-4" /> Send
             </Button>
           </div>
 
           {/* Response panels */}
-          <div className="flex-1 flex gap-4 p-6 min-h-0">
+          <div className="flex-1 flex gap-0 min-h-0">
             {(["a", "b"] as const).map((slot) => {
               const response = slot === "a" ? responseA : responseB;
               const streaming = slot === "a" ? streamingA : streamingB;
@@ -193,64 +136,64 @@ export default function ArenaPage() {
               const isWinner = voteResult?.winner === `model_${slot}`;
               const isTie = voteResult?.winner === "tie";
               const revealed = phase === "voted" && voteResult;
-              const modelName = revealed
-                ? slot === "a" ? voteResult.model_a : voteResult.model_b
-                : null;
-              const eloBefore = revealed
-                ? slot === "a" ? voteResult.elo_before.a : voteResult.elo_before.b
-                : null;
-              const eloAfter = revealed
-                ? slot === "a" ? voteResult.elo_after.a : voteResult.elo_after.b
-                : null;
+              const modelName = revealed ? (slot === "a" ? voteResult.model_a : voteResult.model_b) : null;
+              const eloBefore = revealed ? (slot === "a" ? voteResult.elo_before.a : voteResult.elo_before.b) : null;
+              const eloAfter = revealed ? (slot === "a" ? voteResult.elo_after.a : voteResult.elo_after.b) : null;
 
               return (
-                <div
-                  key={slot}
-                  className={cn(
-                    "flex-1 flex flex-col rounded-xl border bg-zinc-900/50 backdrop-blur overflow-hidden transition-colors",
-                    isWinner ? "border-indigo-500/50" : isTie ? "border-amber-500/30" : "border-white/10"
-                  )}
-                >
+                <div key={slot} className={cn(
+                  "flex-1 flex flex-col border-white/[0.04] transition-colors duration-500",
+                  slot === "a" ? "border-r" : "",
+                  isWinner && "bg-indigo-950/10",
+                  isTie && "bg-amber-950/5"
+                )}>
                   {/* Panel header */}
-                  <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-zinc-300">
-                        Model {slot.toUpperCase()}
+                  <div className="px-5 py-3 border-b border-white/[0.04] flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className={cn(
+                        "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold",
+                        isWinner ? "bg-indigo-500/20 text-indigo-300" :
+                        isTie ? "bg-amber-500/10 text-amber-300" :
+                        "bg-zinc-800/50 text-zinc-500"
+                      )}>
+                        {slot.toUpperCase()}
                       </span>
-                      {streaming && (
-                        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                      )}
-                      {isWinner && <span className="text-xs text-indigo-400 font-medium">Winner</span>}
+                      <div>
+                        <span className="text-sm font-medium text-zinc-300">
+                          {revealed && modelName ? modelName : `Model ${slot.toUpperCase()}`}
+                        </span>
+                        {streaming && <span className="ml-2 text-[10px] text-indigo-400">generating…</span>}
+                        {isWinner && <span className="ml-2 text-[10px] text-indigo-400 font-semibold">WINNER</span>}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-xs font-mono text-zinc-500">
-                      {stats.ttft_ms != null && <span>TTFT: {stats.ttft_ms}ms</span>}
-                      {stats.tps != null && <span>{stats.tps} tok/s</span>}
+                    <div className="flex items-center gap-4 text-xs font-mono text-zinc-600">
+                      {stats.ttft_ms != null && <span>TTFT <span className="text-zinc-400">{stats.ttft_ms}ms</span></span>}
+                      {stats.tps != null && <span className="text-indigo-400">{stats.tps} tok/s</span>}
                     </div>
                   </div>
 
-                  {/* Revealed model name + ELO */}
-                  {revealed && modelName && (
-                    <div className="px-4 py-2 bg-zinc-800/50 border-b border-white/5 flex items-center justify-between">
-                      <span className="text-sm font-medium text-indigo-300">{modelName}</span>
-                      {eloBefore != null && eloAfter != null && (
-                        <span className={cn(
-                          "text-xs font-mono",
-                          eloAfter > eloBefore ? "text-green-400" : eloAfter < eloBefore ? "text-red-400" : "text-zinc-400"
-                        )}>
-                          {Math.round(eloBefore)} → {Math.round(eloAfter)} ({eloDelta(eloBefore, eloAfter)})
-                        </span>
-                      )}
+                  {/* ELO reveal bar */}
+                  {revealed && eloBefore != null && eloAfter != null && (
+                    <div className={cn(
+                      "px-5 py-2 border-b border-white/[0.04] flex items-center justify-between animate-fade-in",
+                      eloAfter > eloBefore ? "bg-emerald-950/20" : eloAfter < eloBefore ? "bg-red-950/20" : "bg-zinc-900/20"
+                    )}>
+                      <span className="text-xs text-zinc-400">ELO</span>
+                      <span className={cn("text-sm font-mono font-semibold",
+                        eloAfter > eloBefore ? "text-emerald-400" : eloAfter < eloBefore ? "text-red-400" : "text-zinc-400"
+                      )}>
+                        {Math.round(eloBefore)} → {Math.round(eloAfter)}
+                        <span className="ml-1.5 text-xs">({eloDelta(eloBefore, eloAfter)})</span>
+                      </span>
                     </div>
                   )}
 
                   {/* Response body */}
-                  <div ref={ref} className="flex-1 overflow-y-auto p-4 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                  <div ref={ref} className="flex-1 overflow-y-auto px-5 py-4 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
                     {response || (
-                      <span className="text-zinc-600 italic">
-                        {phase === "ready" ? "Waiting for prompt…" : ""}
-                      </span>
+                      <span className="text-zinc-700 italic">{phase === "ready" ? "Waiting for prompt…" : ""}</span>
                     )}
-                    {streaming && <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse ml-0.5" />}
+                    {streaming && <span className="inline-block w-0.5 h-4 bg-indigo-400 animate-pulse ml-0.5 align-middle" />}
                   </div>
                 </div>
               );
@@ -259,22 +202,24 @@ export default function ArenaPage() {
 
           {/* Vote bar */}
           {phase === "done" && (
-            <div className="px-6 py-4 border-t border-white/10 flex items-center justify-center gap-4">
-              <Button onClick={() => vote("model_a")} variant="primary" className="min-w-[140px]">
-                👈 A is Better
-              </Button>
-              <Button onClick={() => vote("tie")} variant="ghost" className="min-w-[100px]">
-                🤝 Tie
-              </Button>
-              <Button onClick={() => vote("model_b")} variant="primary" className="min-w-[140px]">
-                B is Better 👉
-              </Button>
+            <div className="px-6 py-4 border-t border-white/[0.04] bg-zinc-950/80 backdrop-blur-sm animate-fade-in">
+              <div className="flex items-center justify-center gap-3">
+                <Button onClick={() => vote("model_a")} variant="secondary" size="lg" className="gap-2 min-w-[160px]">
+                  <ChevronLeft className="w-4 h-4" /> A is Better
+                </Button>
+                <Button onClick={() => vote("tie")} variant="ghost" size="lg" className="gap-2 min-w-[100px]">
+                  <Minus className="w-4 h-4" /> Tie
+                </Button>
+                <Button onClick={() => vote("model_b")} variant="secondary" size="lg" className="gap-2 min-w-[160px]">
+                  B is Better <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           )}
 
           {phase === "voted" && (
-            <div className="px-6 py-3 border-t border-white/10 flex items-center justify-center">
-              <Button onClick={startBattle} variant="primary" className="gap-2">
+            <div className="px-6 py-3 border-t border-white/[0.04] flex items-center justify-center animate-fade-in">
+              <Button onClick={startBattle} variant="glow" className="gap-2">
                 <RotateCcw className="w-4 h-4" /> New Battle
               </Button>
             </div>
