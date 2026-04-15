@@ -29,7 +29,7 @@ function StatCard({ label, value, sub, icon, color, href }: {
   const inner = (
     <div className={cn(
       "relative overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-5 transition-all duration-200",
-      href && "hover:border-white/[0.12] hover:bg-zinc-900/60 cursor-pointer group"
+      href && "hover:border-white/[0.12] hover:bg-zinc-900/60 cursor-pointer group hover-lift"
     )}>
       <div className="flex items-start justify-between">
         <div>
@@ -54,7 +54,7 @@ function QuickAction({ href, icon, label, description }: {
 }) {
   return (
     <Link href={href}
-      className="flex items-start gap-3 p-4 rounded-xl border border-white/[0.06] bg-zinc-900/30 hover:bg-zinc-900/60 hover:border-white/[0.12] transition-all duration-200 group">
+      className="flex items-start gap-3 p-4 rounded-xl border border-white/[0.06] bg-zinc-900/30 hover:bg-zinc-900/60 hover:border-white/[0.12] transition-all duration-200 group hover-lift">
       <div className="p-2 rounded-lg bg-zinc-800/80 text-zinc-400 group-hover:text-indigo-400 transition-colors">
         {icon}
       </div>
@@ -135,7 +135,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-4 stagger-children">
         <StatCard label="Today" value={data.today_inferences} sub={`${data.today_tokens.toLocaleString()} tokens`}
           icon={<MessageSquare className="w-5 h-5" />} color="text-indigo-400" href="/profiler" />
         <StatCard label="All Time" value={data.total_inferences.toLocaleString()}
@@ -149,7 +149,7 @@ export default function DashboardPage() {
       {/* Quick Actions */}
       <div>
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-3">Quick Actions</h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 stagger-children">
           <QuickAction href="/chat" icon={<MessageSquare className="w-4 h-4" />}
             label="Chat" description="Talk to the active model" />
           <QuickAction href="/arena" icon={<Swords className="w-4 h-4" />}

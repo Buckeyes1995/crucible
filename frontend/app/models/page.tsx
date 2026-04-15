@@ -12,6 +12,7 @@ import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
+import { toast } from "@/components/Toast";
 import { ModelTpsChart } from "@/components/ModelTpsChart";
 
 type SortKey = "name" | "size" | "tps";
@@ -253,13 +254,13 @@ export default function ModelsPage() {
 
       {/* Grid */}
       {loading && models.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-40 rounded-xl bg-zinc-900/60 animate-pulse border border-white/5" />
+            <div key={i} className="h-40 rounded-2xl skeleton" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
           {filtered.map((m) => (
             <ModelCard
               key={m.id}
@@ -373,7 +374,7 @@ function ModelCard({
         "transition-all duration-200 group relative overflow-hidden",
         isActive
           ? "border-emerald-500/30 bg-emerald-950/10 cursor-default glow-emerald"
-          : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer",
+          : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer hover-lift",
         isFavorite && !isActive && "border-amber-500/15",
         isLoading && "border-indigo-500/30 bg-indigo-950/5"
       )}
@@ -470,10 +471,10 @@ function ModelCard({
                   e.stopPropagation();
                   try {
                     await api.dflash.toggle(model.id, !model.dflash_enabled);
-                    // Refresh models to get updated state
                     const { fetchModels } = useModelsStore.getState();
                     fetchModels();
-                  } catch { /* ignore */ }
+                    toast(model.dflash_enabled ? "DFlash disabled" : "DFlash enabled — 3-4x faster generation", model.dflash_enabled ? "info" : "success");
+                  } catch { toast("Failed to toggle DFlash", "error"); }
                 }}
                 className={cn(
                   "text-[10px] px-1.5 py-0.5 rounded border font-medium flex items-center gap-0.5 transition-colors",

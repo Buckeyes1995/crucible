@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { toast } from "@/components/Toast";
 
 type Phase = "idle" | "ready" | "streaming" | "done" | "voted";
 
@@ -36,8 +37,10 @@ export default function ArenaPage() {
       const result = await api.arena.startBattle();
       setBattleId(result.battle_id);
       setPhase("ready");
+      toast("Battle ready — two models are waiting", "info");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start battle");
+      toast("Failed to start battle", "error");
     }
   }
 
@@ -65,8 +68,22 @@ export default function ArenaPage() {
 
   async function vote(winner: string) {
     if (!battleId) return;
-    try { const result = await api.arena.vote(battleId, winner); setVoteResult(result); setPhase("voted"); }
-    catch (e) { setError(e instanceof Error ? e.message : "Vote failed"); }
+    try {
+      const result = await api.arena.vote(battleId, winner);
+      setVoteResult(result);
+      setPhase("voted");
+      const winnerName = winner === "model_a" ? result.model_a : winner === "model_b" ? result.model_b : "Tie";
+      const deltaA = Math.round((result.elo_after.a - result.elo_before.a) * 10) / 10;
+      const deltaB = Math.round((result.elo_after.b - result.elo_before.b) * 10) / 10;
+      toast(
+        winner === "tie" ? `Tie! Both models ${deltaA >= 0 ? "+" : ""}${deltaA} ELO` :
+        `${winnerName} wins! (${deltaA >= 0 ? "+" : ""}${deltaA} / ${deltaB >= 0 ? "+" : ""}${deltaB} ELO)`,
+        "success"
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Vote failed");
+      toast("Vote failed", "error");
+    }
   }
 
   const eloDelta = (before: number, after: number) => {

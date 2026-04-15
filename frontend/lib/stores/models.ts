@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { api, type ModelEntry } from "@/lib/api";
+import { toast } from "@/components/Toast";
 
 type ModelsState = {
   models: ModelEntry[];
@@ -65,6 +66,7 @@ export const useModelsStore = create<ModelsState>((set) => ({
     _loadAbortController = controller;
 
     set({ loadingModelId: id, loadStage: "starting", error: null, activeModelId: null });
+    const loadingToastId = toast(`Loading ${id.replace(/^mlx:/, "")}…`, "loading", 0);
     let gotCompletion = false;
     try {
       const { readSSE } = await import("@/lib/api");
@@ -90,7 +92,8 @@ export const useModelsStore = create<ModelsState>((set) => ({
             set({ loadStage: (payload?.message as string) ?? "" });
           } else if (event === "done") {
             gotCompletion = true;
-            // Verify with status API rather than trusting the SSE event blindly
+            import("@/components/Toast").then(({ toastUpdate }) =>
+              toastUpdate(loadingToastId, `${id.replace(/^mlx:/, "")} loaded`, "success"));
             api.status().then((s) => {
               set({ activeModelId: s.active_model_id, loadingModelId: null, loadStage: "" });
             }).catch(() => {
@@ -98,6 +101,8 @@ export const useModelsStore = create<ModelsState>((set) => ({
             });
           } else if (event === "error") {
             gotCompletion = true;
+            import("@/components/Toast").then(({ toastUpdate }) =>
+              toastUpdate(loadingToastId, (payload?.message as string) ?? "Load failed", "error"));
             set({
               error: (payload?.message as string) ?? "Unknown error",
               loadingModelId: null,
