@@ -62,7 +62,7 @@ export default function GroupsPage() {
       </div>
 
       {showCreate && (
-        <div className="space-y-3 p-4 rounded-xl border border-white/10 bg-zinc-900/50">
+        <div className="space-y-3 p-4 rounded-2xl border border-white/[0.06] bg-zinc-900/40">
           <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Group name" />
           <Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Description (optional)" />
           <Button variant="primary" onClick={create} disabled={!newName.trim()}>Create</Button>
@@ -74,7 +74,7 @@ export default function GroupsPage() {
       )}
 
       {groups.map((g) => (
-        <div key={g.id} className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 space-y-3">
+        <div key={g.id} className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium text-zinc-200">{g.name}</h3>

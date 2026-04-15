@@ -25,7 +25,7 @@ export default function HealthPage() {
         <Button variant="ghost" onClick={load} disabled={loading} className="gap-1.5 text-xs"><RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh</Button>
       </div>
       {data?.services.map((s) => (
-        <div key={s.name} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/10 bg-zinc-900/50">
+        <div key={s.name} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-white/[0.06] bg-zinc-900/40">
           <div className={cn("w-3 h-3 rounded-full", s.status === "up" ? "bg-emerald-400" : "bg-red-400")} />
           <div className="flex-1">
             <div className="text-sm font-medium text-zinc-200">{s.name}</div>

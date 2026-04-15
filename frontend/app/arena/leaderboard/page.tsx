@@ -52,7 +52,7 @@ export default function LeaderboardPage() {
       ) : (
         <>
           {/* Rankings table */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 backdrop-blur overflow-hidden">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 backdrop-blur overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">

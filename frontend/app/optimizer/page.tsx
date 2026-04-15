@@ -61,7 +61,7 @@ export default function OptimizerPage() {
         {prompts.map((p, i) => (
           <div key={i} className="flex gap-2">
             <div className="w-8 flex items-center justify-center text-xs font-mono text-zinc-500">#{i + 1}</div>
-            <textarea className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 resize-none placeholder:text-zinc-600"
+            <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 resize-none placeholder:text-zinc-600"
               rows={2} value={p} onChange={(e) => updatePrompt(i, e.target.value)}
               placeholder={`Prompt variation ${i + 1}…`} disabled={running} />
             {results[i] && (
@@ -89,10 +89,10 @@ export default function OptimizerPage() {
       </div>
 
       {results.filter(Boolean).length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">
+              <tr className="border-b border-white/[0.04] text-zinc-500 text-xs uppercase tracking-wider">
                 <th className="px-4 py-3 text-left w-10">#</th>
                 <th className="px-4 py-3 text-right">tok/s</th>
                 <th className="px-4 py-3 text-right">TTFT</th>
@@ -103,7 +103,7 @@ export default function OptimizerPage() {
             </thead>
             <tbody>
               {results.map((r, i) => r && (
-                <tr key={i} className={cn("border-b border-white/5", bestTps === i && "bg-emerald-900/10")}>
+                <tr key={i} className={cn("border-b border-white/[0.04]", bestTps === i && "bg-emerald-900/10")}>
                   <td className="px-4 py-2.5 font-mono text-zinc-500">{i + 1}{bestTps === i && " 🏆"}</td>
                   <td className={cn("px-4 py-2.5 text-right font-mono", bestTps === i ? "text-emerald-400 font-semibold" : "text-zinc-300")}>{r.tps ?? "—"}</td>
                   <td className={cn("px-4 py-2.5 text-right font-mono", bestTtft === i ? "text-cyan-400" : "text-zinc-400")}>{r.ttft_ms ?? "—"}ms</td>

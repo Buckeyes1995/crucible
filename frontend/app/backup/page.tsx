@@ -49,14 +49,14 @@ export default function BackupPage() {
 
       {result && <div className="px-3 py-2 rounded bg-emerald-900/30 border border-emerald-500/30 text-emerald-300 text-sm">{result}</div>}
 
-      <div className="rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+      <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">
+          <thead><tr className="border-b border-white/[0.04] text-zinc-500 text-xs uppercase tracking-wider">
             <th className="px-4 py-3 text-left">File</th><th className="px-4 py-3 text-right">Size</th>
           </tr></thead>
           <tbody>
             {files.map(f => (
-              <tr key={f.name} className="border-b border-white/5">
+              <tr key={f.name} className="border-b border-white/[0.04]">
                 <td className="px-4 py-2.5 text-zinc-300 font-mono text-xs">{f.name}</td>
                 <td className="px-4 py-2.5 text-right text-zinc-500 font-mono text-xs">{(f.size / 1e3).toFixed(1)} KB</td>
               </tr>

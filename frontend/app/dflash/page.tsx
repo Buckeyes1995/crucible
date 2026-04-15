@@ -111,9 +111,9 @@ export default function DFlashBenchPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-4 p-4 rounded-xl border border-white/10 bg-zinc-900/50 backdrop-blur">
+      <div className="flex items-center gap-4 p-4 rounded-2xl border border-white/[0.06] bg-zinc-900/40 backdrop-blur">
         <select
-          className="flex-1 bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200"
+          className="flex-1 bg-zinc-800 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-200"
           value={selectedModel}
           onChange={(e) => setSelectedModel(e.target.value)}
           disabled={running}
@@ -162,7 +162,7 @@ export default function DFlashBenchPage() {
 
           {/* Charts */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-3">Throughput (tok/s)</h3>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={chartData}>
@@ -176,7 +176,7 @@ export default function DFlashBenchPage() {
               </ResponsiveContainer>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-3">Time to First Token (ms)</h3>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={ttftData}>
@@ -192,10 +192,10 @@ export default function DFlashBenchPage() {
           </div>
 
           {/* Per-prompt table */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">
+                <tr className="border-b border-white/[0.04] text-zinc-500 text-xs uppercase tracking-wider">
                   <th className="px-4 py-3 text-left">Prompt</th>
                   <th className="px-4 py-3 text-right">Normal tok/s</th>
                   <th className="px-4 py-3 text-right">DFlash tok/s</th>
@@ -207,7 +207,7 @@ export default function DFlashBenchPage() {
                   const dr = summary.dflash.results[i];
                   const sp = nr.tps && dr?.tps ? (dr.tps / nr.tps).toFixed(2) : "—";
                   return (
-                    <tr key={i} className="border-b border-white/5">
+                    <tr key={i} className="border-b border-white/[0.04]">
                       <td className="px-4 py-2.5 text-zinc-400">Prompt {i + 1}</td>
                       <td className="px-4 py-2.5 text-right font-mono text-indigo-300">{nr.tps ?? "—"}</td>
                       <td className="px-4 py-2.5 text-right font-mono text-amber-300">{dr?.tps ?? "—"}</td>

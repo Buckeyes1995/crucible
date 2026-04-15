@@ -82,42 +82,40 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-        <div>
-          <h1 className="text-xl font-bold text-zinc-100">Chat</h1>
-          {activeModelId && (
-            <p className="text-xs text-zinc-500 mt-0.5 font-mono">{activeModelId}</p>
-          )}
+      <div className="flex items-center justify-between px-6 h-14 border-b border-white/[0.04] shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded-lg bg-zinc-800/50">
+            <Send className="w-4 h-4 text-indigo-400" />
+          </div>
+          <div>
+            <h1 className="text-sm font-semibold text-zinc-100">Chat</h1>
+            {activeModelId && (
+              <p className="text-[10px] text-zinc-600 font-mono">{activeModelId.replace(/^mlx:/, "")}</p>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {stats && (
-            <div className="flex gap-3 text-xs font-mono text-zinc-400">
-              {stats.ttft_ms != null && <span>TTFT {formatMs(stats.ttft_ms)}</span>}
-              {stats.tps != null && <span>{formatTps(stats.tps)}</span>}
-              {stats.output_tokens != null && <span>{stats.output_tokens} tok</span>}
+            <div className="flex gap-3 text-[11px] font-mono">
+              {stats.ttft_ms != null && <span className="text-zinc-500">TTFT <span className="text-zinc-300">{formatMs(stats.ttft_ms)}</span></span>}
+              {stats.tps != null && <span className="text-indigo-400">{formatTps(stats.tps)}</span>}
+              {stats.output_tokens != null && <span className="text-zinc-600">{stats.output_tokens} tok</span>}
             </div>
           )}
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <label>Temp</label>
-            <input
-              type="range" min="0" max="2" step="0.05"
-              value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
-              className="w-20 accent-indigo-500"
-            />
-            <span className="w-6 text-zinc-300 font-mono">{temperature.toFixed(2)}</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-600">
+            <span>T</span>
+            <input type="range" min="0" max="2" step="0.05" value={temperature}
+              onChange={(e) => setTemperature(Number(e.target.value))} className="w-16 accent-indigo-500" />
+            <span className="w-7 text-zinc-400 font-mono text-[10px]">{temperature.toFixed(1)}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <label>Max</label>
-            <input
-              type="number" min="64" max="32768" step="256"
-              value={maxTokens}
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-600">
+            <span>Max</span>
+            <input type="number" min="64" max="32768" step="256" value={maxTokens}
               onChange={(e) => setMaxTokens(Number(e.target.value))}
-              className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-100 text-xs font-mono"
-            />
+              className="w-16 bg-zinc-900 border border-white/[0.08] rounded-md px-2 py-1 text-zinc-300 text-[10px] font-mono" />
           </div>
-          <Button variant="ghost" size="sm" onClick={clearMessages}>
-            <Trash2 className="w-4 h-4" />
+          <Button variant="ghost" size="xs" onClick={clearMessages} className="text-zinc-600 hover:text-red-400">
+            <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
@@ -229,45 +227,52 @@ export default function ChatPage() {
       </div>
 
       {!activeModelId && (
-        <div className="m-6 p-4 rounded-lg bg-amber-900/20 border border-amber-700/50 text-amber-300 text-sm">
-          No model loaded. Go to <a href="/models" className="underline">Models</a> to load one first.
+        <div className="mx-6 mt-4 px-4 py-3 rounded-xl bg-amber-950/30 border border-amber-500/15 text-amber-300/80 text-sm animate-fade-in">
+          No model loaded. Go to <a href="/models" className="underline hover:text-amber-200">Models</a> to load one first.
         </div>
       )}
 
       {error && (
-        <div className="mx-6 mt-4 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
+        <div className="mx-6 mt-4 px-4 py-2.5 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-sm animate-fade-in">
           {error}
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 && (
-          <div className="text-center text-zinc-600 py-16">Start a conversation</div>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              "max-w-3xl rounded-xl px-4 py-3 text-sm",
-              msg.role === "user"
-                ? "ml-auto bg-indigo-600/20 border border-indigo-500/30 text-zinc-100"
-                : "mr-auto bg-zinc-900/60 border border-white/10 text-zinc-200 font-mono whitespace-pre-wrap"
-            )}
-          >
-            {msg.content}
-            {streaming && i === messages.length - 1 && msg.role === "assistant" && (
-              <span className="inline-block w-1.5 h-4 ml-0.5 bg-indigo-400 animate-pulse rounded-sm" />
-            )}
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="p-4 rounded-2xl bg-zinc-800/30 text-zinc-700 mb-4">
+              <Send className="w-8 h-8" />
+            </div>
+            <p className="text-zinc-500">Start a conversation</p>
+            <p className="text-xs text-zinc-700 mt-1">Messages appear here</p>
           </div>
-        ))}
-        <div ref={bottomRef} />
+        )}
+        <div className="max-w-3xl mx-auto space-y-4">
+          {messages.map((msg, i) => (
+            <div key={i} className={cn("animate-fade-in", msg.role === "user" ? "flex justify-end" : "flex justify-start")}>
+              <div className={cn(
+                "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                msg.role === "user"
+                  ? "bg-indigo-600/15 border border-indigo-500/20 text-zinc-100 rounded-br-md"
+                  : "bg-zinc-900/60 border border-white/[0.06] text-zinc-200 whitespace-pre-wrap rounded-bl-md"
+              )}>
+                {msg.content}
+                {streaming && i === messages.length - 1 && msg.role === "assistant" && (
+                  <span className="inline-block w-0.5 h-4 ml-0.5 bg-indigo-400 animate-pulse rounded-full align-middle" />
+                )}
+              </div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Input */}
-      <div className="border-t border-white/10 px-6 py-4">
-        <div className="flex gap-3 max-w-4xl">
-          <Input
+      <div className="border-t border-white/[0.04] px-6 py-4 bg-zinc-950/50 backdrop-blur-sm">
+        <div className="flex gap-3 max-w-3xl mx-auto">
+          <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -278,12 +283,13 @@ export default function ChatPage() {
             }}
             placeholder={activeModelId ? "Send a message…" : "Load a model first…"}
             disabled={!activeModelId || streaming}
-            className="flex-1"
+            className="flex-1 bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all disabled:opacity-50"
           />
           <Button
             variant="primary"
             onClick={handleSend}
             disabled={!activeModelId || streaming || !input.trim()}
+            className="rounded-xl px-5"
           >
             <Send className="w-4 h-4" />
           </Button>

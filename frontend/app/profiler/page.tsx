@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Timer, BarChart3 } from "lucide-react";
+import { Timer, BarChart3, Loader2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from "recharts";
 
 const BASE = "/api";
@@ -77,20 +79,20 @@ export default function ProfilerPage() {
     { name: "Decode", value: Math.round(avgDecode), fill: "#f59e0b" },
   ];
 
-  if (loading) return <div className="p-8 text-zinc-500">Loading…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center h-full min-h-[400px]">
+      <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-      <div className="flex items-center gap-3">
-        <Timer className="w-6 h-6 text-indigo-400" />
-        <h1 className="text-xl font-semibold text-zinc-100">Inference Profiler</h1>
-        <span className="text-xs text-zinc-500">{profiles.length} requests profiled</span>
-      </div>
+    <div className="max-w-5xl mx-auto px-8 py-8 space-y-6 animate-fade-in">
+      <PageHeader icon={<Timer className="w-5 h-5" />} title="Inference Profiler"
+        description={`${profiles.length} requests profiled`} />
 
       {stats.length === 0 ? (
-        <div className="text-center py-16 text-zinc-500">
-          No profiler data yet. Use the Chat page to generate inference profiles.
-        </div>
+        <EmptyState icon={<Timer className="w-10 h-10" />} title="No profiler data yet"
+          description="Use the Chat page to generate inference profiles. Every request is automatically recorded." />
       ) : (
         <>
           {/* Model filter */}
@@ -99,7 +101,7 @@ export default function ProfilerPage() {
               onClick={() => setSelectedModel(null)}
               className={cn(
                 "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                !selectedModel ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                !selectedModel ? "bg-indigo-500/15 text-indigo-300 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.2)]" : "bg-zinc-800/60 text-zinc-500 hover:text-zinc-200"
               )}
             >
               All models
@@ -110,7 +112,7 @@ export default function ProfilerPage() {
                 onClick={() => setSelectedModel(s.model_id === selectedModel ? null : s.model_id)}
                 className={cn(
                   "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  selectedModel === s.model_id ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                  selectedModel === s.model_id ? "bg-indigo-500/15 text-indigo-300 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.2)]" : "bg-zinc-800/60 text-zinc-500 hover:text-zinc-200"
                 )}
               >
                 {s.model_name.slice(0, 25)} ({s.request_count})
@@ -121,7 +123,7 @@ export default function ProfilerPage() {
           {/* Charts row */}
           <div className="grid grid-cols-2 gap-4">
             {/* Throughput chart */}
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" /> Avg Throughput (tok/s)
               </h3>
@@ -136,7 +138,7 @@ export default function ProfilerPage() {
             </div>
 
             {/* Time breakdown pie */}
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-3">Avg Time Breakdown</h3>
               <div className="flex items-center justify-center gap-8">
                 <ResponsiveContainer width={160} height={160}>
@@ -161,7 +163,7 @@ export default function ProfilerPage() {
           </div>
 
           {/* Model stats table */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/5 text-zinc-500 text-xs uppercase tracking-wider">

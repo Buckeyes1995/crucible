@@ -38,13 +38,13 @@ export default function BatchInferencePage() {
         <ListOrdered className="w-6 h-6 text-indigo-400" />
         <h1 className="text-xl font-semibold text-zinc-100">Batch Inference</h1>
       </div>
-      <input className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+      <input className="w-full bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
         placeholder="System prompt (optional)" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
       <div className="space-y-2">
         {prompts.map((p, i) => (
           <div key={i} className="flex gap-2">
             <span className="w-6 text-xs font-mono text-zinc-600 pt-2">{i + 1}</span>
-            <textarea className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 resize-none" rows={2}
+            <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 resize-none" rows={2}
               value={p} onChange={(e) => update(i, e.target.value)} placeholder={`Prompt ${i + 1}…`} disabled={running} />
             <Button variant="ghost" className="px-2" onClick={() => remove(i)} disabled={prompts.length <= 1}><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
@@ -59,7 +59,7 @@ export default function BatchInferencePage() {
       {results.length > 0 && (
         <div className="space-y-3">
           {results.map((r) => (
-            <div key={r.index} className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 space-y-2">
+            <div key={r.index} className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 space-y-2">
               <div className="flex justify-between text-xs"><span className="text-zinc-500">Prompt {r.index + 1}</span>
                 <span className="font-mono text-indigo-300">{r.tps} tok/s · {r.tokens} tokens</span></div>
               <div className="text-xs text-zinc-400 truncate">{r.prompt}</div>

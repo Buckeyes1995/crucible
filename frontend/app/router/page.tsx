@@ -144,7 +144,7 @@ export default function SmartRouterPage() {
         <CardHeader><CardTitle>Routing Rules</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {config.rules.map((rule, i) => (
-            <div key={i} className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
+            <div key={i} className="p-3 rounded-lg border border-white/[0.06] bg-white/5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-zinc-200">{rule.name}</span>
                 <span className="text-xs text-zinc-500">Priority: {rule.priority}</span>
@@ -154,7 +154,7 @@ export default function SmartRouterPage() {
                 <div>
                   <label className="text-zinc-500">Classifier</label>
                   <select
-                    className="w-full bg-zinc-800 border border-white/10 rounded px-2 py-1 text-zinc-300 mt-1"
+                    className="w-full bg-zinc-800 border border-white/[0.06] rounded px-2 py-1 text-zinc-300 mt-1"
                     value={rule.classifier}
                     onChange={(e) => {
                       const rules = [...config.rules];

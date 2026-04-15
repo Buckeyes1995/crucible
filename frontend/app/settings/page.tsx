@@ -44,7 +44,7 @@ export default function SettingsPage() {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">{error}</div>
+        <div className="p-3 rounded-lg bg-red-950/40 border border-red-500/20 text-red-300 text-sm">{error}</div>
       )}
 
       <Card>
@@ -227,7 +227,7 @@ function WebhooksSection() {
       </CardHeader>
       <CardContent className="space-y-4">
         {showForm && (
-          <div className="space-y-3 p-3 rounded-lg border border-white/10 bg-white/5">
+          <div className="space-y-3 p-3 rounded-lg border border-white/[0.06] bg-white/5">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-zinc-400">URL</label>
               <Input
@@ -273,7 +273,7 @@ function WebhooksSection() {
         )}
 
         {hooks.map((hook) => (
-          <div key={hook.id} className="flex items-start gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
+          <div key={hook.id} className="flex items-start gap-3 p-3 rounded-lg border border-white/[0.06] bg-white/5">
             <div className="flex-1 min-w-0 space-y-1">
               <p className="text-sm font-mono text-zinc-200 truncate">{hook.url}</p>
               <div className="flex flex-wrap gap-1">
@@ -360,7 +360,7 @@ function PromptTemplatesSection() {
           <p className="text-sm text-zinc-500">No templates saved yet.</p>
         )}
         {templates.map((t) => (
-          <div key={t.id} className="rounded-lg border border-white/10 bg-zinc-900/40 p-3 space-y-2">
+          <div key={t.id} className="rounded-lg border border-white/[0.06] bg-zinc-900/40 p-3 space-y-2">
             {editId === t.id ? (
               <>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)}
@@ -484,7 +484,7 @@ function NodesSection({
         </p>
 
         {showForm && (
-          <div className="space-y-3 p-3 rounded-lg border border-white/10 bg-white/5">
+          <div className="space-y-3 p-3 rounded-lg border border-white/[0.06] bg-white/5">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-zinc-400">Name (e.g. mac-mini)</label>
               <Input value={newName} onChange={(e) => setNewName(e.target.value)} className="font-mono text-xs" placeholder="mac-mini" />
@@ -510,7 +510,7 @@ function NodesSection({
         {nodes.map((node) => {
           const st = nodeStatuses.find((s) => s.name === node.name);
           return (
-            <div key={node.name} className="flex items-center gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
+            <div key={node.name} className="flex items-center gap-3 p-3 rounded-lg border border-white/[0.06] bg-white/5">
               <div className={`w-2 h-2 rounded-full ${st?.status === "online" ? "bg-emerald-400" : "bg-zinc-600"}`} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-zinc-200">@{node.name}</p>

@@ -57,13 +57,13 @@ export default function DiffPage() {
 
   return (
     <div className="flex flex-col h-full min-h-screen">
-      <div className="px-6 py-4 border-b border-white/10 flex items-center gap-3">
+      <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
         <GitCompare className="w-5 h-5 text-indigo-400" />
         <h1 className="text-lg font-semibold text-zinc-100">Model Diff</h1>
         <span className="text-xs text-zinc-500">{selected.length} selected</span>
       </div>
 
-      <div className="px-6 py-3 border-b border-white/10 flex gap-2 flex-wrap">
+      <div className="px-6 py-3 border-b border-white/[0.04] flex gap-2 flex-wrap">
         {models.map((m) => (
           <button key={m.id} onClick={() => toggleModel(m.id)}
             className={cn("px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
@@ -73,8 +73,8 @@ export default function DiffPage() {
         ))}
       </div>
 
-      <div className="px-6 py-3 border-b border-white/10 flex gap-3">
-        <textarea className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
+      <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
+        <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
           rows={2} placeholder="Enter prompt to send to all models…" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
         <Button onClick={runDiff} disabled={running || selected.length < 2 || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
           {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Run
@@ -85,8 +85,8 @@ export default function DiffPage() {
         {(modelNames.length > 0 ? modelNames : selected.map((id) => models.find((m) => m.id === id)?.name ?? id)).map((name, i) => {
           const r = responses[i];
           return (
-            <div key={i} className="flex flex-col rounded-xl border border-white/10 bg-zinc-900/50 overflow-hidden">
-              <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+            <div key={i} className="flex flex-col rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/[0.04] flex items-center justify-between">
                 <span className="text-xs font-medium text-zinc-300 truncate">{name}</span>
                 {r?.tps && <span className="text-xs font-mono text-indigo-400">{r.tps} tok/s</span>}
               </div>

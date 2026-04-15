@@ -24,7 +24,7 @@ export default function TokenAnalyticsPage() {
       </div>
 
       {daily.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
           <h3 className="text-sm font-medium text-zinc-400 mb-3">Daily Token Generation</h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={daily}>
@@ -38,7 +38,7 @@ export default function TokenAnalyticsPage() {
       )}
 
       {byModel.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
           <h3 className="text-sm font-medium text-zinc-400 mb-3">Tokens by Model</h3>
           <ResponsiveContainer width="100%" height={Math.max(200, byModel.length * 30)}>
             <BarChart data={byModel.map(m => ({...m, model: m.model.slice(0,25)}))} layout="vertical">

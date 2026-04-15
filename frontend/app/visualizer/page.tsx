@@ -76,7 +76,7 @@ export default function VisualizerPage() {
 
   return (
     <div className="flex flex-col h-full min-h-screen">
-      <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-white/[0.04] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Eye className="w-5 h-5 text-indigo-400" />
           <h1 className="text-lg font-semibold text-zinc-100">Token Visualizer</h1>
@@ -89,8 +89,8 @@ export default function VisualizerPage() {
         </div>
       </div>
 
-      <div className="px-6 py-3 border-b border-white/10 flex gap-3">
-        <input className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+      <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
+        <input className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
           placeholder="Enter prompt…" value={prompt} onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()} disabled={streaming} />
         <Button onClick={send} disabled={streaming || !prompt.trim()} variant="primary" className="gap-1.5">
@@ -111,7 +111,7 @@ export default function VisualizerPage() {
         {tokens.length > 0 && (
           <div className="space-y-6">
             {/* Colored text output */}
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-xs text-zinc-500 mb-3 uppercase tracking-wider">Colored by speed</h3>
               <div className="text-sm leading-relaxed whitespace-pre-wrap">
                 {tokens.map((t, i) => (
@@ -124,7 +124,7 @@ export default function VisualizerPage() {
             </div>
 
             {/* Waterfall bars */}
-            <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
               <h3 className="text-xs text-zinc-500 mb-3 uppercase tracking-wider">Token Waterfall</h3>
               <div className="space-y-px max-h-96 overflow-y-auto">
                 {tokens.slice(0, 200).map((t, i) => (

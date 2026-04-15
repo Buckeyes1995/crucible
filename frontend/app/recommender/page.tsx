@@ -83,22 +83,22 @@ export default function RecommenderPage() {
 
       {/* Summary stats */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 text-center">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 text-center">
           <div className="text-3xl font-bold text-indigo-400 font-mono">{analysis.model_count}</div>
           <div className="text-xs text-zinc-500 mt-1">Models</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 text-center">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 text-center">
           <div className="text-3xl font-bold text-amber-400 font-mono">{analysis.total_size_gb}</div>
           <div className="text-xs text-zinc-500 mt-1">Total GB</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 text-center">
+        <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 text-center">
           <div className="text-3xl font-bold text-emerald-400 font-mono">{analysis.total_ram_gb.toFixed(0)}</div>
           <div className="text-xs text-zinc-500 mt-1">RAM (GB)</div>
         </div>
       </div>
 
       {/* Size distribution */}
-      <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 flex items-center gap-8">
+      <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4 flex items-center gap-8">
         <div className="flex-1">
           <h3 className="text-sm font-medium text-zinc-400 mb-2">Size Distribution</h3>
           <div className="space-y-1">
@@ -126,7 +126,7 @@ export default function RecommenderPage() {
         <div className="space-y-2">
           <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Insights</h2>
           {analysis.insights.map((ins, i) => (
-            <div key={i} className="flex items-start gap-3 px-4 py-3 rounded-lg border border-white/10 bg-zinc-900/30">
+            <div key={i} className="flex items-start gap-3 px-4 py-3 rounded-lg border border-white/[0.06] bg-zinc-900/30">
               {INSIGHT_ICONS[ins.type] ?? INSIGHT_ICONS.info}
               <div>
                 <div className="text-sm font-medium text-zinc-200">{ins.title}</div>

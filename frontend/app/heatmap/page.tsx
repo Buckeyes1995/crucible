@@ -65,7 +65,7 @@ export default function HeatmapPage() {
       ) : (
         <>
           {/* Calendar heatmap */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
             <h3 className="text-sm font-medium text-zinc-400 mb-3">Last 90 Days</h3>
             <div className="flex gap-[3px]">
               {weeks.map((week, wi) => (
@@ -88,7 +88,7 @@ export default function HeatmapPage() {
           </div>
 
           {/* Hour distribution */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
             <h3 className="text-sm font-medium text-zinc-400 mb-3">Activity by Hour</h3>
             <div className="flex items-end gap-1 h-24">
               {Array.from({ length: 24 }, (_, h) => {
@@ -106,7 +106,7 @@ export default function HeatmapPage() {
           </div>
 
           {/* Top models */}
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4">
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-4">
             <h3 className="text-sm font-medium text-zinc-400 mb-3">Most Used Models</h3>
             <div className="space-y-2">
               {Object.entries(data.by_model).map(([name, count]) => (
