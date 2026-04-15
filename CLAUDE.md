@@ -15,6 +15,7 @@ forge/
   backend/            FastAPI app
     main.py           entry point (uvicorn)
     adapters/         one module per backend (llama_cpp.py, mlx_lm.py, ollama.py, external.py, remote_node.py)
+    omlx_admin.py     oMLX admin API client (DFlash toggle, settings)
     models/           Pydantic schemas
     db/               SQLite helpers + migrations
     benchmark/        benchmark engine, metrics collection
@@ -101,6 +102,9 @@ PUT  /api/settings                      # save config
 
 GET  /api/nodes                         # remote node connectivity status
 
+GET  /api/models/{id}/dflash            # DFlash eligibility + status
+PUT  /api/models/{id}/dflash            # enable/disable DFlash for a model
+
 GET  /api/models/{id}/params            # model-specific params (raw, no merge)
 PUT  /api/models/{id}/params            # save model params
 DELETE /api/models/{id}/params          # reset model params
@@ -185,6 +189,7 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Model params**: `get_params()` merges global defaults + model-specific (model wins); `get_params_raw()` returns model-only
 - **Proxy at `/v1/*`**: rewrites `"model"` field to `_server_model_id` (full path) before forwarding to mlx_lm.server
 - **Remote nodes**: models from remote Crucible instances have `node != "local"` and IDs prefixed `@node_name/`. Adapter routing checks `model.node` before `model.kind`. `backend_meta` internal fields (`_remote_*`) are stripped before serialization to the frontend.
+- **DFlash speculative decoding**: MLX models with a matching `*-DFlash` sibling directory are annotated with `dflash_draft` path. DFlash is toggled per-model via oMLX admin API (`PUT /admin/api/models/{id}/settings`). `dflash_enabled` state is read from oMLX's `~/.omlx/model_settings.json`. DFlash draft directories are hidden from the model list.
 
 ## Remote Access
 
@@ -211,6 +216,6 @@ Crucible is accessible remotely via Cloudflare Tunnel at `https://crucible.bucke
 
 ## Current Status
 
-**Phases 1–5 + Remote Nodes (4.6) — Complete.** See SPEC.md for full feature list.
+**Phases 1–5 + Remote Nodes (4.6) + DFlash (5.2) — Complete.** See SPEC.md for full feature list.
 
 Machine: M2 Max, 96GB, macOS 15. Models at `/Volumes/DataNVME/models/`.

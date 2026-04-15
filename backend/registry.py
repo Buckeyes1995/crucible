@@ -8,6 +8,7 @@ import httpx
 
 from config import CrucibleConfig
 from models.schemas import ModelEntry
+from omlx_admin import find_dflash_draft
 
 STATS_FILE = Path.home() / ".config" / "crucible" / "model_stats.json"
 
@@ -72,6 +73,11 @@ def scan_mlx(mlx_dir: str) -> list[ModelEntry]:
             continue
 
         name = entry.name
+
+        # Skip DFlash draft directories — they're not standalone models
+        if name.endswith("-DFlash"):
+            continue
+
         model_id = f"mlx:{name}"
         quant = _parse_quant_from_name(name)
         ctx = _parse_context_from_mlx_config(config_file)
@@ -83,6 +89,8 @@ def scan_mlx(mlx_dir: str) -> list[ModelEntry]:
         except Exception:
             arch = ""
 
+        draft = find_dflash_draft(str(entry), mlx_dir)
+
         models.append(ModelEntry(
             id=model_id,
             name=name,
@@ -92,6 +100,7 @@ def scan_mlx(mlx_dir: str) -> list[ModelEntry]:
             context_window=ctx,
             quant=quant,
             backend_meta={"arch": arch},
+            dflash_draft=draft,
         ))
 
     return models

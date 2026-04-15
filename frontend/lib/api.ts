@@ -13,6 +13,8 @@ export type ModelEntry = {
   last_loaded?: string;
   hidden?: boolean;
   node?: string;  // "local" or remote node name
+  dflash_draft?: string;   // path to DFlash draft model (null = not eligible)
+  dflash_enabled?: boolean; // whether DFlash is currently enabled
 };
 
 export type ChatMessage = { role: string; content: string };
@@ -47,6 +49,20 @@ export type BenchmarkConfig = {
   temperature?: number;
   warmup_reps?: number;
   name?: string;
+};
+
+export type DFlashStatus = {
+  eligible: boolean;
+  enabled: boolean;
+  draft_model?: string;
+  draft_quant_bits?: number;
+};
+
+export type DFlashToggleResult = {
+  model_id: string;
+  dflash_enabled: boolean;
+  draft_model: string;
+  settings: Record<string, unknown>;
 };
 
 export type NodeConfig = {
@@ -269,6 +285,14 @@ export const api = {
   },
   nodes: {
     list: () => get<NodeStatus[]>("/nodes"),
+  },
+  dflash: {
+    get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),
+    toggle: (id: string, enabled: boolean, draftQuantBits?: number) =>
+      put<DFlashToggleResult>(`/models/${encodeURIComponent(id)}/dflash`, {
+        enabled,
+        draft_quant_bits: draftQuantBits ?? 4,
+      }),
   },
   status: () => get<{
     active_model_id: string | null;

@@ -28,11 +28,32 @@ def _strip_internal_meta(meta: dict | None) -> dict | None:
     return {k: v for k, v in meta.items() if not k.startswith("_remote_")}
 
 
+def _load_omlx_dflash_state() -> dict[str, bool]:
+    """Read oMLX model_settings.json to get DFlash enabled state per model."""
+    from pathlib import Path
+    import json as _json
+    for base in [Path.home() / ".omlx", Path.home() / ".omlx-rc1"]:
+        settings_file = base / "model_settings.json"
+        if settings_file.exists():
+            try:
+                data = _json.loads(settings_file.read_text())
+                return {
+                    mid: s.get("dflash_enabled", False)
+                    for mid, s in data.get("models", {}).items()
+                }
+            except Exception:
+                pass
+    return {}
+
+
 def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
     hidden_map = model_notes.all_hidden()
+    dflash_state = _load_omlx_dflash_state()
     for m in models:
         m.hidden = hidden_map.get(m.id, False)
         m.backend_meta = _strip_internal_meta(m.backend_meta)
+        if m.dflash_draft and m.name in dflash_state:
+            m.dflash_enabled = dflash_state[m.name]
     return models
 
 

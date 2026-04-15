@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
 import { ModelTpsChart } from "@/components/ModelTpsChart";
@@ -452,6 +452,29 @@ function ModelCard({
               <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 font-medium">
                 @{model.node}
               </span>
+            )}
+            {model.dflash_draft && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api.dflash.toggle(model.id, !model.dflash_enabled);
+                    // Refresh models to get updated state
+                    const { fetchModels } = useModelsStore.getState();
+                    fetchModels();
+                  } catch { /* ignore */ }
+                }}
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded border font-medium flex items-center gap-0.5 transition-colors",
+                  model.dflash_enabled
+                    ? "border-amber-500/50 text-amber-400 bg-amber-900/30 hover:bg-amber-900/50"
+                    : "border-zinc-600 text-zinc-500 bg-zinc-800/50 hover:text-amber-400 hover:border-amber-500/30"
+                )}
+                title={model.dflash_enabled ? "DFlash enabled — click to disable" : "Enable DFlash speculative decoding"}
+              >
+                <Bolt className="w-3 h-3" />
+                DFlash
+              </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}

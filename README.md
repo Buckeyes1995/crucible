@@ -21,6 +21,7 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 - **Scheduled Switching** — time-based rules to auto-load models (e.g., big model at night, fast model during the day)
 - **Per-Model Parameters** — temperature, max_tokens, top_k, top_p, min_p, repetition penalty, context window, TTL — saved per model
 - **Model Notes & Tags** — attach notes and tags to models for organization
+- **DFlash Speculative Decoding** — per-model toggle for block diffusion speculative decoding (oMLX 0.3.5+), 3-4x faster generation for eligible Qwen3/3.5 models
 - **Webhooks** — fire-and-forget HTTP callbacks on `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`
 - **Remote Nodes** — connect multiple Crucible instances into a cluster; discover, load, chat, and benchmark models on remote machines
 - **OpenAI-Compatible Proxy** — `/v1/chat/completions` endpoint for external tool integration (opencode, aider, etc.)
@@ -188,6 +189,7 @@ Crucible exposes a REST API at `http://localhost:7777` and an OpenAI-compatible 
 | `POST` | `/api/hf/download` | Start HuggingFace download |
 | `GET` | `/api/hf/download/{id}/stream` | SSE download progress |
 | `POST` | `/api/hf/download/{id}/resume` | Resume failed/cancelled download |
+| `GET/PUT` | `/api/models/{id}/dflash` | DFlash eligibility and toggle |
 | `GET/POST/PUT/DELETE` | `/api/webhooks` | Webhook CRUD |
 | `WebSocket` | `/ws/metrics` | Live metrics stream (1s interval) |
 | `GET` | `/v1/models` | OpenAI-compatible model list |
@@ -243,6 +245,7 @@ crucible/
 │   ├── registry.py          # Model discovery and scanning
 │   ├── scheduler.py         # Time-based model switching
 │   ├── webhooks.py          # Webhook registry and dispatcher
+│   ├── omlx_admin.py       # oMLX admin API client (DFlash toggle)
 │   ├── hf_downloader.py     # HuggingFace download manager
 │   ├── clients.py           # External tool config sync (opencode)
 │   ├── model_params.py      # Per-model parameter storage
@@ -273,6 +276,7 @@ crucible/
 │   │   ├── notes.py         # Model notes endpoints
 │   │   ├── schedules.py     # Schedule endpoints
 │   │   ├── webhooks.py      # Webhook endpoints
+│   │   ├── dflash.py        # DFlash speculative decoding endpoints
 │   │   ├── humaneval.py     # HumanEval endpoints
 │   │   └── status.py        # Status endpoint
 │   └── db/

@@ -445,9 +445,39 @@ Connect multiple Crucible instances into a cluster. A "hub" node discovers and c
 
 ### 5.2 Speculative Decoding
 
+#### Legacy (mlx_lm.server)
 - `draft_model` param in per-model MLX parameters
 - Passed as `--draft-model` to `mlx_lm.server` on load
 - `num_draft_tokens` controls draft count
+
+#### DFlash (oMLX 0.3.5+)
+
+Block diffusion speculative decoding via oMLX's DFlashEngine. A small draft model proposes 16 tokens at once via block diffusion, verified by the target model in a single pass. All accepted tokens are lossless.
+
+**Eligible models:** MLX models with a matching `*-DFlash` sibling directory in the model dir. Current drafts:
+- `Qwen3-Coder-Next-DFlash` → targets Qwen3-Coder-Next-MLX-{4,6}bit
+- `Qwen3-Coder-30B-A3B-DFlash` → targets Qwen3-Coder-30B-A3B-Instruct-MLX-8bit
+- `Qwen3.5-9B-DFlash` → targets Qwen3.5-9B-MLX-4bit
+- `Qwen3.5-27B-DFlash` → targets Qwen3.5-27B-* (base, not distilled)
+- `Qwen3.5-35B-A3B-DFlash` → targets Qwen3.5-35B-A3B-8bit
+
+**Backend:**
+- `omlx_admin.py` — client for oMLX admin API (session-cookie auth)
+- `find_dflash_draft()` — matches target models to draft dirs by stripping quant/format suffixes
+- `GET /api/models/{id}/dflash` — eligibility + current state
+- `PUT /api/models/{id}/dflash` — toggle DFlash via oMLX admin API
+- `scan_mlx()` skips `*-DFlash` directories from model list
+- `_annotate_hidden()` reads oMLX `model_settings.json` to sync `dflash_enabled` state
+
+**Frontend:**
+- DFlash badge (Bolt icon) on eligible model cards — amber when enabled, zinc when disabled
+- Click badge to toggle on/off
+- Badge hidden for non-eligible models
+
+**Constraints:**
+- Single-request processing (no continuous batching in DFlash mode)
+- Falls back to BatchedEngine when context > `DFLASH_MAX_CTX` (default 4096)
+- Draft model quantized to 4-bit by default to save memory
 
 ---
 

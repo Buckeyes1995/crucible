@@ -15,6 +15,8 @@ class ModelEntry(BaseModel):
     last_loaded: Optional[str] = None
     hidden: bool = False
     node: str = "local"            # "local" or remote node name
+    dflash_draft: Optional[str] = None   # path to DFlash draft model (None = not eligible)
+    dflash_enabled: bool = False         # whether DFlash is currently enabled in oMLX
 
 
 class ChatMessage(BaseModel):
