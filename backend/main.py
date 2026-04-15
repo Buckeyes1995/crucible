@@ -18,6 +18,7 @@ from routers import (
     dashboard,
     dflash,
     dflash_bench,
+    diff,
     downloads,
     finetune,
     humaneval,
@@ -158,6 +159,7 @@ app.include_router(profiler_api.router, prefix="/api")
 app.include_router(recommender_api.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
 app.include_router(dflash_bench.router, prefix="/api")
+app.include_router(diff.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
 app.include_router(finetune.router, prefix="/api")
