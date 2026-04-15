@@ -15,6 +15,7 @@ from routers import (
     benchmark,
     chat,
     dflash,
+    dflash_bench,
     downloads,
     finetune,
     humaneval,
@@ -146,6 +147,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
 app.include_router(arena.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
+app.include_router(dflash_bench.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
 app.include_router(finetune.router, prefix="/api")
