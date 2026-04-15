@@ -14,6 +14,7 @@ from routers import (
     arena,
     benchmark,
     chat,
+    dashboard,
     dflash,
     dflash_bench,
     downloads,
@@ -149,6 +150,7 @@ app.include_router(humaneval.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
 app.include_router(arena.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 app.include_router(smart_router_api.router, prefix="/api")
 app.include_router(profiler_api.router, prefix="/api")
 app.include_router(recommender_api.router, prefix="/api")

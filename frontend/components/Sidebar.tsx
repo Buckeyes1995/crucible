@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { Activity } from "lucide-react";
 
 const NAV = [
+  { href: "/", label: "Dashboard", icon: "⌂" },
   { href: "/models", label: "Models", icon: "◈" },
   { href: "/benchmark2", label: "Benchmark", icon: "⚡" },
   { href: "/benchmark/history", label: "History", icon: "📋" },
@@ -52,7 +53,7 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-1 flex-1">
         {NAV.map(({ href, label, icon }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
+          const active = href === "/" ? pathname === "/" : (pathname === href || pathname.startsWith(href + "/"));
           return (
             <Link
               key={href}
