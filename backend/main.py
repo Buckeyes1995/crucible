@@ -26,6 +26,7 @@ from routers import (
     profiler_api,
     proxy,
     rag,
+    recommender_api,
     schedules,
     settings,
     smart_router_api,
@@ -150,6 +151,7 @@ app.include_router(status.router, prefix="/api")
 app.include_router(arena.router, prefix="/api")
 app.include_router(smart_router_api.router, prefix="/api")
 app.include_router(profiler_api.router, prefix="/api")
+app.include_router(recommender_api.router, prefix="/api")
 app.include_router(dflash.router, prefix="/api")
 app.include_router(dflash_bench.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
