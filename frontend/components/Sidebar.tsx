@@ -27,10 +27,15 @@ const NAV = [
   { href: "/cost", label: "Cost", icon: "💰" },
   { href: "/metrics", label: "Metrics", icon: "Activity" },
   { href: "/groups", label: "Groups", icon: "📁" },
+  { href: "/batch-inference", label: "Batch", icon: "📋" },
+  { href: "/token-analytics", label: "Analytics", icon: "#" },
   { href: "/downloads", label: "Downloads", icon: "↓" },
   { href: "/schedules", label: "Schedules", icon: "⏱" },
+  { href: "/notifications", label: "Alerts", icon: "🔔" },
+  { href: "/health", label: "Health", icon: "💚" },
   { href: "/recommender", label: "Recommender", icon: "✨" },
   { href: "/router", label: "Smart Router", icon: "🔀" },
+  { href: "/backup", label: "Backup", icon: "💾" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 

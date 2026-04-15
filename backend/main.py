@@ -11,36 +11,62 @@ from db.database import init_db
 from model_params import get_params
 from registry import ModelRegistry
 from routers import (
+    api_keys,
     arena,
+    backup,
+    badges,
+    batch_inference,
+    bench_presets,
+    bench_scheduler,
     benchmark,
     chat,
     chat_history,
+    chat_reactions,
+    chat_templates,
+    cost,
+    cron,
     dashboard,
     dflash,
     dflash_bench,
-    cost,
     diff,
     downloads,
     export,
+    global_search,
     groups,
+    health,
     heatmap,
     finetune,
     humaneval,
     metrics_ws,
+    model_changelog,
+    model_leaderboard,
+    model_size,
     models,
     notes,
+    notifications,
     optimizer,
     params,
+    perf_trends,
+    perplexity,
+    plugins,
     profiler_api,
     proxy,
     rag,
     recommender_api,
+    response_cache,
+    rss,
     schedules,
     settings,
     smart_router_api,
     status,
+    structured_output,
+    system_prompts,
     templates,
+    token_analytics,
+    token_counter,
+    uptime,
     webhooks,
+    webhook_templates,
 )
 from scheduler import run_scheduler
 
@@ -171,9 +197,35 @@ app.include_router(groups.router, prefix="/api")
 app.include_router(heatmap.router, prefix="/api")
 app.include_router(optimizer.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
 app.include_router(finetune.router, prefix="/api")
 app.include_router(rag.router, prefix="/api")
+app.include_router(api_keys.router, prefix="/api")
+app.include_router(backup.router, prefix="/api")
+app.include_router(badges.router, prefix="/api")
+app.include_router(batch_inference.router, prefix="/api")
+app.include_router(bench_presets.router, prefix="/api")
+app.include_router(bench_scheduler.router, prefix="/api")
+app.include_router(chat_reactions.router, prefix="/api")
+app.include_router(chat_templates.router, prefix="/api")
+app.include_router(cron.router, prefix="/api")
+app.include_router(global_search.router, prefix="/api")
+app.include_router(health.router, prefix="/api")
+app.include_router(model_changelog.router, prefix="/api")
+app.include_router(model_leaderboard.router, prefix="/api")
+app.include_router(model_size.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
+app.include_router(perf_trends.router, prefix="/api")
+app.include_router(perplexity.router, prefix="/api")
+app.include_router(plugins.router, prefix="/api")
+app.include_router(response_cache.router, prefix="/api")
+app.include_router(rss.router, prefix="/api")
+app.include_router(structured_output.router, prefix="/api")
+app.include_router(system_prompts.router, prefix="/api")
+app.include_router(token_analytics.router, prefix="/api")
+app.include_router(token_counter.router, prefix="/api")
+app.include_router(uptime.router, prefix="/api")
 app.include_router(metrics_ws.router)
 
 
