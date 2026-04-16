@@ -140,7 +140,6 @@ class OMLXAdminClient:
                 await self._ensure_session(client)
                 r = await client.post(
                     f"{self._base_url}/v1/models/{model_id}/unload",
-                    headers=self._headers(),
                     cookies=self._cookies,
                 )
                 return r.status_code in (200, 201, 204)
@@ -155,9 +154,10 @@ class OMLXAdminClient:
         """
         try:
             async with httpx.AsyncClient(timeout=600.0) as client:
+                await self._ensure_session(client)
                 r = await client.post(
                     f"{self._base_url}/v1/chat/completions",
-                    headers=self._headers(),
+                    cookies=self._cookies,
                     json={
                         "model": model_id,
                         "messages": [{"role": "user", "content": "hi"}],
