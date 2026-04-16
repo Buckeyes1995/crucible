@@ -78,8 +78,13 @@ async def list_presets() -> dict:
     }
 
 
+# 2KB of padding prepended to every SSE event so Cloudflare tunnels flush
+# the chunk immediately instead of buffering. SSE comment lines (":" prefix)
+# are ignored by clients but count toward the byte threshold.
+_SSE_PAD = ":" + (" " * 2048) + "\n"
+
 def _sse(event: str, **data) -> str:
-    return f"data: {json.dumps({'event': event, **data})}\n\n"
+    return _SSE_PAD + f"data: {json.dumps({'event': event, **data})}\n\n"
 
 
 async def _run_one(
