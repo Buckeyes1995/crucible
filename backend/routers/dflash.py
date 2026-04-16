@@ -59,8 +59,8 @@ async def toggle_dflash(model_id: str, body: DFlashToggle, request: Request) -> 
         draft_model=model.dflash_draft,
         draft_quant_bits=body.draft_quant_bits,
     )
-    if result is None:
-        raise HTTPException(502, "Failed to update oMLX settings")
+    if not result.get("ok"):
+        raise HTTPException(502, f"Failed to update oMLX settings: {result.get('error') or 'unknown'}")
 
     # Update the model's dflash_enabled in registry
     model.dflash_enabled = body.enabled

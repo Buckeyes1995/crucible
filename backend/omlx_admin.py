@@ -98,8 +98,14 @@ class OMLXAdminClient:
         enabled: bool,
         draft_model: Optional[str] = None,
         draft_quant_bits: Optional[int] = 4,
-    ) -> Optional[dict]:
-        """Enable or disable DFlash for a model."""
+    ) -> dict:
+        """Enable or disable DFlash for a model.
+
+        Returns {"ok": bool, "reload_required": bool, "response": dict|None, "error": str|None}.
+        oMLX applies the setting immediately but the actual DFlash state only
+        changes on next model reload, so callers must unload+reload to make it
+        take effect.
+        """
         payload: dict = {"dflash_enabled": enabled}
         if enabled and draft_model:
             payload["dflash_draft_model"] = draft_model
@@ -114,11 +120,52 @@ class OMLXAdminClient:
                     cookies=self._cookies,
                 )
                 if r.status_code == 200:
-                    return r.json()
+                    body = r.json()
+                    return {
+                        "ok": True,
+                        "reload_required": bool(body.get("reload_required") or body.get("reload_needed")),
+                        "response": body,
+                        "error": None,
+                    }
                 log.warning("oMLX set_dflash returned %d: %s", r.status_code, r.text[:200])
+                return {"ok": False, "reload_required": False, "response": None, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
         except Exception as e:
             log.warning("oMLX set_dflash failed: %s", e)
-        return None
+            return {"ok": False, "reload_required": False, "response": None, "error": str(e)}
+
+    async def unload(self, model_id: str) -> bool:
+        """Unload a model so the next request reloads it (needed after DFlash toggle)."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                await self._ensure_session(client)
+                r = await client.post(
+                    f"{self._base_url}/v1/models/{model_id}/unload",
+                    headers=self._headers(),
+                    cookies=self._cookies,
+                )
+                return r.status_code in (200, 201, 204)
+        except Exception as e:
+            log.warning("oMLX unload failed: %s", e)
+            return False
+
+    async def warmup(self, model_id: str) -> bool:
+        """Send a trivial completion to force-load the model; used after unload()."""
+        try:
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                r = await client.post(
+                    f"{self._base_url}/v1/chat/completions",
+                    headers=self._headers(),
+                    json={
+                        "model": model_id,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1,
+                        "temperature": 0.0,
+                    },
+                )
+                return r.status_code == 200
+        except Exception as e:
+            log.warning("oMLX warmup failed: %s", e)
+            return False
 
     async def get_dflash_status(self, model_id: str) -> dict:
         """Get DFlash status for a specific model."""
