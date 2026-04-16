@@ -11,8 +11,11 @@ bogus speedups):
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -138,148 +141,163 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
     prompts = body.prompts or BENCH_PROMPTS
     omlx = OMLXAdminClient(base_url=base_url, api_key=cfg.omlx_api_key)
 
+    async def _restore_previous(previously_loaded: list[str]):
+        """Background task: reload models that were loaded before the bench. Run after the stream closes."""
+        for mid in previously_loaded:
+            if mid == omlx_model_name:
+                continue  # bench already reloaded (or reset) the target
+            try:
+                await omlx.warmup(mid)
+            except Exception as e:
+                log.warning("Failed to restore %s: %s", mid, e)
+
     async def _stream():
         nonlocal model
+        previously_loaded: list[str] = []
 
-        yield _sse("start", model=model.name, prompts_count=len(prompts))
+        try:
+            yield _sse("start", model=model.name, prompts_count=len(prompts))
 
-        # ── Phase 0: ensure we have a draft ──────────────────────────────
-        if not model.dflash_draft:
-            yield _sse("stage", stage="resolving_draft", message="No local DFlash draft — checking z-lab…")
-            repos = await zlab.fetch_repos(force=False)
-            match = zlab.match_draft_for(model.name, repos)
-            if not match:
-                yield _sse("error", message=f"No DFlash draft available for {model.name} (not found on z-lab). Bench aborted.")
-                return
-            yield _sse("stage", stage="downloading_draft", message=f"Downloading {match} from HuggingFace…", repo_id=match)
-            job_id = download_manager.start_download(repo_id=match, dest_dir=cfg.mlx_dir, kind="mlx")
-            async for evt in _wait_for_download(job_id):
-                yield _sse(evt.pop("event"), **evt)
-                if evt.get("event") == "error":
+            # ── Phase -1: Clear memory. Record what's loaded, unload all. ─
+            yield _sse("stage", stage="clearing_memory", message="Recording currently loaded models…")
+            previously_loaded = await omlx.list_loaded_models()
+            if previously_loaded:
+                yield _sse("stage", stage="clearing_memory", message=f"Unloading {len(previously_loaded)} model(s): {', '.join(previously_loaded)}")
+                for mid in previously_loaded:
+                    await omlx.unload(mid)
+                await asyncio.sleep(2.0)
+
+            # ── Phase 0: ensure we have a draft ─────────────────────────
+            if not model.dflash_draft:
+                yield _sse("stage", stage="resolving_draft", message="No local DFlash draft — checking z-lab…")
+                repos = await zlab.fetch_repos(force=False)
+                match = zlab.match_draft_for(model.name, repos)
+                if not match:
+                    yield _sse("error", message=f"No DFlash draft available for {model.name} (not found on z-lab). Bench aborted.")
                     return
-            # Re-scan the registry and refetch our model so dflash_draft is populated
-            yield _sse("stage", stage="rescanning", message="Re-scanning model registry…")
-            await registry.refresh()
-            model = registry.get(body.model_id)
-            if not model or not model.dflash_draft:
-                yield _sse("error", message="Draft downloaded but not linked to base model — registry rescan did not find a match.")
+                yield _sse("stage", stage="downloading_draft", message=f"Downloading {match} from HuggingFace…", repo_id=match)
+                job_id = download_manager.start_download(repo_id=match, dest_dir=cfg.mlx_dir, kind="mlx")
+                async for evt in _wait_for_download(job_id):
+                    yield _sse(evt.pop("event"), **evt)
+                    if evt.get("event") == "error":
+                        return
+                yield _sse("stage", stage="rescanning", message="Re-scanning model registry…")
+                await registry.refresh()
+                model = registry.get(body.model_id)
+                if not model or not model.dflash_draft:
+                    yield _sse("error", message="Draft downloaded but not linked to base model — registry rescan did not find a match.")
+                    return
+                yield _sse("stage", stage="draft_ready", message=f"Draft ready: {Path(model.dflash_draft).name}")
+
+            results_normal: list[dict] = []
+            results_dflash: list[dict] = []
+
+            _last_reload_err = ""
+
+            async def _reload_and_warmup(label: str) -> bool:
+                nonlocal _last_reload_err
+                await omlx.unload(omlx_model_name)
+                await asyncio.sleep(0.5)
+                w = await omlx.warmup(omlx_model_name)
+                if w["ok"]:
+                    return True
+                err1 = w.get("error") or f"HTTP {w.get('status')}"
+                await asyncio.sleep(3.0)
+                w = await omlx.warmup(omlx_model_name)
+                if w["ok"]:
+                    return True
+                err2 = w.get("error") or f"HTTP {w.get('status')}"
+                _last_reload_err = f"{label}: first attempt: {err1[:200]}  |  retry: {err2[:200]}"
+                return False
+
+            # ── Phase 1: DFlash OFF ─────────────────────────────────────
+            yield _sse("phase", phase="normal", message="Configuring DFlash=off…")
+            r = await omlx.set_dflash(omlx_model_name, enabled=False)
+            if not r["ok"]:
+                yield _sse("error", message=f"Failed to disable DFlash: {r.get('error')}")
                 return
-            yield _sse("stage", stage="draft_ready", message=f"Draft ready: {Path(model.dflash_draft).name}")
 
-        results_normal: list[dict] = []
-        results_dflash: list[dict] = []
-
-        async def _reload_and_warmup(label: str) -> bool:
-            """Unload + warmup with one retry on transient failure. Yields via nonlocal events list; returns True on success."""
-            # First attempt
-            await omlx.unload(omlx_model_name)
-            await asyncio.sleep(0.5)
-            w = await omlx.warmup(omlx_model_name)
-            if w["ok"]:
-                return True
-            # Retry once — oMLX "settle barrier" timeouts are often transient while memory frees
-            err1 = w.get("error") or f"HTTP {w.get('status')}"
-            await asyncio.sleep(3.0)
-            w = await omlx.warmup(omlx_model_name)
-            if w["ok"]:
-                return True
-            err2 = w.get("error") or f"HTTP {w.get('status')}"
-            nonlocal _last_reload_err
-            _last_reload_err = f"{label}: first attempt: {err1[:200]}  |  retry: {err2[:200]}"
-            return False
-
-        _last_reload_err = ""
-
-        # ── Phase 1: DFlash OFF ──────────────────────────────────────────
-        # Check current state — if already loaded with DFlash off, skip the reload
-        initial_status = await omlx.get_dflash_status(omlx_model_name)
-        need_reload_off = initial_status.get("enabled", False) is True
-
-        yield _sse("phase", phase="normal", message="Configuring DFlash=off…")
-        r = await omlx.set_dflash(omlx_model_name, enabled=False)
-        if not r["ok"]:
-            yield _sse("error", message=f"Failed to disable DFlash: {r.get('error')}")
-            return
-
-        if need_reload_off:
-            yield _sse("stage", stage="reloading", message="Reloading model without DFlash…")
-            if not await _reload_and_warmup("phase=normal"):
-                yield _sse("error", message=f"Model warmup failed after DFlash=off reload — {_last_reload_err}")
-                return
-        else:
-            yield _sse("stage", stage="warming", message="Model already DFlash-off; warming up…")
+            yield _sse("stage", stage="warming", message="Loading model for Normal phase…")
             w = await omlx.warmup(omlx_model_name)
             if not w["ok"]:
                 yield _sse("error", message=f"Model warmup failed: {w.get('error')}")
                 return
 
-        for i, prompt in enumerate(prompts):
-            yield _sse("progress", phase="normal", prompt_index=i)
-            try:
-                m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
-                results_normal.append(m)
-                yield _sse("result", phase="normal", prompt_index=i, **m)
-            except Exception as e:
-                yield _sse("error", message=f"Normal run failed: {e}")
+            for i, prompt in enumerate(prompts):
+                yield _sse("progress", phase="normal", prompt_index=i)
+                try:
+                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
+                    results_normal.append(m)
+                    yield _sse("result", phase="normal", prompt_index=i, **m)
+                except Exception as e:
+                    yield _sse("error", message=f"Normal run failed: {e}")
+                    return
+
+            # ── Phase 2: DFlash ON ──────────────────────────────────────
+            yield _sse("phase", phase="dflash", message="Configuring DFlash=on…", draft=Path(model.dflash_draft).name)
+            r = await omlx.set_dflash(
+                omlx_model_name,
+                enabled=True,
+                draft_model=model.dflash_draft,
+                draft_quant_bits=4,
+            )
+            if not r["ok"]:
+                yield _sse("error", message=f"Failed to enable DFlash: {r.get('error')}")
+                return
+            yield _sse("stage", stage="reloading", message="Reloading model with DFlash enabled…")
+            if not await _reload_and_warmup("phase=dflash"):
+                yield _sse("error", message=f"Model warmup failed after DFlash=on reload — {_last_reload_err}. Draft may be incompatible, or oMLX couldn't free enough memory.")
+                await omlx.set_dflash(omlx_model_name, enabled=False)
                 return
 
-        # ── Phase 2: DFlash ON, reload, run ──────────────────────────────
-        yield _sse("phase", phase="dflash", message="Configuring DFlash=on…", draft=Path(model.dflash_draft).name)
-        r = await omlx.set_dflash(
-            omlx_model_name,
-            enabled=True,
-            draft_model=model.dflash_draft,
-            draft_quant_bits=4,
-        )
-        if not r["ok"]:
-            yield _sse("error", message=f"Failed to enable DFlash: {r.get('error')}")
-            return
-        yield _sse("stage", stage="reloading", message="Reloading model with DFlash enabled…")
-        if not await _reload_and_warmup("phase=dflash"):
-            yield _sse("error", message=f"Model warmup failed after DFlash=on reload — {_last_reload_err}. Draft may be incompatible, or oMLX couldn't free enough memory.")
-            await omlx.set_dflash(omlx_model_name, enabled=False)
-            return
-
-        # Verify DFlash actually took effect
-        status = await omlx.get_dflash_status(omlx_model_name)
-        if not status.get("enabled"):
-            yield _sse("error", message=f"DFlash toggle did not apply after reload (oMLX reports enabled={status.get('enabled')}). Aborting.")
-            await omlx.set_dflash(omlx_model_name, enabled=False)
-            return
-
-        for i, prompt in enumerate(prompts):
-            yield _sse("progress", phase="dflash", prompt_index=i)
-            try:
-                m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
-                results_dflash.append(m)
-                yield _sse("result", phase="dflash", prompt_index=i, **m)
-            except Exception as e:
-                yield _sse("error", message=f"DFlash run failed: {e}")
+            status = await omlx.get_dflash_status(omlx_model_name)
+            if not status.get("enabled"):
+                yield _sse("error", message=f"DFlash toggle did not apply after reload (oMLX reports enabled={status.get('enabled')}). Aborting.")
+                await omlx.set_dflash(omlx_model_name, enabled=False)
                 return
 
-        # Reset DFlash off after bench
-        await omlx.set_dflash(omlx_model_name, enabled=False)
+            for i, prompt in enumerate(prompts):
+                yield _sse("progress", phase="dflash", prompt_index=i)
+                try:
+                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
+                    results_dflash.append(m)
+                    yield _sse("result", phase="dflash", prompt_index=i, **m)
+                except Exception as e:
+                    yield _sse("error", message=f"DFlash run failed: {e}")
+                    return
 
-        # ── Summary ─────────────────────────────────────────────────────
-        def _avg(xs: list[float | None]) -> float:
-            vs = [x for x in xs if x]
-            return round(sum(vs) / len(vs), 2) if vs else 0.0
+            await omlx.set_dflash(omlx_model_name, enabled=False)
 
-        avg_normal = _avg([r["tps"] for r in results_normal])
-        avg_dflash = _avg([r["tps"] for r in results_dflash])
-        avg_normal_ttft = _avg([r["ttft_ms"] for r in results_normal])
-        avg_dflash_ttft = _avg([r["ttft_ms"] for r in results_dflash])
-        speedup = round(avg_dflash / avg_normal, 2) if avg_normal > 0 else 0
+            # ── Summary ─────────────────────────────────────────────────
+            def _avg(xs: list[float | None]) -> float:
+                vs = [x for x in xs if x]
+                return round(sum(vs) / len(vs), 2) if vs else 0.0
 
-        yield _sse(
-            "done",
-            model=model.name,
-            prompts_count=len(prompts),
-            normal={"avg_tps": avg_normal, "avg_ttft_ms": avg_normal_ttft, "results": results_normal},
-            dflash={"avg_tps": avg_dflash, "avg_ttft_ms": avg_dflash_ttft, "results": results_dflash},
-            speedup=speedup,
-            draft_used=Path(model.dflash_draft).name,
-        )
+            avg_normal = _avg([r["tps"] for r in results_normal])
+            avg_dflash = _avg([r["tps"] for r in results_dflash])
+            avg_normal_ttft = _avg([r["ttft_ms"] for r in results_normal])
+            avg_dflash_ttft = _avg([r["ttft_ms"] for r in results_dflash])
+            speedup = round(avg_dflash / avg_normal, 2) if avg_normal > 0 else 0
+
+            yield _sse(
+                "done",
+                model=model.name,
+                prompts_count=len(prompts),
+                normal={"avg_tps": avg_normal, "avg_ttft_ms": avg_normal_ttft, "results": results_normal},
+                dflash={"avg_tps": avg_dflash, "avg_ttft_ms": avg_dflash_ttft, "results": results_dflash},
+                speedup=speedup,
+                draft_used=Path(model.dflash_draft).name,
+            )
+        finally:
+            # Schedule cleanup as a background task so it survives stream cancellation.
+            async def _cleanup():
+                try:
+                    await omlx.set_dflash(omlx_model_name, enabled=False)
+                    await omlx.unload(omlx_model_name)
+                except Exception as e:
+                    log.warning("DFlash bench cleanup failed: %s", e)
+                await _restore_previous(previously_loaded)
+            asyncio.create_task(_cleanup())
 
     return StreamingResponse(
         _stream(),

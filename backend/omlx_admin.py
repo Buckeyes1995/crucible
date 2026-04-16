@@ -174,6 +174,22 @@ class OMLXAdminClient:
             log.warning("oMLX warmup failed: %s", e)
             return {"ok": False, "status": None, "error": str(e)}
 
+    async def list_loaded_models(self) -> list[str]:
+        """Return IDs of models oMLX currently has in memory (loaded=True)."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    f"{self._base_url}/v1/models/status",
+                    headers=self._bearer(),
+                )
+                if r.status_code != 200:
+                    return []
+                data = r.json()
+                return [m["id"] for m in data.get("models", []) if m.get("loaded")]
+        except Exception as e:
+            log.warning("oMLX list_loaded_models failed: %s", e)
+            return []
+
     async def get_dflash_status(self, model_id: str) -> dict:
         """Get DFlash status for a specific model."""
         settings = await self.get_model_settings(model_id)
