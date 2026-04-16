@@ -36,7 +36,8 @@ class DownloadManager:
         self._tasks: dict[str, asyncio.Task] = {}
 
     def load_persisted(self) -> None:
-        """Load jobs from disk on startup. In-flight jobs become cancelled."""
+        """Load jobs from disk on startup. In-flight jobs are flagged for
+        auto-resume — call resume_interrupted() once the event loop is running."""
         if not JOBS_FILE.exists():
             return
         try:
@@ -57,15 +58,32 @@ class DownloadManager:
                     downloaded_bytes=d.get("downloaded_bytes", 0),
                     local_dir=d.get("local_dir", ""),
                 )
-                # Jobs that were in-flight when we last shut down become cancelled
+                # In-flight jobs get re-queued so resume_interrupted() can respawn them.
+                # huggingface_hub.snapshot_download is content-addressed, so resuming
+                # is cheap — already-downloaded files are skipped.
                 if job.status in ("queued", "downloading"):
-                    job.status = "cancelled"
-                    job.error = "Interrupted by restart"
-                    job.finished_at = job.finished_at or time.time()
+                    job.status = "queued"
+                    job.message = "Queued for auto-resume after restart…"
+                    job.error = ""
+                    job.finished_at = None
                 self._jobs[job.job_id] = job
             log.info("Loaded %d download jobs from disk", len(self._jobs))
         except Exception as e:
             log.warning("Failed to load downloads.json: %s", e)
+
+    def resume_interrupted(self) -> int:
+        """Respawn tasks for any jobs left in "queued" state by load_persisted.
+        Must be called after the event loop is running. Returns count resumed."""
+        count = 0
+        for job in self._jobs.values():
+            if job.status == "queued" and job.job_id not in self._tasks:
+                log.info("Auto-resuming download %s (%s)", job.job_id, job.repo_id)
+                task = asyncio.create_task(self._run(job))
+                self._tasks[job.job_id] = task
+                count += 1
+        if count:
+            self._persist()
+        return count
 
     def _persist(self) -> None:
         """Save all jobs to disk."""

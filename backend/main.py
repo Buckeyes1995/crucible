@@ -127,6 +127,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     from hf_downloader import download_manager
     download_manager.load_persisted()
+    resumed = download_manager.resume_interrupted()
+    if resumed:
+        log.info("Auto-resumed %d interrupted download(s)", resumed)
     app.state.registry = ModelRegistry(app.state.config)
     await app.state.registry.refresh()
 
