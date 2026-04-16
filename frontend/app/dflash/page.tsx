@@ -143,6 +143,9 @@ export default function DFlashBenchPage() {
         <Bolt className="w-6 h-6 text-amber-400" />
         <h1 className="text-xl font-semibold text-zinc-100">DFlash Benchmark</h1>
         <span className="text-xs text-zinc-500">Compare speculative decoding speed</span>
+        <span className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-500">
+          debug: {models.length} models · phase={phase || "—"} · running={running ? "yes" : "no"} · stage={stageMsg.slice(0, 40)}
+        </span>
       </div>
 
       {/* Controls */}
