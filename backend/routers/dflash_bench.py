@@ -65,6 +65,9 @@ async def _run_one(
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         async with client.stream("POST", f"{base_url}/v1/chat/completions", json=payload, headers=headers) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode('utf-8', errors='replace')[:300]}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -83,6 +86,8 @@ async def _run_one(
                     continue
 
     t1 = time.monotonic()
+    if total_tokens == 0:
+        raise RuntimeError("Chat completion returned 0 tokens — model may not be ready or prompt rejected")
     ttft_ms = round((first_token_time - t0) * 1000, 2) if first_token_time else None
     gen_time = (t1 - first_token_time) if first_token_time else (t1 - t0)
     tps = round(total_tokens / gen_time, 2) if gen_time > 0 and total_tokens > 0 else None
