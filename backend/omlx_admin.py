@@ -133,14 +133,17 @@ class OMLXAdminClient:
             log.warning("oMLX set_dflash failed: %s", e)
             return {"ok": False, "reload_required": False, "response": None, "error": str(e)}
 
+    def _bearer(self) -> dict:
+        """Bearer-token headers for /v1/* endpoints (different from /admin/api/* cookie auth)."""
+        return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+
     async def unload(self, model_id: str) -> bool:
         """Unload a model so the next request reloads it (needed after DFlash toggle)."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                await self._ensure_session(client)
                 r = await client.post(
                     f"{self._base_url}/v1/models/{model_id}/unload",
-                    cookies=self._cookies,
+                    headers=self._bearer(),
                 )
                 return r.status_code in (200, 201, 204)
         except Exception as e:
@@ -154,10 +157,9 @@ class OMLXAdminClient:
         """
         try:
             async with httpx.AsyncClient(timeout=600.0) as client:
-                await self._ensure_session(client)
                 r = await client.post(
                     f"{self._base_url}/v1/chat/completions",
-                    cookies=self._cookies,
+                    headers=self._bearer(),
                     json={
                         "model": model_id,
                         "messages": [{"role": "user", "content": "hi"}],
