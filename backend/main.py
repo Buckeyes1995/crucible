@@ -67,6 +67,8 @@ from routers import (
     uptime,
     webhooks,
     webhook_templates,
+    hf_updates as hf_updates_router,
+    zlab as zlab_router,
 )
 from scheduler import run_scheduler
 
@@ -127,6 +129,30 @@ async def lifespan(app: FastAPI):
     download_manager.load_persisted()
     app.state.registry = ModelRegistry(app.state.config)
     await app.state.registry.refresh()
+
+    # Seed origin_repo from completed hf_downloader jobs, then kick off a
+    # non-blocking upstream check for all tracked models.
+    import hf_updates
+    hf_updates.seed_from_downloads(download_manager.list_jobs())
+    async def _initial_update_check():
+        try:
+            ids = [m.id for m in app.state.registry.all() if m.node == "local"]
+            newly = await hf_updates.check_models(ids)
+            if newly:
+                from routers import notifications as notif
+                for mid, info in newly.items():
+                    m = app.state.registry.get(mid)
+                    name = m.name if m else mid
+                    notif.push(
+                        title="Model update available",
+                        message=f"{name} has a new version on {info['origin_repo']}",
+                        type="info",
+                        link="/models",
+                    )
+        except Exception as e:
+            log.warning("initial hf update check failed: %s", e)
+    asyncio.create_task(_initial_update_check())
+
     app.state.active_adapter = None
     app.state.compare_adapter = None
     app.state.record_activity = record_activity
@@ -226,6 +252,8 @@ app.include_router(system_prompts.router, prefix="/api")
 app.include_router(token_analytics.router, prefix="/api")
 app.include_router(token_counter.router, prefix="/api")
 app.include_router(uptime.router, prefix="/api")
+app.include_router(zlab_router.router, prefix="/api")
+app.include_router(hf_updates_router.router, prefix="/api")
 app.include_router(metrics_ws.router)
 
 

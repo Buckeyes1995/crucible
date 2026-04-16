@@ -106,6 +106,53 @@ def scan_mlx(mlx_dir: str) -> list[ModelEntry]:
     return models
 
 
+def scan_vllm(vllm_dir: str) -> list[ModelEntry]:
+    """Scan a directory of HF-format model directories for vLLM.
+
+    Each subdir must contain config.json and at least one .safetensors or .bin
+    file. mlx-quantized dirs are skipped — vLLM-metal needs unquantized HF weights.
+    """
+    models = []
+    root = Path(vllm_dir).expanduser()
+    if not root.exists():
+        return models
+
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir():
+            continue
+        config_file = entry / "config.json"
+        if not config_file.exists():
+            continue
+        has_weights = any(entry.glob("*.safetensors")) or any(entry.glob("*.bin"))
+        if not has_weights:
+            continue
+
+        name = entry.name
+        model_id = f"vllm:{name}"
+        quant = _parse_quant_from_name(name)
+        ctx = _parse_context_from_mlx_config(config_file)
+        size = _dir_size(entry)
+
+        try:
+            meta = json.loads(config_file.read_text())
+            arch = meta.get("model_type", "")
+        except Exception:
+            arch = ""
+
+        models.append(ModelEntry(
+            id=model_id,
+            name=name,
+            kind="vllm",
+            path=str(entry),
+            size_bytes=size,
+            context_window=ctx,
+            quant=quant,
+            backend_meta={"arch": arch},
+        ))
+
+    return models
+
+
 def scan_gguf(gguf_dir: str) -> list[ModelEntry]:
     """
     Recursively find all .gguf files. Each file becomes its own ModelEntry so
@@ -259,6 +306,7 @@ class ModelRegistry:
     async def refresh(self) -> None:
         models: list[ModelEntry] = []
         models.extend(scan_mlx(self.config.mlx_dir))
+        models.extend(scan_vllm(self.config.vllm_dir))
         models.extend(scan_gguf(self.config.gguf_dir))
         models.extend(await scan_ollama(self.config.ollama_host))
         models.extend(await scan_mlx_studio(self.config.mlx_studio_url))

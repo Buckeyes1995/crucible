@@ -5,7 +5,7 @@ from typing import Optional, Any
 class ModelEntry(BaseModel):
     id: str
     name: str
-    kind: str  # "mlx" | "gguf" | "ollama"
+    kind: str  # "mlx" | "gguf" | "ollama" | "mlx_studio" | "vllm"
     path: Optional[str] = None
     size_bytes: Optional[int] = None
     context_window: Optional[int] = None
@@ -17,6 +17,12 @@ class ModelEntry(BaseModel):
     node: str = "local"            # "local" or remote node name
     dflash_draft: Optional[str] = None   # path to DFlash draft model (None = not eligible)
     dflash_enabled: bool = False         # whether DFlash is currently enabled in oMLX
+    available_draft_repo: Optional[str] = None  # z-lab HF repo ID for a matching draft not yet downloaded
+    origin_repo: Optional[str] = None            # HF repo we downloaded this from (user-editable)
+    update_available: bool = False               # upstream HF repo has been updated since we downloaded
+    upstream_last_modified: Optional[str] = None # ISO-8601 timestamp from HF
+    available_engines: list[str] = []    # engines capable of running this model (e.g. ["omlx","mlx_lm"])
+    preferred_engine: Optional[str] = None  # user-set engine preference; None = use default for kind
 
 
 class ChatMessage(BaseModel):

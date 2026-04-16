@@ -24,7 +24,7 @@ def _save(data: dict) -> None:
 
 
 def get_note(model_id: str) -> dict[str, Any]:
-    return _load().get(model_id, {"notes": "", "tags": [], "hidden": False})
+    return _load().get(model_id, {"notes": "", "tags": [], "hidden": False, "preferred_engine": None})
 
 
 def set_note(model_id: str, notes: str, tags: list[str]) -> dict[str, Any]:
@@ -34,6 +34,7 @@ def set_note(model_id: str, notes: str, tags: list[str]) -> dict[str, Any]:
         "notes": notes,
         "tags": [t.strip() for t in tags if t.strip()],
         "hidden": existing.get("hidden", False),
+        "preferred_engine": existing.get("preferred_engine"),
     }
     _save(data)
     return data[model_id]
@@ -46,6 +47,19 @@ def set_hidden(model_id: str, hidden: bool) -> dict[str, Any]:
     data[model_id] = existing
     _save(data)
     return existing
+
+
+def set_preferred_engine(model_id: str, engine: str | None) -> dict[str, Any]:
+    data = _load()
+    existing = data.get(model_id, {"notes": "", "tags": [], "hidden": False})
+    existing["preferred_engine"] = engine
+    data[model_id] = existing
+    _save(data)
+    return existing
+
+
+def all_preferred_engines() -> dict[str, str | None]:
+    return {mid: entry.get("preferred_engine") for mid, entry in _load().items()}
 
 
 def all_hidden() -> dict[str, bool]:

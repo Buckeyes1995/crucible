@@ -73,14 +73,19 @@ cd frontend && pnpm install
 
 ## Inference Backends
 
-| Backend | Kind string | How Crucible controls it | Default port |
-|---|---|---|---|
-| llama-server (llama.cpp) | `"gguf"` | subprocess | 8080 |
-| mlx_lm.server | `"mlx"` | subprocess | 8000 |
-| Ollama | `"ollama"` | external daemon, HTTP API | 11434 |
-| Remote Node | any (proxied) | HTTP proxy to remote Crucible | remote's port |
+| Backend | Kind string | Engine name | How Crucible controls it | Default port |
+|---|---|---|---|---|
+| oMLX | `"mlx"` | `omlx` | subprocess (launchd) | 8000 |
+| mlx_lm.server | `"mlx"` | `mlx_lm` | subprocess | 8010 |
+| vllm serve (vllm-metal) | `"vllm"` | `vllm` | subprocess | 8020 (compare 8021) |
+| llama-server (llama.cpp) | `"gguf"` | `llama_cpp` | subprocess | 8080 (compare 8081) |
+| Ollama | `"ollama"` | `ollama` | external daemon, HTTP API | 11434 |
+| MLX Studio | `"mlx_studio"` | `mlx_studio` | external HTTP | configured |
+| Remote Node | any (proxied) | — | HTTP proxy to remote Crucible | remote's port |
 
 **Never hardcode ports** — always use the adapter's `port` property which reads from config.
+
+**Preferred engine:** `kind="mlx"` can run on either `omlx` (default) or `mlx_lm`. Choice flows through `_resolve_engine` in `routers/models.py`: per-load `?engine=` override > `model_notes.preferred_engine` > first entry in `ENGINES_BY_KIND[kind]`. Stored per-model in `model_notes.json`. vLLM and GGUF map 1:1 to their engine, so the picker is hidden for those kinds.
 
 ## API Routes (FastAPI, port 7777)
 
@@ -129,10 +134,20 @@ GET  /api/params/defaults               # global default params
 PUT  /api/params/defaults               # save global defaults
 DELETE /api/params/defaults             # reset global defaults
 
-GET  /api/models/{id}/notes             # get model notes + tags
+GET  /api/models/{id}/notes             # get model notes + tags + preferred_engine
 PUT  /api/models/{id}/notes             # save model notes + tags
 PUT  /api/models/{id}/hidden            # set model hidden flag
+PUT  /api/models/{id}/preferred-engine  # set preferred engine for mlx models
 GET  /api/tags                          # all unique tags
+
+GET  /api/zlab/drafts                   # list z-lab DFlash draft repos (cached)
+POST /api/zlab/drafts/refresh           # force-refetch z-lab repo list from HF
+POST /api/zlab/drafts/download          # trigger HF download of a z-lab draft
+
+GET  /api/hf-updates                    # upstream update state for all tracked models
+POST /api/hf-updates/refresh            # re-check HF lastModified for all tracked models
+GET  /api/models/{id}/origin-repo       # get origin HF repo + last-checked state
+PUT  /api/models/{id}/origin-repo       # set origin HF repo (body: {repo_id})
 
 GET  /api/schedules                     # list switching rules
 POST /api/schedules                     # create rule
@@ -158,9 +173,13 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 {
   "mlx_dir":        "/Volumes/DataNVME/models/mlx",
   "gguf_dir":       "/Volumes/DataNVME/models/gguf",
+  "vllm_dir":       "/Volumes/DataNVME/models/vllm",
+  "vllm_bin":       "~/.venv-vllm-metal/bin/vllm",
+  "vllm_port":      8020,
+  "vllm_compare_port": 8021,
   "llama_server":   "~/.local/bin/llama-server",
   "llama_port":     8080,
-  "mlx_port":       8000,
+  "mlx_port":       8010,
   "ollama_host":    "http://localhost:11434",
   "default_model":  "",
   "bind_host":      "127.0.0.1",
@@ -176,10 +195,12 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 | `~/.config/crucible/config.json` | Main config |
 | `~/.config/crucible/model_params.json` | Per-model + global default inference parameters |
 | `~/.config/crucible/model_stats.json` | Persistent avg_tps per model (survives restarts) |
-| `~/.config/crucible/model_notes.json` | Notes, tags, and hidden flag per model |
+| `~/.config/crucible/model_notes.json` | Notes, tags, hidden flag, and `preferred_engine` per model |
 | `~/.config/crucible/schedules.json` | Scheduled switching rules |
 | `~/.config/crucible/prompt_templates.json` | Saved prompt templates (marketplace) |
 | `~/.config/crucible/crucible.db` | SQLite benchmark history |
+| `~/.config/crucible/zlab_drafts.json` | Cached z-lab HF repo list (6h TTL) |
+| `~/.config/crucible/hf_updates.json` | Per-model origin HF repo + upstream lastModified tracking |
 
 ## UI Design Language
 
@@ -207,6 +228,9 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 - **Proxy at `/v1/*`**: rewrites `"model"` field to `_server_model_id` (full path) before forwarding to mlx_lm.server
 - **Remote nodes**: models from remote Crucible instances have `node != "local"` and IDs prefixed `@node_name/`. Adapter routing checks `model.node` before `model.kind`. `backend_meta` internal fields (`_remote_*`) are stripped before serialization to the frontend.
 - **DFlash speculative decoding**: MLX models with a matching `*-DFlash` sibling directory are annotated with `dflash_draft` path. DFlash is toggled per-model via oMLX admin API (`PUT /admin/api/models/{id}/settings`). `dflash_enabled` state is read from oMLX's `~/.omlx/model_settings.json`. DFlash draft directories are hidden from the model list.
+- **vLLM models**: `kind="vllm"` models are HF-format safetensors (NOT mlx-community quantized dirs — vLLM-metal can't load those). Discovered from `config.vllm_dir`. Adapter shells out to `config.vllm_bin serve <path>` and polls `/v1/models` for readiness (up to 900s cold-start).
+- **z-lab tracker**: `zlab.py` caches the `z-lab` HF org repo list (6h TTL) and matches `{base}-DFlash` drafts to local base models via `match_draft_for()` (normalizes quant/format suffixes). Surfaced as `available_draft_repo` on `ModelEntry`, suppressed when `dflash_draft` is already set.
+- **HF update watcher**: `hf_updates.py` tracks per-model `origin_repo` + `downloaded_at`; on startup, `seed_from_downloads()` auto-fills from completed hf_downloader jobs (users set manually for pre-existing models via the Notes dialog). `check_models()` polls HF `lastModified` and flags `update_available=True` when upstream is newer. Newly-flagged updates push to the Notifications feed. `_annotate_hidden` in `routers/models.py` is the single source that stamps preferred_engine, available_draft_repo, origin_repo, update_available onto `ModelEntry`.
 
 ## Remote Access
 

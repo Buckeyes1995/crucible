@@ -11,8 +11,9 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 
 ## Features
 
-- **Model Registry** — auto-discovers MLX, GGUF, and Ollama models from configured directories
-- **Multi-Backend Inference** — pluggable adapter system supporting MLX-LM, llama.cpp, Ollama, and any external OpenAI-compatible server
+- **Model Registry** — auto-discovers MLX, GGUF, vLLM, and Ollama models from configured directories
+- **Multi-Backend Inference** — pluggable adapter system supporting oMLX, MLX-LM, vLLM (vllm-metal), llama.cpp, Ollama, and any external OpenAI-compatible server
+- **Preferred Engine per Model** — MLX models can run on oMLX or MLX-LM; pick a default per model and override per-load
 - **Live Metrics** — real-time WebSocket dashboard: generation tok/s, prompt eval tok/s, TTFT, memory pressure, thermal state
 - **Benchmarking** — multi-model, multi-prompt benchmarks with TTFT, throughput, p50/p90/p99 percentiles, memory and thermal tracking
 - **HumanEval** — 164-problem Python code generation benchmark with sandboxed execution and failure classification
@@ -22,6 +23,8 @@ A local LLM management and benchmarking web app for Apple Silicon. Discover, loa
 - **Per-Model Parameters** — temperature, max_tokens, top_k, top_p, min_p, repetition penalty, context window, TTL — saved per model
 - **Model Notes & Tags** — attach notes and tags to models for organization
 - **DFlash Speculative Decoding** — per-model toggle for block diffusion speculative decoding (oMLX 0.3.5+), 3-4x faster generation for eligible Qwen3/3.5 models
+- **z-lab DFlash Tracker** — watches the `z-lab` HuggingFace org for published draft models and surfaces a "Draft available" pill on matching base models; one-click download into your MLX dir
+- **HF Upstream Update Watcher** — tracks the HF origin repo for each local model, periodically compares against `lastModified`, and shows a "New version" pill + Notifications entry when an upstream update is available
 - **Webhooks** — fire-and-forget HTTP callbacks on `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`
 - **Remote Nodes** — connect multiple Crucible instances into a cluster; discover, load, chat, and benchmark models on remote machines
 - **OpenAI-Compatible Proxy** — `/v1/chat/completions` endpoint for external tool integration (opencode, aider, etc.)

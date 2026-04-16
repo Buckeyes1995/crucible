@@ -564,8 +564,62 @@ Analyzes model library for redundancy (multiple quants of same base), unused mod
 | `~/.config/crucible/config.json` | Main config |
 | `~/.config/crucible/model_params.json` | Per-model + global default inference parameters |
 | `~/.config/crucible/model_stats.json` | Persistent avg_tps per model |
-| `~/.config/crucible/model_notes.json` | Notes, tags, and hidden flag per model |
+| `~/.config/crucible/model_notes.json` | Notes, tags, hidden flag, and preferred_engine per model |
 | `~/.config/crucible/schedules.json` | Scheduled switching rules |
 | `~/.config/crucible/prompt_templates.json` | Saved system prompt templates |
 | `~/.config/crucible/finetune_jobs.json` | Fine-tune job definitions |
+| `~/.config/crucible/zlab_drafts.json` | Cached z-lab HF repo list (6h TTL) |
+| `~/.config/crucible/hf_updates.json` | Per-model origin HF repo + upstream lastModified state |
 | `~/.config/crucible/crucible.db` | SQLite benchmark history |
+
+---
+
+## Phase 7 — Engine Expansion & HF Watchers (Complete)
+
+### 1. vLLM Adapter (vllm-metal)
+
+- New `kind="vllm"` backend; models discovered from `config.vllm_dir` (HF-format safetensors — vLLM-metal cannot load mlx-quantized dirs)
+- `backend/adapters/vllm.py` — subprocess manager shelling out to `vllm serve <path> --port <port>`
+- OpenAI-compatible API polled at `/v1/models` for readiness (up to 900s cold-start to accommodate Metal kernel compile + weight load)
+- Ports: 8020 (default), 8021 (compare slot)
+- Cyan badge + "vLLM" filter button on the Models page
+- Install: `curl -fsSL https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh | bash`
+
+### 2. Preferred Engine per Model
+
+- `ENGINES_BY_KIND` map in `routers/models.py`: `mlx → [omlx, mlx_lm]`, `vllm → [vllm]`, `gguf → [llama_cpp]`, `ollama → [ollama]`, `mlx_studio → [mlx_studio]`
+- Per-model preference stored in `model_notes.json` as `preferred_engine`
+- Routing via `_resolve_engine(model, override)`: query-string `?engine=` override > notes preference > first available
+- `ModelEntry.available_engines` + `preferred_engine` surfaced to the frontend
+- Notes dialog gains an engine dropdown — only visible when `available_engines.length > 1` (today: MLX models only)
+- `/api/models/{id}/load?engine=<name>` supports ad-hoc overrides without changing the saved preference
+
+### 3. z-lab DFlash Draft Tracker
+
+- `backend/zlab.py` — fetches the `z-lab` HF org model list (https://huggingface.co/api/models?author=z-lab), caches in `~/.config/crucible/zlab_drafts.json` with 6h TTL
+- `match_draft_for(model_name, repos)` normalizes quant/format suffixes (`-8bit`, `-MXFP4`, `-MLX`, `-CRACK`, etc.) and looks for a `{base}-DFlash` z-lab repo
+- Annotated on `ModelEntry.available_draft_repo` only when no local `dflash_draft` already exists and kind ∈ {mlx, gguf, vllm}
+- Amber "Draft available" pill on the model card → click triggers `POST /api/zlab/drafts/download`, which uses the existing `hf_downloader` to pull the draft into `config.mlx_dir`
+- After download completes, the existing `find_dflash_draft()` picks up the new sibling dir and the pill flips to the DFlash toggle button
+
+### 4. HuggingFace Upstream Update Watcher
+
+- `backend/hf_updates.py` tracks per-model `origin_repo` + `downloaded_at` + `upstream_last_modified` in `~/.config/crucible/hf_updates.json`
+- `seed_from_downloads(jobs)` — on startup, auto-fills `origin_repo` from completed `hf_downloader` jobs
+- `check_models(ids)` — concurrent GET on `/api/models/{repo_id}` for each tracked model; flags `update_available` when upstream `lastModified` > our `downloaded_at`
+- Initial check fires as a background task on startup; full re-check on demand via `POST /api/hf-updates/refresh`
+- Newly-flagged updates push to the Notifications feed (producer pattern — reuses existing `notifications.push()`)
+- Frontend: sky-blue "New version" pill on the model card linking to `huggingface.co/{origin_repo}`, plus an editable "Origin HF repo" field in the Notes dialog for pre-existing models
+
+### 5. Schema Additions
+
+```python
+class ModelEntry:
+    # ... existing fields
+    available_engines: list[str]          # computed from kind
+    preferred_engine: str | None          # from model_notes.json
+    available_draft_repo: str | None      # z-lab matching draft repo
+    origin_repo: str | None               # HF repo we downloaded from
+    update_available: bool                # upstream is newer than our copy
+    upstream_last_modified: str | None    # ISO-8601 from HF
+```

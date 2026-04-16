@@ -9,10 +9,13 @@ from adapters.llama_cpp import LlamaCppAdapter
 from adapters.ollama import OllamaAdapter
 from adapters.external import ExternalAdapter, ManagedExternalAdapter
 from adapters.remote_node import RemoteNodeAdapter
+from adapters.vllm import VLLMAdapter
 from models.schemas import ModelEntry
 from clients import sync_all_clients
 import model_notes
 import webhooks as wh
+import zlab
+import hf_updates
 
 router = APIRouter()
 
@@ -46,14 +49,38 @@ def _load_omlx_dflash_state() -> dict[str, bool]:
     return {}
 
 
+ENGINES_BY_KIND: dict[str, list[str]] = {
+    "mlx": ["omlx", "mlx_lm"],
+    "vllm": ["vllm"],
+    "gguf": ["llama_cpp"],
+    "ollama": ["ollama"],
+    "mlx_studio": ["mlx_studio"],
+}
+
+
 def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
     hidden_map = model_notes.all_hidden()
+    pref_map = model_notes.all_preferred_engines()
     dflash_state = _load_omlx_dflash_state()
+    # z-lab match uses the cache only (no network here). Refresh endpoint below re-fetches.
+    zlab_repos = zlab._load_cache().get("repos", [])
+    updates_state = hf_updates.all_state()
     for m in models:
         m.hidden = hidden_map.get(m.id, False)
         m.backend_meta = _strip_internal_meta(m.backend_meta)
         if m.dflash_draft and m.name in dflash_state:
             m.dflash_enabled = dflash_state[m.name]
+        if m.node == "local":
+            m.available_engines = ENGINES_BY_KIND.get(m.kind, [])
+            m.preferred_engine = pref_map.get(m.id)
+            # Only surface available_draft_repo when there isn't already a local draft
+            if not m.dflash_draft and m.kind in ("mlx", "gguf", "vllm"):
+                m.available_draft_repo = zlab.match_draft_for(m.name, zlab_repos)
+            up = updates_state.get(m.id, {})
+            if up.get("origin_repo"):
+                m.origin_repo = up["origin_repo"]
+                m.update_available = bool(up.get("update_available"))
+                m.upstream_last_modified = up.get("upstream_last_modified")
     return models
 
 
@@ -66,6 +93,47 @@ async def list_models(request: Request) -> list[ModelEntry]:
 async def refresh_models(request: Request) -> list[ModelEntry]:
     await request.app.state.registry.refresh()
     return _annotate_hidden(request.app.state.registry.all())
+
+
+def _resolve_engine(model: ModelEntry, override: str | None) -> str:
+    """Pick which engine to use. Override wins; else preferred_engine; else first available."""
+    available = ENGINES_BY_KIND.get(model.kind, [])
+    if override and override in available:
+        return override
+    pref = model_notes.get_note(model.id).get("preferred_engine")
+    if pref and pref in available:
+        return pref
+    return available[0] if available else model.kind
+
+
+def _build_adapter(model: ModelEntry, config, engine: str, compare: bool) -> tuple[object | None, str | None]:
+    """Return (adapter, error_message). compare=True uses compare ports where applicable."""
+    if model.node != "local":
+        meta = model.backend_meta or {}
+        return RemoteNodeAdapter(
+            node_url=meta["_remote_url"],
+            remote_model_id=meta["_remote_model_id"],
+            api_key=meta.get("_remote_api_key", ""),
+        ), None
+    if engine == "omlx":
+        if config.mlx_external_url:
+            return ExternalAdapter(base_url=config.mlx_external_url), None
+        return OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir, api_key=config.omlx_api_key), None
+    if engine == "mlx_lm":
+        return MLXAdapter(port=config.mlx_port, python=config.mlx_python), None
+    if engine == "vllm":
+        port = config.vllm_compare_port if compare else config.vllm_port
+        return VLLMAdapter(port=port, vllm_bin=config.vllm_bin), None
+    if engine == "mlx_studio":
+        if not config.mlx_studio_url:
+            return None, "MLX Studio URL not configured in Settings"
+        return ManagedExternalAdapter(base_url=config.mlx_studio_url), None
+    if engine == "llama_cpp":
+        port = config.llama_compare_port if compare else config.llama_port
+        return LlamaCppAdapter(server_path=config.llama_server, port=port), None
+    if engine == "ollama":
+        return OllamaAdapter(host=config.ollama_host), None
+    return None, f"Unknown engine: {engine}"
 
 
 @router.post("/models/stop")
@@ -98,6 +166,9 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
     if not model:
         raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
 
+    engine_override = request.query_params.get("engine")
+    engine = _resolve_engine(model, engine_override)
+
     async def _stream():
         # Stop any currently running adapter
         current = request.app.state.active_adapter
@@ -105,33 +176,9 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
             await current.stop()
             request.app.state.active_adapter = None
 
-        # Build adapter for this model kind
-        if model.node != "local":
-            meta = model.backend_meta or {}
-            adapter = RemoteNodeAdapter(
-                node_url=meta["_remote_url"],
-                remote_model_id=meta["_remote_model_id"],
-                api_key=meta.get("_remote_api_key", ""),
-            )
-        elif model.kind == "mlx":
-            if config.mlx_external_url:
-                adapter = ExternalAdapter(base_url=config.mlx_external_url)
-            else:
-                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir, api_key=config.omlx_api_key)
-        elif model.kind == "mlx_studio":
-            if not config.mlx_studio_url:
-                yield _sse("error", {"data": {"message": "MLX Studio URL not configured in Settings"}})
-                return
-            adapter = ManagedExternalAdapter(base_url=config.mlx_studio_url)
-        elif model.kind == "gguf":
-            adapter = LlamaCppAdapter(
-                server_path=config.llama_server,
-                port=config.llama_port,
-            )
-        elif model.kind == "ollama":
-            adapter = OllamaAdapter(host=config.ollama_host)
-        else:
-            yield _sse("error", {"data": {"message": f"Unknown kind: {model.kind}"}})
+        adapter, err = _build_adapter(model, config, engine, compare=False)
+        if err:
+            yield _sse("error", {"data": {"message": err}})
             return
 
         async for evt in adapter.load(model):
@@ -166,6 +213,9 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
     if not model:
         raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
 
+    engine_override = request.query_params.get("engine")
+    engine = _resolve_engine(model, engine_override)
+
     async def _stream():
         # Stop any currently running compare adapter
         current = request.app.state.compare_adapter
@@ -173,33 +223,9 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
             await current.stop()
             request.app.state.compare_adapter = None
 
-        # Build adapter — GGUF gets separate compare port; MLX reuses oMLX; Ollama is always multi-model
-        if model.node != "local":
-            meta = model.backend_meta or {}
-            adapter = RemoteNodeAdapter(
-                node_url=meta["_remote_url"],
-                remote_model_id=meta["_remote_model_id"],
-                api_key=meta.get("_remote_api_key", ""),
-            )
-        elif model.kind == "mlx":
-            if config.mlx_external_url:
-                adapter = ExternalAdapter(base_url=config.mlx_external_url)
-            else:
-                adapter = OMLXAdapter(base_url="http://127.0.0.1:8000", model_dir=config.mlx_dir, api_key=config.omlx_api_key)
-        elif model.kind == "mlx_studio":
-            if not config.mlx_studio_url:
-                yield _sse("error", {"data": {"message": "MLX Studio URL not configured in Settings"}})
-                return
-            adapter = ManagedExternalAdapter(base_url=config.mlx_studio_url)
-        elif model.kind == "gguf":
-            adapter = LlamaCppAdapter(
-                server_path=config.llama_server,
-                port=config.llama_compare_port,
-            )
-        elif model.kind == "ollama":
-            adapter = OllamaAdapter(host=config.ollama_host)
-        else:
-            yield _sse("error", {"data": {"message": f"Unknown kind: {model.kind}"}})
+        adapter, err = _build_adapter(model, config, engine, compare=True)
+        if err:
+            yield _sse("error", {"data": {"message": err}})
             return
 
         async for evt in adapter.load(model):

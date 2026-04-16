@@ -129,7 +129,7 @@ export default function ModelsPage() {
           />
         </div>
         <div className="flex gap-1">
-          {([ ["all", "All"], ["mlx", "MLX"], ["gguf", "GGUF"], ["ollama", "Ollama"] ] as [string, string][]).map(([k, label]) => (
+          {([ ["all", "All"], ["mlx", "MLX"], ["vllm", "vLLM"], ["gguf", "GGUF"], ["ollama", "Ollama"] ] as [string, string][]).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setFilterKind(k)}
@@ -457,8 +457,8 @@ function ModelCard({
                 </button>
               </>
             )}
-            <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio"}>
-              {model.kind === "mlx_studio" ? "MLX Studio" : model.kind.toUpperCase()}
+            <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio" | "vllm"}>
+              {model.kind === "mlx_studio" ? "MLX Studio" : model.kind === "vllm" ? "vLLM" : model.kind.toUpperCase()}
             </Badge>
             {model.node && model.node !== "local" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 font-medium">
@@ -487,6 +487,34 @@ function ModelCard({
                 <Bolt className="w-3 h-3" />
                 DFlash
               </button>
+            )}
+            {!model.dflash_draft && model.available_draft_repo && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api.zlab.downloadDraft(model.available_draft_repo!);
+                    toast(`Downloading ${model.available_draft_repo} — check Downloads`, "success");
+                  } catch { toast("Failed to start draft download", "error"); }
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400/80 bg-amber-900/10 hover:bg-amber-900/30 hover:border-amber-500/50 font-medium flex items-center gap-0.5 transition-colors"
+                title={`z-lab draft available: ${model.available_draft_repo} — click to download`}
+              >
+                <Bolt className="w-3 h-3" />
+                Draft available
+              </button>
+            )}
+            {model.update_available && model.origin_repo && (
+              <a
+                href={`https://huggingface.co/${model.origin_repo}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-sky-500/40 text-sky-300 bg-sky-900/20 hover:bg-sky-900/40 font-medium flex items-center gap-0.5 transition-colors"
+                title={`Upstream ${model.origin_repo} updated ${model.upstream_last_modified ?? ""}`}
+              >
+                New version
+              </a>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
@@ -862,21 +890,40 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
 }) {
   const [notes, setNotes] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  const [preferredEngine, setPreferredEngine] = useState<string | null>(model.preferred_engine ?? null);
+  const [originRepo, setOriginRepo] = useState<string>(model.origin_repo ?? "");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const engines = model.available_engines ?? [];
+  const showEnginePicker = engines.length > 1;
 
   useEffect(() => {
     api.models.getNotes(model.id)
-      .then(d => { setNotes(d.notes); setTagsInput(d.tags.join(", ")); setLoading(false); })
+      .then((d: { notes: string; tags: string[]; preferred_engine?: string | null }) => {
+        setNotes(d.notes);
+        setTagsInput(d.tags.join(", "));
+        if (d.preferred_engine !== undefined) setPreferredEngine(d.preferred_engine ?? null);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
+    api.hfUpdates.getOriginRepo(model.id)
+      .then((s) => { if (s.origin_repo) setOriginRepo(s.origin_repo); })
+      .catch(() => {});
   }, [model.id]);
 
   const save = useCallback(async () => {
     const tags = tagsInput.split(",").map(t => t.trim()).filter(Boolean);
     const result = await api.models.setNotes(model.id, notes, tags);
+    if (showEnginePicker) {
+      await api.models.setPreferredEngine(model.id, preferredEngine);
+    }
+    const trimmed = originRepo.trim();
+    if (trimmed !== (model.origin_repo ?? "")) {
+      await api.hfUpdates.setOriginRepo(model.id, trimmed || null);
+    }
     onSaved(result);
     setSaved(true);
-  }, [model.id, notes, tagsInput, onSaved]);
+  }, [model.id, notes, tagsInput, onSaved, preferredEngine, showEnginePicker, originRepo, model.origin_repo]);
 
   return (
     <div
@@ -919,6 +966,33 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
                   className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
                 />
               </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Origin HF repo</label>
+                <input
+                  type="text"
+                  value={originRepo}
+                  onChange={e => { setOriginRepo(e.target.value); setSaved(false); }}
+                  placeholder="e.g. mlx-community/Qwen3-4B-Instruct-2507-MLX-4bit"
+                  className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500 font-mono text-[11px]"
+                />
+                <div className="text-[11px] text-zinc-500">Used to detect upstream updates. Auto-filled for models downloaded through Crucible.</div>
+              </div>
+              {showEnginePicker && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Preferred engine</label>
+                  <select
+                    value={preferredEngine ?? ""}
+                    onChange={e => { setPreferredEngine(e.target.value || null); setSaved(false); }}
+                    className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Default ({engines[0]})</option>
+                    {engines.map(e => (
+                      <option key={e} value={e}>{e}</option>
+                    ))}
+                  </select>
+                  <div className="text-[11px] text-zinc-500">Overridable per-load from the Load button.</div>
+                </div>
+              )}
             </>
           )}
         </div>

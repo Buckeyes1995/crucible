@@ -3,7 +3,7 @@ const BASE = "/api";
 export type ModelEntry = {
   id: string;
   name: string;
-  kind: "mlx" | "gguf" | "ollama" | "mlx_studio";
+  kind: "mlx" | "gguf" | "ollama" | "mlx_studio" | "vllm";
   path?: string;
   size_bytes?: number;
   context_window?: number;
@@ -15,6 +15,12 @@ export type ModelEntry = {
   node?: string;  // "local" or remote node name
   dflash_draft?: string;   // path to DFlash draft model (null = not eligible)
   dflash_enabled?: boolean; // whether DFlash is currently enabled
+  available_engines?: string[];       // engines capable of running this model
+  preferred_engine?: string | null;   // user-set engine preference
+  available_draft_repo?: string | null; // z-lab HF repo ID for an un-downloaded matching draft
+  origin_repo?: string | null;          // HF repo we downloaded this from
+  update_available?: boolean;           // upstream HF repo has been updated since we downloaded
+  upstream_last_modified?: string | null; // ISO-8601 from HF
 };
 
 export type ChatMessage = { role: string; content: string };
@@ -278,20 +284,40 @@ export const api = {
     list: () => get<ModelEntry[]>("/models"),
     refresh: () => post<ModelEntry[]>("/models/refresh"),
     stop: () => post<{ status: string }>("/models/stop"),
-    load: (id: string, signal?: AbortSignal) => stream(`/models/${encodeURIComponent(id)}/load`, {}, signal),
-    loadCompare: (id: string) => stream(`/models/${encodeURIComponent(id)}/load-compare`, {}),
+    load: (id: string, signal?: AbortSignal, engine?: string) => {
+      const qs = engine ? `?engine=${encodeURIComponent(engine)}` : "";
+      return stream(`/models/${encodeURIComponent(id)}/load${qs}`, {}, signal);
+    },
+    loadCompare: (id: string, engine?: string) => {
+      const qs = engine ? `?engine=${encodeURIComponent(engine)}` : "";
+      return stream(`/models/${encodeURIComponent(id)}/load-compare${qs}`, {});
+    },
     stopCompare: () => post<{ status: string }>("/models/compare/stop"),
     getParams: (id: string) => get<ModelParams>(`/models/${encodeURIComponent(id)}/params`),
     setParams: (id: string, params: ModelParams) => put<ModelParams>(`/models/${encodeURIComponent(id)}/params`, params),
     resetParams: (id: string) => del<{ status: string }>(`/models/${encodeURIComponent(id)}/params`),
-    getNotes: (id: string) => get<{ notes: string; tags: string[] }>(`/models/${encodeURIComponent(id)}/notes`),
+    getNotes: (id: string) => get<{ notes: string; tags: string[]; preferred_engine?: string | null }>(`/models/${encodeURIComponent(id)}/notes`),
     setNotes: (id: string, notes: string, tags: string[]) =>
       put<{ notes: string; tags: string[] }>(`/models/${encodeURIComponent(id)}/notes`, { notes, tags }),
     setHidden: (id: string, hidden: boolean) =>
       put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
+    setPreferredEngine: (id: string, engine: string | null) =>
+      put<{ preferred_engine: string | null }>(`/models/${encodeURIComponent(id)}/preferred-engine`, { engine }),
   },
   tags: {
     list: () => get<string[]>("/tags"),
+  },
+  zlab: {
+    listDrafts: () => get<{ cache: { fetched_at: number; age_seconds: number | null; repo_count: number; draft_count: number }; drafts: Array<{ id: string; lastModified: string; downloads: number; tags: string[] }>; all_repos: unknown[] }>("/zlab/drafts"),
+    refreshDrafts: () => post<{ cache: unknown; draft_count: number }>("/zlab/drafts/refresh"),
+    downloadDraft: (repo_id: string) => post<{ job_id: string; repo_id: string }>("/zlab/drafts/download", { repo_id }),
+  },
+  hfUpdates: {
+    list: () => get<{ state: Record<string, { origin_repo?: string; downloaded_at?: number; upstream_last_modified?: string; last_checked?: number; update_available?: boolean }>; update_available_count: number }>("/hf-updates"),
+    refresh: () => post<{ newly_flagged: string[]; state: Record<string, unknown> }>("/hf-updates/refresh"),
+    getOriginRepo: (id: string) => get<{ origin_repo?: string; downloaded_at?: number; upstream_last_modified?: string; last_checked?: number; update_available?: boolean }>(`/models/${encodeURIComponent(id)}/origin-repo`),
+    setOriginRepo: (id: string, repo_id: string | null) =>
+      put<{ origin_repo?: string }>(`/models/${encodeURIComponent(id)}/origin-repo`, { repo_id }),
   },
   schedules: {
     list: () => get<ScheduleRule[]>("/schedules"),

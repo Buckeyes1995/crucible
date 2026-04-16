@@ -177,3 +177,72 @@ Returns current config.
 
 ### PUT /api/settings
 Saves config. Body is partial config object — only provided keys are updated.
+
+---
+
+## Preferred Engine
+
+`ModelEntry` includes `available_engines: string[]` and `preferred_engine: string | null`. For `kind="mlx"`, the available engines are `["omlx", "mlx_lm"]`. For other kinds they map 1:1 to the backend.
+
+### PUT /api/models/{id}/preferred-engine
+Body: `{"engine": "omlx" | "mlx_lm" | null}`. `null` clears the preference.
+
+### POST /api/models/{id}/load?engine=<name>
+Optional `engine` query parameter overrides the saved preference for a single load. Same SSE contract as the base load route.
+
+---
+
+## z-lab DFlash Draft Tracker
+
+Polls the `z-lab` HuggingFace org for DFlash speculative-decoding draft models and surfaces matches for locally-installed base models. Cache TTL: 6h.
+
+### GET /api/zlab/drafts
+Returns the cached list.
+```json
+{
+  "cache": {"fetched_at": 1776300000, "age_seconds": 120, "repo_count": 32, "draft_count": 12},
+  "drafts": [{"id": "z-lab/Qwen3.5-27B-DFlash", "lastModified": "...", "downloads": 0, "tags": []}],
+  "all_repos": [...]
+}
+```
+
+### POST /api/zlab/drafts/refresh
+Force-refetches from HF.
+
+### POST /api/zlab/drafts/download
+Body: `{"repo_id": "z-lab/Qwen3.5-27B-DFlash"}`. Triggers an `hf_downloader` job into `config.mlx_dir`. Returns `{"job_id": "...", "repo_id": "..."}`.
+
+`ModelEntry.available_draft_repo` is populated when a matching z-lab draft exists AND there isn't already a local `dflash_draft` sibling dir.
+
+---
+
+## HuggingFace Upstream Update Watcher
+
+Tracks the origin HF repo for each local model and flags when upstream has been updated since download.
+
+### GET /api/hf-updates
+```json
+{
+  "state": {
+    "mlx:Qwen3-Coder-Next-MLX-6bit": {
+      "origin_repo": "mlx-community/Qwen3-Coder-Next-MLX-6bit",
+      "downloaded_at": 1776200000,
+      "upstream_last_modified": "2026-04-12T17:38:08.000Z",
+      "last_checked": 1776300000,
+      "update_available": false
+    }
+  },
+  "update_available_count": 0
+}
+```
+
+### POST /api/hf-updates/refresh
+Concurrently re-checks HF `lastModified` for every tracked model. Newly-flagged updates push entries to the Notifications feed.
+
+### GET /api/models/{id}/origin-repo
+Returns the single-model state object.
+
+### PUT /api/models/{id}/origin-repo
+Body: `{"repo_id": "mlx-community/..."}`. Passing `null` clears the entry. Origin repos are auto-populated at startup from completed `hf_downloader` jobs; set manually here for pre-existing models.
+
+`ModelEntry` fields `origin_repo`, `update_available`, and `upstream_last_modified` mirror the watcher state.

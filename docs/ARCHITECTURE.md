@@ -14,8 +14,15 @@ backend/
     base.py                 AbstractAdapter protocol
     llama_cpp.py            llama-server subprocess adapter
     mlx_lm.py               mlx_lm.server subprocess adapter
+    omlx.py                 oMLX HTTP adapter (managed via launchd)
+    vllm.py                 vllm serve subprocess adapter (vllm-metal)
     ollama.py               Ollama HTTP adapter
-    registry.py             unified model scan + model map
+    external.py             generic OpenAI-compat external server
+    remote_node.py          proxy to another Crucible instance
+  zlab.py                   z-lab HF org tracker (DFlash drafts)
+  hf_updates.py             per-model origin repo + upstream update watcher
+  model_notes.py            notes/tags/hidden/preferred_engine store
+  registry.py               unified model scan (scan_mlx / scan_vllm / scan_gguf / scan_ollama / scan_remote_node)
   benchmark/
     engine.py               orchestrates runs, collects metrics
     metrics.py              macOS memory/thermal sampling

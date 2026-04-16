@@ -19,6 +19,10 @@ class CrucibleConfig(BaseModel):
     llama_compare_port: int = 8081
     mlx_port: int = 8010
     mlx_python: str = "~/.venvs/mlx/bin/python"
+    vllm_dir: str = "/Volumes/DataNVME/models/vllm"
+    vllm_bin: str = "~/.venv-vllm-metal/bin/vllm"
+    vllm_port: int = 8020
+    vllm_compare_port: int = 8021
     # If set, Crucible uses this existing OpenAI-compatible server for MLX models
     # instead of spawning its own mlx_lm.server process.
     mlx_external_url: str = ""

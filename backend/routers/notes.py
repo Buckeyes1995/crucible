@@ -17,6 +17,10 @@ class HiddenPayload(BaseModel):
     hidden: bool
 
 
+class PreferredEnginePayload(BaseModel):
+    engine: str | None  # None clears the preference
+
+
 @router.get("/models/{model_id:path}/notes")
 async def get_notes(model_id: str) -> dict[str, Any]:
     return model_notes.get_note(model_id)
@@ -30,6 +34,11 @@ async def set_notes(model_id: str, payload: NotePayload) -> dict[str, Any]:
 @router.put("/models/{model_id:path}/hidden")
 async def set_hidden(model_id: str, payload: HiddenPayload) -> dict[str, Any]:
     return model_notes.set_hidden(model_id, payload.hidden)
+
+
+@router.put("/models/{model_id:path}/preferred-engine")
+async def set_preferred_engine(model_id: str, payload: PreferredEnginePayload) -> dict[str, Any]:
+    return model_notes.set_preferred_engine(model_id, payload.engine)
 
 
 @router.get("/tags")
