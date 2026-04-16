@@ -132,6 +132,12 @@ class OMLXAdminClient:
             payload["dflash_draft_model"] = draft_model
             if draft_quant_bits is not None:
                 payload["dflash_draft_quant_bits"] = draft_quant_bits
+        elif not enabled:
+            # Clear the stale draft path so oMLX doesn't still try to engage the
+            # DFlash engine (upstream bug: with dflash_enabled=false but
+            # dflash_draft_model populated, oMLX crashes with
+            # "Unsupported target model wrapper: NoneType" on load).
+            payload["dflash_draft_model"] = ""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await self._ensure_session(client)
