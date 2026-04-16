@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, readSSE, type ModelEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Bolt, Play, Loader2 } from "lucide-react";
+import { Bolt, Play, Loader2, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 type BenchResult = {
@@ -276,7 +276,13 @@ export default function DFlashBenchPage() {
       )}
 
       {error && (
-        <div className="px-3 py-2 rounded bg-red-900/30 border border-red-500/30 text-red-300 text-sm">{error}</div>
+        <div className="px-4 py-3 rounded-lg bg-red-900/30 border border-red-500/40 text-red-200 text-sm flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-medium text-red-300 mb-0.5">Benchmark failed</div>
+            <div className="text-red-200/90">{error}</div>
+          </div>
+        </div>
       )}
 
       {/* Results */}

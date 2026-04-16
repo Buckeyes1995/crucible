@@ -203,6 +203,32 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
         try:
             yield _sse("start", model=model.name, prompts_count=len(prompts))
 
+            # ── Pre-flight: refuse architectures known to crash dflash_mlx ───
+            # Qwen3-Next uses Qwen3NextGatedDeltaNet attention. dflash_mlx's
+            # speculative_call expects standard attributes (sharding_group,
+            # in_proj_qkv) that this layer class doesn't have — oMLX crashes
+            # on the DFlash-enabled reload. Fail fast with a clear message
+            # instead of running Phase 1 for 2 minutes and crashing Phase 2.
+            try:
+                import json as _json
+                cfg_path = Path(model.path) / "config.json" if model.path else None
+                if cfg_path and cfg_path.exists():
+                    arch_cfg = _json.loads(cfg_path.read_text())
+                    mtype = arch_cfg.get("model_type", "")
+                    if mtype == "qwen3_next":
+                        yield _sse(
+                            "error",
+                            message=(
+                                f"{model.name} uses the qwen3_next architecture (GatedDeltaNet attention), "
+                                "which is not yet supported by dflash_mlx. The z-lab draft exists but oMLX "
+                                "will crash on DFlash reload. Try Qwen3-Coder-30B-A3B or other standard-Qwen3 "
+                                "models instead. (Upstream: bstnxbt/dflash-mlx needs GatedDeltaNet support.)"
+                            ),
+                        )
+                        return
+            except Exception as e:
+                log.warning("DFlash compat precheck failed: %s", e)
+
             # ── Phase -1: Clear memory. Record what's loaded, unload all. ─
             yield _sse("stage", stage="clearing_memory", message="Recording currently loaded models…")
             previously_loaded = await omlx.list_loaded_models()
