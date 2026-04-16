@@ -103,6 +103,8 @@ async def analyze(registry: ModelRegistry, total_ram_gb: float = 96.0) -> dict:
                 recommendations.append({
                     "type": "redundant",
                     "model": m.name,
+                    "model_id": m.id,
+                    "kind": m.kind,
                     "reason": f"Same base as {biggest.name} but never used or benchmarked",
                     "action": "Consider removing to save {:.1f} GB".format(_gb(m.size_bytes)),
                     "priority": 1,
@@ -111,6 +113,8 @@ async def analyze(registry: ModelRegistry, total_ram_gb: float = 96.0) -> dict:
                 recommendations.append({
                     "type": "redundant",
                     "model": m.name,
+                    "model_id": m.id,
+                    "kind": m.kind,
                     "reason": f"Only {small_tps / big_tps:.1f}x faster than {biggest.name} but lower quality",
                     "action": "Benchmark both to decide which to keep",
                     "priority": 2,
@@ -124,6 +128,8 @@ async def analyze(registry: ModelRegistry, total_ram_gb: float = 96.0) -> dict:
             recommendations.append({
                 "type": "unused",
                 "model": m.name,
+                "model_id": m.id,
+                "kind": m.kind,
                 "reason": "Never used in chat or benchmarked",
                 "action": "Try it out or consider removing ({:.1f} GB)".format(_gb(m.size_bytes)),
                 "priority": 3,
@@ -136,6 +142,8 @@ async def analyze(registry: ModelRegistry, total_ram_gb: float = 96.0) -> dict:
             recommendations.append({
                 "type": "slow",
                 "model": m.name,
+                "model_id": m.id,
+                "kind": m.kind,
                 "reason": f"Avg {bench['avg_tps']} tok/s — very slow generation",
                 "action": "Consider a smaller quant or enabling DFlash if eligible",
                 "priority": 2,

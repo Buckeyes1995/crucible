@@ -303,6 +303,8 @@ export const api = {
       put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
     setPreferredEngine: (id: string, engine: string | null) =>
       put<{ preferred_engine: string | null }>(`/models/${encodeURIComponent(id)}/preferred-engine`, { engine }),
+    deleteFromDisk: (id: string) =>
+      del<{ deleted: string; model_id: string }>(`/models/${encodeURIComponent(id)}/disk`),
   },
   tags: {
     list: () => get<string[]>("/tags"),

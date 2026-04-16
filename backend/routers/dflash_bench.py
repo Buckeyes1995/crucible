@@ -26,11 +26,39 @@ from hf_downloader import download_manager
 
 router = APIRouter()
 
-BENCH_PROMPTS = [
-    "Explain the concept of gradient descent in machine learning.",
-    "Write a Python function to find the longest common subsequence of two strings.",
-    "What are the key differences between TCP and UDP? Give examples of when to use each.",
-]
+PROMPT_PRESETS: dict[str, dict] = {
+    "quick": {
+        "label": "Quick",
+        "description": "3 short prompts for a fast sanity check",
+        "max_tokens": 256,
+        "prompts": [
+            "Explain the concept of gradient descent in machine learning.",
+            "Write a Python function to find the longest common subsequence of two strings.",
+            "What are the key differences between TCP and UDP? Give examples of when to use each.",
+        ],
+    },
+    "agentic_coding": {
+        "label": "Agentic Coding",
+        "description": "Tasks that mimic real coding-agent workloads — refactors, debugging, tool use, long outputs. DFlash typically shines here.",
+        "max_tokens": 1024,
+        "prompts": [
+            "You are a coding agent. Implement a rate-limited async HTTP client in Python with exponential backoff, connection pooling, and typed response parsing. Include full type hints, docstrings, and a small usage example.",
+            "Given this buggy Python function, identify and fix the bugs. Explain each fix before showing the corrected code:\n```python\ndef flatten(xs):\n    result = []\n    for x in xs:\n        if isinstance(x, list):\n            result.extend(flatten(x))\n        else:\n            result.append(x)\n    return result\n\ndef dedup(xs):\n    seen = set()\n    return [x for x in xs if x not in seen and (seen.add(x) or True)]\n\ndef chunks(xs, n):\n    for i in range(0, len(xs), n):\n        yield xs[i:i+n+1]\n```",
+            "Refactor this React component to use hooks instead of a class, extract the fetch logic into a custom useUser hook, add proper loading/error states, and use AbortController for cancellation:\n```jsx\nclass UserProfile extends React.Component {\n  state = { user: null, loading: true };\n  componentDidMount() {\n    fetch(`/api/user/${this.props.id}`).then(r => r.json()).then(u => this.setState({user: u, loading: false}));\n  }\n  render() {\n    if (this.state.loading) return <div>Loading</div>;\n    return <div>{this.state.user.name}</div>;\n  }\n}\n```",
+            "Write a complete TypeScript implementation of a binary search tree with insert, search, delete, in-order traversal, and a method to balance the tree. Include JSDoc comments and a usage example demonstrating all operations.",
+            "Review this SQL query for a PostgreSQL 15 database, identify N+1 issues and missing indexes, then rewrite it for better performance. Explain each change:\n```sql\nSELECT u.name, (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) as order_count, (SELECT SUM(amount) FROM orders o WHERE o.user_id = u.id AND o.status = 'completed') as total_spent FROM users u WHERE u.created_at > '2024-01-01' ORDER BY total_spent DESC LIMIT 100;\n```",
+        ],
+    },
+    "long_form": {
+        "label": "Long-form Generation",
+        "description": "Single longer prompts — DFlash gains more as output length grows",
+        "max_tokens": 2048,
+        "prompts": [
+            "Write a detailed technical post-mortem for a hypothetical outage where a Redis cluster failover caused cascading failures in a payments microservice. Include timeline, root cause analysis, contributing factors, customer impact, and remediation items.",
+            "Explain the architecture of a modern LLM inference server (prefill/decode separation, KV cache, paged attention, speculative decoding) in depth, with diagrams described in ASCII and concrete examples of how each optimization affects throughput and latency.",
+        ],
+    },
+}
 
 
 class DFlashBenchRequest(BaseModel):
@@ -38,6 +66,16 @@ class DFlashBenchRequest(BaseModel):
     max_tokens: int = 512
     temperature: float = 0.7
     prompts: list[str] | None = None
+    preset: str | None = None  # "quick" | "agentic_coding" | "long_form" (overrides prompts/max_tokens)
+
+
+@router.get("/dflash/presets")
+async def list_presets() -> dict:
+    """Return available prompt presets for the DFlash bench."""
+    return {
+        k: {"label": v["label"], "description": v["description"], "max_tokens": v["max_tokens"], "count": len(v["prompts"])}
+        for k, v in PROMPT_PRESETS.items()
+    }
 
 
 def _sse(event: str, **data) -> str:
@@ -138,7 +176,14 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
     cfg = request.app.state.config
     base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
     omlx_model_name = model.name
-    prompts = body.prompts or BENCH_PROMPTS
+    # Resolve prompts + max_tokens from preset if provided, else explicit body, else quick default
+    if body.preset and body.preset in PROMPT_PRESETS:
+        preset = PROMPT_PRESETS[body.preset]
+        prompts = preset["prompts"]
+        effective_max_tokens = preset["max_tokens"]
+    else:
+        prompts = body.prompts or PROMPT_PRESETS["quick"]["prompts"]
+        effective_max_tokens = body.max_tokens
     omlx = OMLXAdminClient(base_url=base_url, api_key=cfg.omlx_api_key)
 
     async def _restore_previous(previously_loaded: list[str]):
@@ -226,7 +271,7 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
             for i, prompt in enumerate(prompts):
                 yield _sse("progress", phase="normal", prompt_index=i)
                 try:
-                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
+                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, effective_max_tokens)
                     results_normal.append(m)
                     yield _sse("result", phase="normal", prompt_index=i, **m)
                 except Exception as e:
@@ -259,7 +304,7 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
             for i, prompt in enumerate(prompts):
                 yield _sse("progress", phase="dflash", prompt_index=i)
                 try:
-                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, body.max_tokens)
+                    m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, effective_max_tokens)
                     results_dflash.append(m)
                     yield _sse("result", phase="dflash", prompt_index=i, **m)
                 except Exception as e:

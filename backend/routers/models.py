@@ -136,6 +136,54 @@ def _build_adapter(model: ModelEntry, config, engine: str, compare: bool) -> tup
     return None, f"Unknown engine: {engine}"
 
 
+@router.delete("/models/{model_id:path}/disk")
+async def delete_model_from_disk(model_id: str, request: Request) -> dict:
+    """Delete a model's files from disk. Only supports local mlx/gguf/vllm models.
+
+    Safety: the path must be under one of the configured model directories.
+    Active models are stopped first. Refuses for remote/ollama/mlx_studio kinds.
+    """
+    import shutil
+    from pathlib import Path
+
+    registry = request.app.state.registry
+    config = request.app.state.config
+    model = registry.get(model_id)
+    if not model:
+        raise HTTPException(404, f"Model not found: {model_id}")
+    if model.node != "local":
+        raise HTTPException(400, "Cannot delete remote-node models")
+    if model.kind not in ("mlx", "gguf", "vllm"):
+        raise HTTPException(400, f"Delete not supported for kind={model.kind}")
+    if not model.path:
+        raise HTTPException(400, "Model has no path on disk")
+
+    target = Path(model.path).resolve()
+    allowed_roots = [
+        Path(config.mlx_dir).expanduser().resolve(),
+        Path(config.gguf_dir).expanduser().resolve(),
+        Path(config.vllm_dir).expanduser().resolve(),
+    ]
+    if not any(str(target).startswith(str(root) + "/") or target == root for root in allowed_roots):
+        raise HTTPException(400, f"Refusing to delete path outside configured model dirs: {target}")
+
+    # Stop the model if it's the active adapter
+    current = request.app.state.active_adapter
+    if current and current.model_id == model_id:
+        await current.stop()
+        request.app.state.active_adapter = None
+
+    if target.is_dir():
+        shutil.rmtree(target)
+    elif target.is_file():
+        target.unlink()
+    else:
+        raise HTTPException(404, f"Path does not exist on disk: {target}")
+
+    await registry.refresh()
+    return {"deleted": str(target), "model_id": model_id}
+
+
 @router.post("/models/stop")
 async def stop_model(request: Request) -> dict:
     adapter = request.app.state.active_adapter

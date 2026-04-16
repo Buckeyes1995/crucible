@@ -22,9 +22,13 @@ type BenchSummary = {
   speedup: number;
 };
 
+type PresetInfo = { label: string; description: string; max_tokens: number; count: number };
+
 export default function DFlashBenchPage() {
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [presets, setPresets] = useState<Record<string, PresetInfo>>({});
+  const [selectedPreset, setSelectedPreset] = useState<string>("quick");
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<string>("");
   const [step, setStep] = useState(0);
@@ -42,6 +46,7 @@ export default function DFlashBenchPage() {
       setModels(eligible);
       if (eligible.length > 0) setSelectedModel(eligible[0].id);
     });
+    fetch(`/api/dflash/presets`).then(r => r.json()).then(setPresets).catch(() => {});
   }, []);
 
   async function runBenchmark() {
@@ -59,7 +64,7 @@ export default function DFlashBenchPage() {
       const resp = await fetch("/api/dflash/benchmark", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_id: selectedModel, max_tokens: 512, temperature: 0.7 }),
+        body: JSON.stringify({ model_id: selectedModel, preset: selectedPreset, temperature: 0.7 }),
       });
       await readSSE(resp, (data) => {
         const event = data.event as string;
@@ -133,24 +138,53 @@ export default function DFlashBenchPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-4 p-4 rounded-2xl border border-white/[0.06] bg-zinc-900/40 backdrop-blur">
-        <select
-          className="flex-1 bg-zinc-800 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-200"
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          disabled={running}
-        >
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
-        <Button onClick={runBenchmark} disabled={running || !selectedModel} variant="primary" className="gap-2 min-w-[160px]">
-          {running ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> {phase === "dflash" ? "DFlash…" : "Normal…"}</>
-          ) : (
-            <><Play className="w-4 h-4" /> Run Benchmark</>
-          )}
-        </Button>
+      <div className="p-4 rounded-2xl border border-white/[0.06] bg-zinc-900/40 backdrop-blur space-y-3">
+        <div className="flex items-center gap-4">
+          <select
+            className="flex-1 bg-zinc-800 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-200"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            disabled={running}
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+          <Button onClick={runBenchmark} disabled={running || !selectedModel} variant="primary" className="gap-2 min-w-[160px]">
+            {running ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> {phase === "dflash" ? "DFlash…" : "Normal…"}</>
+            ) : (
+              <><Play className="w-4 h-4" /> Run Benchmark</>
+            )}
+          </Button>
+        </div>
+
+        {Object.keys(presets).length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Prompt preset</div>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(presets).map(([key, info]) => (
+                <button
+                  key={key}
+                  onClick={() => setSelectedPreset(key)}
+                  disabled={running}
+                  className={cn(
+                    "text-left p-3 rounded-lg border transition-colors",
+                    selectedPreset === key
+                      ? "border-amber-500/50 bg-amber-900/20"
+                      : "border-white/[0.06] bg-zinc-800/40 hover:border-white/[0.12]"
+                  )}
+                >
+                  <div className="text-sm font-medium text-zinc-100">{info.label}</div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2">{info.description}</div>
+                  <div className="text-[10px] text-zinc-600 font-mono mt-1.5">
+                    {info.count} prompt{info.count === 1 ? "" : "s"} · {info.max_tokens} max tokens
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Live progress panel */}

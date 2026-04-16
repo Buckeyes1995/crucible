@@ -122,9 +122,20 @@ export default function Benchmark2Page() {
     });
   }, [selectedModels[0]]);
 
-  // Pre-select active model
+  // Pre-select from ?models=<id>[,<id>] query param, else active model
   useEffect(() => {
-    if (activeModelId && selectedModels.length === 0) {
+    if (selectedModels.length > 0) return;
+    if (typeof window !== "undefined") {
+      const qp = new URLSearchParams(window.location.search).get("models");
+      if (qp) {
+        const ids = qp.split(",").map(s => s.trim()).filter(Boolean);
+        if (ids.length > 0) {
+          setSelectedModels(ids);
+          return;
+        }
+      }
+    }
+    if (activeModelId) {
       setSelectedModels([activeModelId]);
     }
   }, [activeModelId]);

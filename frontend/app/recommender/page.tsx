@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Sparkles, AlertTriangle, Info, Lightbulb, Trash2, Zap, Clock, RefreshCw } from "lucide-react";
+import { api } from "@/lib/api";
+import { Sparkles, AlertTriangle, Info, Lightbulb, Trash2, Zap, Clock, RefreshCw, FlaskConical } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 const BASE = "/api";
@@ -11,6 +13,8 @@ const BASE = "/api";
 type Recommendation = {
   type: string;
   model: string;
+  model_id?: string;
+  kind?: string;
   reason: string;
   action: string;
   priority: number;
@@ -46,8 +50,12 @@ const INSIGHT_ICONS: Record<string, React.ReactNode> = {
 const PIE_COLORS = ["#6366f1", "#f59e0b", "#ef4444", "#8b5cf6"];
 
 export default function RecommenderPage() {
+  const router = useRouter();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<Recommendation | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -55,6 +63,26 @@ export default function RecommenderPage() {
       .then((r) => r.json())
       .then(setAnalysis)
       .finally(() => setLoading(false));
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete?.model_id) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.models.deleteFromDisk(pendingDelete.model_id);
+      setPendingDelete(null);
+      load();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function openBenchmark(rec: Recommendation) {
+    if (!rec.model_id) return;
+    router.push(`/benchmark2?models=${encodeURIComponent(rec.model_id)}`);
   }
 
   useEffect(() => { load(); }, []);
@@ -145,15 +173,37 @@ export default function RecommenderPage() {
           </h2>
           {analysis.recommendations.map((rec, i) => {
             const style = TYPE_STYLES[rec.type] ?? TYPE_STYLES.unused;
+            const canAct = Boolean(rec.model_id);
+            const deletable = canAct && (rec.kind === "mlx" || rec.kind === "gguf" || rec.kind === "vllm");
             return (
               <div key={i} className={cn("flex items-start gap-3 px-4 py-3 rounded-lg border", style.border, style.bg)}>
                 {style.icon}
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-zinc-200">{rec.model}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-zinc-200 truncate">{rec.model}</div>
                   <div className="text-xs text-zinc-500 mt-0.5">{rec.reason}</div>
                   <div className="text-xs text-indigo-400 mt-1">{rec.action}</div>
+                  {canAct && (
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        variant="ghost"
+                        className="gap-1 text-xs h-7 px-2"
+                        onClick={() => openBenchmark(rec)}
+                      >
+                        <FlaskConical className="w-3 h-3" /> Benchmark
+                      </Button>
+                      {deletable && (
+                        <Button
+                          variant="ghost"
+                          className="gap-1 text-xs h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                          onClick={() => setPendingDelete(rec)}
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete from disk
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 capitalize">{rec.type}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 capitalize shrink-0">{rec.type}</span>
               </div>
             );
           })}
@@ -163,6 +213,39 @@ export default function RecommenderPage() {
       {analysis.recommendations.length === 0 && (
         <div className="text-center py-8 text-zinc-500">
           Your model library looks great! No recommendations at this time.
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setPendingDelete(null); }}
+        >
+          <div className="bg-zinc-900 border border-red-500/30 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <Trash2 className="w-5 h-5 text-red-400" />
+              <h2 className="text-base font-semibold text-zinc-100">Delete model from disk?</h2>
+            </div>
+            <p className="text-sm text-zinc-400">
+              Permanently remove <span className="font-mono text-zinc-200">{pendingDelete.model}</span> from the filesystem?
+              This cannot be undone. If the model is currently loaded, it will be unloaded first.
+            </p>
+            {deleteError && (
+              <div className="mt-3 px-3 py-2 rounded bg-red-900/30 border border-red-500/30 text-red-300 text-xs">{deleteError}</div>
+            )}
+            <div className="flex justify-end gap-2 mt-5">
+              <Button variant="secondary" size="sm" onClick={() => setPendingDelete(null)} disabled={deleting}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
