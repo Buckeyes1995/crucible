@@ -148,8 +148,11 @@ class OMLXAdminClient:
             log.warning("oMLX unload failed: %s", e)
             return False
 
-    async def warmup(self, model_id: str) -> bool:
-        """Send a trivial completion to force-load the model; used after unload()."""
+    async def warmup(self, model_id: str) -> dict:
+        """Send a trivial completion to force-load the model; used after unload().
+
+        Returns {"ok": bool, "status": int|None, "error": str|None}.
+        """
         try:
             async with httpx.AsyncClient(timeout=600.0) as client:
                 r = await client.post(
@@ -162,10 +165,12 @@ class OMLXAdminClient:
                         "temperature": 0.0,
                     },
                 )
-                return r.status_code == 200
+                if r.status_code == 200:
+                    return {"ok": True, "status": 200, "error": None}
+                return {"ok": False, "status": r.status_code, "error": r.text[:400]}
         except Exception as e:
             log.warning("oMLX warmup failed: %s", e)
-            return False
+            return {"ok": False, "status": None, "error": str(e)}
 
     async def get_dflash_status(self, model_id: str) -> dict:
         """Get DFlash status for a specific model."""
