@@ -16,10 +16,12 @@ log = logging.getLogger(__name__)
 def find_dflash_draft(model_path: str, mlx_dir: str) -> Optional[str]:
     """Find a matching DFlash draft model for a given MLX model path.
 
-    Matching rules (in order):
-      1. Exact: <model_dir>-DFlash exists
-      2. Strip quant suffix: "Foo-MLX-6bit" → "Foo-DFlash"
-      3. Strip "-MLX-*" or "-Instruct-*" suffixes and try "-DFlash"
+    Matching strategy:
+      1. Try exact `<model_dir>-DFlash` and a few common suffix-strips (fast path).
+      2. Fall back to normalized matching using the same suffix-stripping that
+         zlab.match_draft_for uses (quant / format / marketing tags), so a base
+         like `Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-6bit` links to a draft
+         named `Qwen3.5-27B-DFlash`.
     """
     if not model_path or not mlx_dir:
         return None
@@ -27,19 +29,15 @@ def find_dflash_draft(model_path: str, mlx_dir: str) -> Optional[str]:
     mlx_root = Path(mlx_dir)
     name = model_dir.name
 
-    # Candidate names to try
-    candidates = [f"{name}-DFlash"]
-
-    # Strip common suffixes: -MLX-6bit, -MLX-4bit, -8bit, -4bit, -Instruct-MLX-4bit, etc.
     import re
+    # Fast path — exact + simple suffix strips
+    candidates = [f"{name}-DFlash"]
     stripped = re.sub(r"(-MLX)?-\d+bit$", "", name)
     if stripped != name:
         candidates.append(f"{stripped}-DFlash")
-
     stripped2 = re.sub(r"-Instruct(-MLX)?-\d+bit$", "", name)
     if stripped2 != name and stripped2 != stripped:
         candidates.append(f"{stripped2}-DFlash")
-
     stripped3 = re.sub(r"-MLX-\w+$", "", name)
     if stripped3 != name and stripped3 not in (stripped, stripped2):
         candidates.append(f"{stripped3}-DFlash")
@@ -48,6 +46,27 @@ def find_dflash_draft(model_path: str, mlx_dir: str) -> Optional[str]:
         draft_path = mlx_root / candidate
         if draft_path.is_dir() and (draft_path / "config.json").exists():
             return str(draft_path)
+
+    # Slow path — normalized matching against every -DFlash dir in mlx_root.
+    # Shares logic with zlab._norm so pill visibility and registry linking agree.
+    try:
+        import zlab
+        norm_base = zlab._norm(name)
+        if not norm_base:
+            return None
+        for entry in mlx_root.iterdir():
+            if not entry.is_dir() or not entry.name.endswith("-DFlash"):
+                continue
+            if not (entry / "config.json").exists():
+                continue
+            draft_stripped = re.sub(r"-dflash(-[a-z0-9]+)?$", "", entry.name.lower())
+            draft_norm = zlab._norm(draft_stripped)
+            if not draft_norm:
+                continue
+            if norm_base == draft_norm or norm_base.startswith(draft_norm + "-") or norm_base.startswith(draft_norm):
+                return str(entry)
+    except Exception:
+        pass
     return None
 
 
