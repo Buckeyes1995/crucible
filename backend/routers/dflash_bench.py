@@ -265,21 +265,49 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
 
             _last_reload_err = ""
 
-            async def _reload_and_warmup(label: str) -> bool:
+            async def _warmup_with_heartbeat(stage: str, base_msg: str):
+                """Run warmup in a background task and yield heartbeat SSE events every 2s.
+                Yields dict events; final event has key 'result' carrying the warmup dict."""
+                t0 = time.monotonic()
+                task = asyncio.create_task(omlx.warmup(omlx_model_name))
+                while not task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        elapsed = int(time.monotonic() - t0)
+                        yield {"stage": stage, "message": f"{base_msg} ({elapsed}s)"}
+                result = await task
+                yield {"stage": stage, "message": f"{base_msg} — done in {time.monotonic() - t0:.1f}s", "result": result}
+
+            async def _reload_and_warmup(label: str, stage: str, msg: str):
+                """Unload + warmup with heartbeats, one retry. Yields SSE events; last has 'ok' key."""
                 nonlocal _last_reload_err
                 await omlx.unload(omlx_model_name)
                 await asyncio.sleep(0.5)
-                w = await omlx.warmup(omlx_model_name)
-                if w["ok"]:
-                    return True
-                err1 = w.get("error") or f"HTTP {w.get('status')}"
+                async for evt in _warmup_with_heartbeat(stage, msg):
+                    if "result" in evt:
+                        w = evt.pop("result")
+                        if w["ok"]:
+                            yield {"stage": stage, "message": evt["message"], "ok": True}
+                            return
+                        err1 = w.get("error") or f"HTTP {w.get('status')}"
+                    else:
+                        yield evt
+                # retry
+                yield {"stage": stage, "message": f"{msg} — retrying after 3s…"}
                 await asyncio.sleep(3.0)
-                w = await omlx.warmup(omlx_model_name)
-                if w["ok"]:
-                    return True
-                err2 = w.get("error") or f"HTTP {w.get('status')}"
-                _last_reload_err = f"{label}: first attempt: {err1[:200]}  |  retry: {err2[:200]}"
-                return False
+                async for evt in _warmup_with_heartbeat(stage, msg + " (retry)"):
+                    if "result" in evt:
+                        w = evt.pop("result")
+                        if w["ok"]:
+                            yield {"stage": stage, "message": evt["message"], "ok": True}
+                            return
+                        err2 = w.get("error") or f"HTTP {w.get('status')}"
+                        _last_reload_err = f"{label}: first: {err1[:200]}  |  retry: {err2[:200]}"
+                        yield {"stage": stage, "message": "warmup failed", "ok": False}
+                        return
+                    else:
+                        yield evt
 
             # ── Phase 1: DFlash OFF ─────────────────────────────────────
             yield _sse("phase", phase="normal", message="Configuring DFlash=off…")
@@ -288,14 +316,23 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
                 yield _sse("error", message=f"Failed to disable DFlash: {r.get('error')}")
                 return
 
-            yield _sse("stage", stage="warming", message="Loading model for Normal phase…")
-            w = await omlx.warmup(omlx_model_name)
-            if not w["ok"]:
-                yield _sse("error", message=f"Model warmup failed: {w.get('error')}")
+            model_size_gb = (model.size_bytes or 0) / (1024 ** 3)
+            size_hint = f" ({model_size_gb:.0f}GB)" if model_size_gb > 1 else ""
+            phase1_msg = f"Loading {model.name}{size_hint} for Normal phase"
+            warmup_ok = False
+            async for evt in _warmup_with_heartbeat("warming", phase1_msg):
+                if "result" in evt:
+                    w = evt.pop("result")
+                    warmup_ok = w["ok"]
+                    if not warmup_ok:
+                        yield _sse("error", message=f"Model warmup failed: {w.get('error')}")
+                        return
+                yield _sse("stage", stage=evt["stage"], message=evt["message"])
+            if not warmup_ok:
                 return
 
             for i, prompt in enumerate(prompts):
-                yield _sse("progress", phase="normal", prompt_index=i)
+                yield _sse("progress", phase="normal", prompt_index=i, message=f"Normal prompt {i+1}/{len(prompts)} generating…")
                 try:
                     m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, effective_max_tokens)
                     results_normal.append(m)
@@ -315,8 +352,15 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
             if not r["ok"]:
                 yield _sse("error", message=f"Failed to enable DFlash: {r.get('error')}")
                 return
-            yield _sse("stage", stage="reloading", message="Reloading model with DFlash enabled…")
-            if not await _reload_and_warmup("phase=dflash"):
+            phase2_msg = f"Reloading {model.name}{size_hint} with DFlash enabled"
+            reload_ok = False
+            async for evt in _reload_and_warmup("phase=dflash", "reloading", phase2_msg):
+                if "ok" in evt:
+                    reload_ok = evt["ok"]
+                    yield _sse("stage", stage=evt["stage"], message=evt["message"])
+                else:
+                    yield _sse("stage", stage=evt["stage"], message=evt["message"])
+            if not reload_ok:
                 yield _sse("error", message=f"Model warmup failed after DFlash=on reload — {_last_reload_err}. Draft may be incompatible, or oMLX couldn't free enough memory.")
                 await omlx.set_dflash(omlx_model_name, enabled=False)
                 return
@@ -328,7 +372,7 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
                 return
 
             for i, prompt in enumerate(prompts):
-                yield _sse("progress", phase="dflash", prompt_index=i)
+                yield _sse("progress", phase="dflash", prompt_index=i, message=f"DFlash prompt {i+1}/{len(prompts)} generating…")
                 try:
                     m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, body.temperature, effective_max_tokens)
                     results_dflash.append(m)

@@ -5,7 +5,7 @@ import { api, readSSE, type ModelEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Bolt, Play, Loader2, AlertTriangle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 
 type BenchResult = {
   tps: number | null;
@@ -200,14 +200,31 @@ export default function DFlashBenchPage() {
       {/* Live progress panel */}
       {running && (
         <div className="space-y-3 p-4 rounded-2xl border border-white/[0.06] bg-zinc-900/40">
-          <div className="flex items-center justify-between text-xs text-zinc-400">
-            <span className="flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-              <span className="font-medium">
-                {phase === "dflash" ? "⚡ DFlash phase" : phase === "normal" ? "📊 Normal phase" : "Setting up…"}
-              </span>
-            </span>
-            {totalSteps > 0 && <span className="font-mono text-zinc-500">{step}/{totalSteps} prompts</span>}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+              <div
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1 rounded-lg border text-sm font-semibold",
+                  phase === "dflash"
+                    ? "border-amber-500/50 bg-amber-900/25 text-amber-300"
+                    : phase === "normal"
+                    ? "border-zinc-500/50 bg-zinc-800/50 text-zinc-200"
+                    : "border-zinc-600/40 bg-zinc-800/30 text-zinc-400"
+                )}
+              >
+                <Bolt className={cn("w-4 h-4", phase === "dflash" ? "text-amber-400" : phase === "normal" ? "text-zinc-500 opacity-40" : "opacity-30")} />
+                <span>
+                  DFlash: {phase === "dflash" ? "ON" : phase === "normal" ? "OFF" : "—"}
+                </span>
+                {phase && (
+                  <span className="text-[10px] text-zinc-500 font-normal">
+                    · {phase === "dflash" ? "speculative decoding engaged" : "baseline generation"}
+                  </span>
+                )}
+              </div>
+            </div>
+            {totalSteps > 0 && <span className="font-mono text-xs text-zinc-500">{step}/{totalSteps} prompts</span>}
           </div>
 
           {stageMsg && (
@@ -232,40 +249,60 @@ export default function DFlashBenchPage() {
             </div>
           )}
 
-          {(liveResults.normal.length > 0 || liveResults.dflash.length > 0) && (
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/[0.04]">
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-indigo-400 font-medium mb-1">Normal</div>
-                {liveResults.normal.length === 0 ? (
-                  <div className="text-xs text-zinc-600">pending…</div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {liveResults.normal.map((r, i) => (
-                      <div key={i} className="flex justify-between text-xs font-mono">
-                        <span className="text-zinc-500">prompt {i + 1}</span>
-                        <span className="text-indigo-300">{r.tps ?? "—"} tok/s</span>
-                      </div>
+          {(liveResults.normal.length > 0 || liveResults.dflash.length > 0) && (() => {
+            // Shared y-axis scale so the two charts are directly visually comparable
+            const allTps = [...liveResults.normal, ...liveResults.dflash].map(r => r.tps).filter((t): t is number => t != null);
+            const maxTps = allTps.length > 0 ? Math.ceil(Math.max(...allTps) * 1.1) : 60;
+            const normalData = liveResults.normal.map((r, i) => ({ prompt: `P${i + 1}`, tps: r.tps }));
+            const dflashData = liveResults.dflash.map((r, i) => ({ prompt: `P${i + 1}`, tps: r.tps }));
+            return (
+              <div className="pt-2 border-t border-white/[0.04] space-y-2">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium">Live tok/s</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-zinc-500/20 bg-zinc-900/30 p-2">
+                    <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium mb-1 flex items-center gap-1.5">
+                      <Bolt className="w-3 h-3 opacity-30" /> DFlash OFF {liveResults.normal.length > 0 && <span className="text-zinc-500 font-mono normal-case">· avg {(liveResults.normal.reduce((s, r) => s + (r.tps ?? 0), 0) / Math.max(liveResults.normal.length, 1)).toFixed(1)} tok/s</span>}
+                    </div>
+                    <ResponsiveContainer width="100%" height={130}>
+                      <LineChart data={normalData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                        <XAxis dataKey="prompt" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, maxTps]} tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: 12 }} />
+                        <Line type="monotone" dataKey="tps" stroke="#6366f1" strokeWidth={2} dot={{ r: 3, fill: "#6366f1" }} isAnimationActive={false} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-900/10 p-2">
+                    <div className="text-[11px] uppercase tracking-wider text-amber-400 font-medium mb-1 flex items-center gap-1.5">
+                      <Bolt className="w-3 h-3" /> DFlash ON {liveResults.dflash.length > 0 && <span className="text-zinc-500 font-mono normal-case">· avg {(liveResults.dflash.reduce((s, r) => s + (r.tps ?? 0), 0) / Math.max(liveResults.dflash.length, 1)).toFixed(1)} tok/s</span>}
+                    </div>
+                    <ResponsiveContainer width="100%" height={130}>
+                      <LineChart data={dflashData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                        <XAxis dataKey="prompt" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, maxTps]} tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: 12 }} />
+                        <Line type="monotone" dataKey="tps" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: "#f59e0b" }} isAnimationActive={false} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+                  <div>
+                    {liveResults.normal.length === 0 ? <span className="text-zinc-600">pending…</span> : liveResults.normal.map((r, i) => (
+                      <div key={i} className="flex justify-between"><span className="text-zinc-500">prompt {i + 1}</span><span className="text-indigo-300">{r.tps ?? "—"} tok/s</span></div>
                     ))}
                   </div>
-                )}
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-amber-400 font-medium mb-1">DFlash</div>
-                {liveResults.dflash.length === 0 ? (
-                  <div className="text-xs text-zinc-600">pending…</div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {liveResults.dflash.map((r, i) => (
-                      <div key={i} className="flex justify-between text-xs font-mono">
-                        <span className="text-zinc-500">prompt {i + 1}</span>
-                        <span className="text-amber-300">{r.tps ?? "—"} tok/s</span>
-                      </div>
+                  <div>
+                    {liveResults.dflash.length === 0 ? <span className="text-zinc-600">pending…</span> : liveResults.dflash.map((r, i) => (
+                      <div key={i} className="flex justify-between"><span className="text-zinc-500">prompt {i + 1}</span><span className="text-amber-300">{r.tps ?? "—"} tok/s</span></div>
                     ))}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {currentPromptIdx !== null && (
             <div className="text-[11px] text-zinc-500 italic">
