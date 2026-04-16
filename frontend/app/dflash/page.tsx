@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, readSSE, type ModelEntry } from "@/lib/api";
+import { api, type ModelEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Bolt, Play, Loader2, AlertTriangle } from "lucide-react";
@@ -64,56 +64,59 @@ export default function DFlashBenchPage() {
     setSummary(null);
     setStep(0);
     setLiveResults({ normal: [], dflash: [] });
-    setStageMsg("");
+    setStageMsg("Starting bench…");
     setDownloadProgress(null);
     setCurrentPromptIdx(null);
+    setPhase("");
 
     try {
-      const resp = await fetch("/api/dflash/benchmark", {
+      // Kick off the bench — returns { run_id } immediately
+      const startResp = await fetch("/api/dflash/bench/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_id: selectedModel, preset: selectedPreset, temperature: 0.7 }),
       });
-      await readSSE(resp, (data) => {
-        const event = data.event as string;
-        if (event === "start") {
-          const n = (data.prompts_count as number | undefined) ?? 0;
-          setTotalSteps(n * 2);
-          setStageMsg(`Starting bench on ${data.model} (${n} prompts × 2 phases)…`);
-        } else if (event === "phase") {
-          setPhase(data.phase as string);
-          setStageMsg((data.message as string) ?? "");
-          setCurrentPromptIdx(null);
-        } else if (event === "stage") {
-          setStageMsg((data.message as string) ?? "");
-          if (data.stage !== "downloading_draft") setDownloadProgress(null);
-        } else if (event === "download_progress") {
-          setDownloadProgress(((data.progress as number) ?? 0) * 100);
-          setStageMsg(`Downloading draft: ${(((data.progress as number) ?? 0) * 100).toFixed(1)}% — ${data.message ?? ""}`);
-        } else if (event === "download_done") {
-          setDownloadProgress(100);
-          setStageMsg("Draft downloaded, linking…");
-        } else if (event === "progress") {
-          setCurrentPromptIdx(data.prompt_index as number);
-          setStageMsg(`${data.phase === "dflash" ? "DFlash" : "Normal"} — running prompt ${(data.prompt_index as number) + 1}…`);
-        } else if (event === "result") {
-          const r = { tps: data.tps, ttft_ms: data.ttft_ms, output_tokens: data.output_tokens, total_ms: data.total_ms } as BenchResult;
-          const ph = data.phase as string;
-          setLiveResults((prev) => ({
-            ...prev,
-            [ph === "dflash" ? "dflash" : "normal"]: [
-              ...(ph === "dflash" ? prev.dflash : prev.normal),
-              r,
-            ],
-          }));
-          setStep((s) => s + 1);
-        } else if (event === "done") {
-          setSummary(data as unknown as BenchSummary);
-          setStageMsg("Done.");
-        } else if (event === "error") {
-          setError(data.message as string);
+      if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`);
+      const { run_id } = (await startResp.json()) as { run_id: string };
+
+      setTotalSteps(0); // will be derived from prompts_count after first poll
+
+      // Poll status every 1s until done or error
+      let keepGoing = true;
+      while (keepGoing) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const snapResp = await fetch(`/api/dflash/bench/${run_id}`);
+        if (!snapResp.ok) {
+          if (snapResp.status === 404) {
+            setError("Bench run was rotated out before completion");
+            break;
+          }
+          continue;
         }
-      });
+        const snap = await snapResp.json();
+        setPhase((snap.phase as string) ?? "");
+        setStageMsg((snap.stage_msg as string) ?? "");
+        setTotalSteps(((snap.prompts_count as number) ?? 0) * 2);
+        if (typeof snap.download_progress === "number") {
+          setDownloadProgress(snap.download_progress * 100);
+        } else if (snap.download_progress === null) {
+          setDownloadProgress(null);
+        }
+        setCurrentPromptIdx(snap.current_prompt_index ?? null);
+        const newNormal = (snap.results_normal as BenchResult[]) ?? [];
+        const newDflash = (snap.results_dflash as BenchResult[]) ?? [];
+        setLiveResults({ normal: newNormal, dflash: newDflash });
+        setStep(newNormal.length + newDflash.length);
+
+        if (snap.status === "done") {
+          if (snap.summary) setSummary(snap.summary as BenchSummary);
+          setStageMsg("Done.");
+          keepGoing = false;
+        } else if (snap.status === "error") {
+          setError((snap.error as string) ?? "Bench failed");
+          keepGoing = false;
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Benchmark failed");
     } finally {

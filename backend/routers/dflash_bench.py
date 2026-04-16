@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,47 @@ import zlab
 from hf_downloader import download_manager
 
 router = APIRouter()
+
+# In-memory bench state — polled by the frontend. Keyed by run_id.
+# Each entry is a plain dict that accumulates snapshot state.
+_bench_runs: dict[str, dict] = {}
+_MAX_KEPT_RUNS = 10
+
+
+def _new_run(model_id: str, model_name: str, prompts_count: int) -> str:
+    run_id = uuid.uuid4().hex[:12]
+    _bench_runs[run_id] = {
+        "run_id": run_id,
+        "model_id": model_id,
+        "model_name": model_name,
+        "prompts_count": prompts_count,
+        "phase": None,  # None | "normal" | "dflash"
+        "stage": None,  # fine-grained stage label
+        "stage_msg": "",
+        "status": "running",  # running | done | error
+        "error": None,
+        "started_at": time.time(),
+        "updated_at": time.time(),
+        "download_progress": None,
+        "current_prompt_index": None,
+        "results_normal": [],
+        "results_dflash": [],
+        "summary": None,  # populated when done
+    }
+    # Drop oldest entries past the cap
+    if len(_bench_runs) > _MAX_KEPT_RUNS:
+        oldest = sorted(_bench_runs.values(), key=lambda r: r["started_at"])[: len(_bench_runs) - _MAX_KEPT_RUNS]
+        for r in oldest:
+            _bench_runs.pop(r["run_id"], None)
+    return run_id
+
+
+def _update(run_id: str, **fields) -> None:
+    run = _bench_runs.get(run_id)
+    if not run:
+        return
+    run.update(fields)
+    run["updated_at"] = time.time()
 
 PROMPT_PRESETS: dict[str, dict] = {
     "quick": {
@@ -424,3 +466,232 @@ async def run_dflash_benchmark(body: DFlashBenchRequest, request: Request) -> St
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Polling-based API — immune to SSE buffering through Cloudflare tunnels etc.
+# Frontend calls POST /dflash/bench/start to kick off, then polls
+# GET /dflash/bench/{run_id} every ~1s for a snapshot of current state.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/dflash/bench/start")
+async def start_dflash_bench(body: DFlashBenchRequest, request: Request) -> dict:
+    """Start a DFlash bench in the background and return a run_id for polling."""
+    registry = request.app.state.registry
+    model = registry.get(body.model_id)
+    if not model:
+        raise HTTPException(404, "Model not found")
+
+    cfg = request.app.state.config
+    base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
+
+    if body.preset and body.preset in PROMPT_PRESETS:
+        preset = PROMPT_PRESETS[body.preset]
+        prompts = preset["prompts"]
+        effective_max_tokens = preset["max_tokens"]
+    else:
+        prompts = body.prompts or PROMPT_PRESETS["quick"]["prompts"]
+        effective_max_tokens = body.max_tokens
+
+    run_id = _new_run(body.model_id, model.name, len(prompts))
+    asyncio.create_task(_run_bench_background(
+        run_id=run_id,
+        model_id=body.model_id,
+        prompts=prompts,
+        temperature=body.temperature,
+        max_tokens=effective_max_tokens,
+        cfg=cfg,
+        base_url=base_url,
+        registry=registry,
+    ))
+    return {"run_id": run_id}
+
+
+@router.get("/dflash/bench/{run_id}")
+async def get_dflash_bench(run_id: str) -> dict:
+    run = _bench_runs.get(run_id)
+    if not run:
+        raise HTTPException(404, f"Bench run {run_id} not found (may have been rotated out)")
+    return run
+
+
+async def _run_bench_background(
+    run_id: str,
+    model_id: str,
+    prompts: list[str],
+    temperature: float,
+    max_tokens: int,
+    cfg,
+    base_url: str,
+    registry,
+) -> None:
+    """Execute the bench and write snapshots into _bench_runs[run_id]."""
+    model = registry.get(model_id)
+    omlx_model_name = model.name
+    omlx = OMLXAdminClient(base_url=base_url, api_key=cfg.omlx_api_key)
+    previously_loaded: list[str] = []
+    results_normal: list[dict] = []
+    results_dflash: list[dict] = []
+
+    def _fail(msg: str) -> None:
+        _update(run_id, status="error", error=msg)
+
+    try:
+        # Pre-flight arch check
+        try:
+            cfg_path = Path(model.path) / "config.json" if model.path else None
+            if cfg_path and cfg_path.exists():
+                arch_cfg = json.loads(cfg_path.read_text())
+                if arch_cfg.get("model_type") == "qwen3_next":
+                    _fail(
+                        f"{model.name} uses the qwen3_next architecture (GatedDeltaNet attention), "
+                        "which is not yet supported by dflash_mlx. Try Qwen3-Coder-30B-A3B or "
+                        "another standard-Qwen3 model instead."
+                    )
+                    return
+        except Exception as e:
+            log.warning("DFlash compat precheck failed: %s", e)
+
+        # Clear memory
+        _update(run_id, stage="clearing_memory", stage_msg="Recording currently loaded models…")
+        previously_loaded = await omlx.list_loaded_models()
+        if previously_loaded:
+            _update(run_id, stage_msg=f"Unloading {len(previously_loaded)} model(s): {', '.join(previously_loaded)}")
+            for mid in previously_loaded:
+                await omlx.unload(mid)
+            await asyncio.sleep(2.0)
+
+        # Download draft if needed
+        if not model.dflash_draft:
+            _update(run_id, stage="resolving_draft", stage_msg="No local DFlash draft — checking z-lab…")
+            repos = await zlab.fetch_repos(force=False)
+            match = zlab.match_draft_for(model.name, repos)
+            if not match:
+                _fail(f"No DFlash draft available for {model.name} (not found on z-lab). Bench aborted.")
+                return
+            _update(run_id, stage="downloading_draft", stage_msg=f"Downloading {match} from HuggingFace…", download_progress=0.0)
+            job_id = download_manager.start_download(repo_id=match, dest_dir=cfg.mlx_dir, kind="mlx")
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 3600:
+                job = download_manager.get_job(job_id)
+                if not job:
+                    _fail(f"Download job {job_id} disappeared"); return
+                _update(run_id, download_progress=round(job.progress, 3), stage_msg=f"Downloading {match}: {job.message}")
+                if job.status == "done": break
+                if job.status in ("error", "cancelled"):
+                    _fail(f"Download {job.status}: {job.error or job.message}"); return
+                await asyncio.sleep(1.0)
+            _update(run_id, stage="rescanning", stage_msg="Re-scanning model registry…", download_progress=None)
+            await registry.refresh()
+            model = registry.get(model_id)
+            if not model or not model.dflash_draft:
+                _fail("Draft downloaded but not linked to base model — registry rescan did not find a match.")
+                return
+            _update(run_id, stage="draft_ready", stage_msg=f"Draft ready: {Path(model.dflash_draft).name}")
+
+        model_size_gb = (model.size_bytes or 0) / (1024 ** 3)
+        size_hint = f" ({model_size_gb:.0f}GB)" if model_size_gb > 1 else ""
+
+        async def _warmup_blocking(label: str) -> dict:
+            """Run warmup in task; update stage_msg every 2s with elapsed time."""
+            t0 = time.monotonic()
+            task = asyncio.create_task(omlx.warmup(omlx_model_name))
+            while not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+                except asyncio.TimeoutError:
+                    elapsed = int(time.monotonic() - t0)
+                    _update(run_id, stage_msg=f"{label} ({elapsed}s)")
+            return await task
+
+        # Phase 1: DFlash OFF
+        _update(run_id, phase="normal", stage="configuring", stage_msg="Configuring DFlash=off…", current_prompt_index=None)
+        r = await omlx.set_dflash(omlx_model_name, enabled=False)
+        if not r["ok"]:
+            _fail(f"Failed to disable DFlash: {r.get('error')}"); return
+        _update(run_id, stage="warming", stage_msg=f"Loading {model.name}{size_hint} for Normal phase")
+        w = await _warmup_blocking(f"Loading {model.name}{size_hint} for Normal phase")
+        if not w["ok"]:
+            _fail(f"Model warmup failed: {w.get('error')}"); return
+
+        for i, prompt in enumerate(prompts):
+            _update(run_id, current_prompt_index=i, stage_msg=f"Normal prompt {i+1}/{len(prompts)} generating…")
+            try:
+                m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, temperature, max_tokens)
+                results_normal.append(m)
+                _bench_runs[run_id]["results_normal"] = list(results_normal)
+                _update(run_id, stage_msg=f"Normal prompt {i+1}/{len(prompts)} done: {m['tps']} tok/s")
+            except Exception as e:
+                _fail(f"Normal run failed: {e}"); return
+
+        # Phase 2: DFlash ON
+        _update(run_id, phase="dflash", stage="configuring", stage_msg="Configuring DFlash=on…", current_prompt_index=None)
+        r = await omlx.set_dflash(omlx_model_name, enabled=True, draft_model=model.dflash_draft, draft_quant_bits=4)
+        if not r["ok"]:
+            _fail(f"Failed to enable DFlash: {r.get('error')}"); return
+
+        _update(run_id, stage="reloading", stage_msg=f"Reloading {model.name}{size_hint} with DFlash enabled")
+        await omlx.unload(omlx_model_name)
+        await asyncio.sleep(0.5)
+        w = await _warmup_blocking(f"Reloading {model.name}{size_hint} with DFlash enabled")
+        if not w["ok"]:
+            await asyncio.sleep(3.0)
+            w = await _warmup_blocking(f"Reloading {model.name}{size_hint} with DFlash enabled (retry)")
+            if not w["ok"]:
+                _fail(f"Model warmup failed after DFlash=on reload: {w.get('error')}. Draft may be incompatible.")
+                await omlx.set_dflash(omlx_model_name, enabled=False)
+                return
+
+        status = await omlx.get_dflash_status(omlx_model_name)
+        if not status.get("enabled"):
+            _fail(f"DFlash toggle did not apply after reload. Aborting.")
+            await omlx.set_dflash(omlx_model_name, enabled=False); return
+
+        for i, prompt in enumerate(prompts):
+            _update(run_id, current_prompt_index=i, stage_msg=f"DFlash prompt {i+1}/{len(prompts)} generating…")
+            try:
+                m = await _run_one(omlx_model_name, prompt, base_url, cfg.omlx_api_key, temperature, max_tokens)
+                results_dflash.append(m)
+                _bench_runs[run_id]["results_dflash"] = list(results_dflash)
+                _update(run_id, stage_msg=f"DFlash prompt {i+1}/{len(prompts)} done: {m['tps']} tok/s")
+            except Exception as e:
+                _fail(f"DFlash run failed: {e}"); return
+
+        await omlx.set_dflash(omlx_model_name, enabled=False)
+
+        # Summary
+        def _avg(xs):
+            vs = [x for x in xs if x]
+            return round(sum(vs) / len(vs), 2) if vs else 0.0
+
+        avg_normal = _avg([r["tps"] for r in results_normal])
+        avg_dflash = _avg([r["tps"] for r in results_dflash])
+        summary = {
+            "model": model.name,
+            "prompts_count": len(prompts),
+            "normal": {"avg_tps": avg_normal, "avg_ttft_ms": _avg([r["ttft_ms"] for r in results_normal]), "results": results_normal},
+            "dflash": {"avg_tps": avg_dflash, "avg_ttft_ms": _avg([r["ttft_ms"] for r in results_dflash]), "results": results_dflash},
+            "speedup": round(avg_dflash / avg_normal, 2) if avg_normal > 0 else 0,
+            "draft_used": Path(model.dflash_draft).name,
+        }
+        _update(run_id, status="done", summary=summary, stage="done", stage_msg="Done.")
+    except Exception as e:
+        log.exception("DFlash bench background task crashed")
+        _fail(f"Unexpected error: {e}")
+    finally:
+        # Background cleanup
+        async def _cleanup():
+            try:
+                await omlx.set_dflash(omlx_model_name, enabled=False)
+                await omlx.unload(omlx_model_name)
+            except Exception as e:
+                log.warning("DFlash bench cleanup failed: %s", e)
+            for mid in previously_loaded:
+                if mid == omlx_model_name:
+                    continue
+                try:
+                    await omlx.warmup(mid)
+                except Exception as e:
+                    log.warning("Failed to restore %s: %s", mid, e)
+        asyncio.create_task(_cleanup())
