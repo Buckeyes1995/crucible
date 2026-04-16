@@ -85,8 +85,10 @@ class OMLXAdminClient:
                 )
                 if r.status_code != 200:
                     return None
-                for m in r.json():
-                    if m.get("id") == model_id:
+                data = r.json()
+                models_list = data.get("models", data) if isinstance(data, dict) else data
+                for m in models_list:
+                    if isinstance(m, dict) and m.get("id") == model_id:
                         return m.get("settings", {})
         except Exception as e:
             log.warning("oMLX get_model_settings failed: %s", e)
