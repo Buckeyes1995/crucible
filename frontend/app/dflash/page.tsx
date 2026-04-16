@@ -42,7 +42,15 @@ export default function DFlashBenchPage() {
 
   useEffect(() => {
     api.models.list().then((all) => {
-      const eligible = all.filter((m) => m.dflash_draft);
+      // Include both models with a local draft AND models with a z-lab draft available
+      // to download. The bench auto-downloads the draft if needed.
+      const eligible = all.filter((m) => m.dflash_draft || m.available_draft_repo);
+      // Sort: locally-ready drafts first, then downloadable ones
+      eligible.sort((a, b) => {
+        const aReady = a.dflash_draft ? 0 : 1;
+        const bReady = b.dflash_draft ? 0 : 1;
+        return aReady - bReady || a.name.localeCompare(b.name);
+      });
       setModels(eligible);
       if (eligible.length > 0) setSelectedModel(eligible[0].id);
     });
@@ -147,7 +155,9 @@ export default function DFlashBenchPage() {
             disabled={running}
           >
             {models.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
+              <option key={m.id} value={m.id}>
+                {m.name}{m.dflash_draft ? "" : "  (draft will be downloaded)"}
+              </option>
             ))}
           </select>
           <Button onClick={runBenchmark} disabled={running || !selectedModel} variant="primary" className="gap-2 min-w-[160px]">
