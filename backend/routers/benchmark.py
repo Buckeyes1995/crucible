@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 
 from adapters.mlx_lm import MLXAdapter
+from adapters.omlx import OMLXAdapter
 from adapters.llama_cpp import LlamaCppAdapter
 from adapters.ollama import OllamaAdapter
 from adapters.external import ExternalAdapter, ManagedExternalAdapter
@@ -181,7 +182,13 @@ async def start_benchmark(config: BenchmarkConfig, request: Request) -> Streamin
             if app_config.mlx_external_url:
                 adapter = ExternalAdapter(base_url=app_config.mlx_external_url)
             else:
-                adapter = MLXAdapter(port=app_config.mlx_port, python=app_config.mlx_python)
+                # Use OMLXAdapter (shared with the load router) so benchmarks reuse
+                # oMLX's already-running server instead of spawning a second mlx_lm.server.
+                adapter = OMLXAdapter(
+                    base_url="http://127.0.0.1:8000",
+                    model_dir=app_config.mlx_dir,
+                    api_key=app_config.omlx_api_key,
+                )
         elif model.kind == "gguf":
             adapter = LlamaCppAdapter(
                 server_path=app_config.llama_server,
