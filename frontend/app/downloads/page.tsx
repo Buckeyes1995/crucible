@@ -179,7 +179,7 @@ export default function DownloadsPage() {
                 kind={kindFilter}
                 availableBytes={status?.available_memory_bytes ?? 0}
                 totalBytes={status?.total_memory_bytes ?? 0}
-                alreadyQueued={jobs.some(j => j.repo_id === r.repo_id && j.status !== "error")}
+                alreadyQueued={jobs.some(j => j.repo_id === r.repo_id && (j.status === "queued" || j.status === "downloading"))}
                 onDownload={() => startDownload(r)}
               />
             ))}
