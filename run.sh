@@ -12,6 +12,22 @@ if [[ "$1" == "--dev" ]]; then
   MODE="dev"
 fi
 
+# ── Kill zombies before starting ─────────────────────────────────────────────
+# Any listener on 7777 / 3000 is stale from a previous run (different --host
+# binds can coexist on macOS, producing "ghost" API responses). Clean first.
+_free_port() {
+  local port=$1
+  local pids
+  pids=$(lsof -ti ":$port" -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "[crucible] Killing stale listener(s) on :$port — PIDs: $pids"
+    kill -9 $pids 2>/dev/null || true
+    sleep 0.5
+  fi
+}
+_free_port 7777
+_free_port 3000
+
 # ── Backend ──────────────────────────────────────────────────────────────────
 if [ ! -d "$BACKEND/.venv" ]; then
   echo "[crucible] Creating backend venv…"
@@ -59,7 +75,15 @@ fi
 FRONTEND_PID=$!
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
-trap "echo '[crucible] Shutting down…'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT INT TERM
+# Kill both children AND anything that ended up on our ports, so launchd
+# restarts always start clean (no zombie bound to 127.0.0.1 alongside 0.0.0.0).
+_cleanup() {
+  echo "[crucible] Shutting down…"
+  kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+  _free_port 7777
+  _free_port 3000
+}
+trap _cleanup EXIT INT TERM
 
 echo ""
 echo "  Crucible running ($MODE):"
