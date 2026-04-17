@@ -193,9 +193,10 @@ export default function Benchmark2Page() {
       name: runName || undefined,
     };
 
-    // Safety: if no SSE event arrives within 30s, abort and show a useful error
+    // Safety: if no SSE event arrives within STALL_MS, abort and show a useful error.
+    // Backend sends heartbeat every 5s during prompt execution, so 60s is safe slack.
     let stalledTimer: ReturnType<typeof setTimeout> | null = null;
-    const STALL_MS = 30_000;
+    const STALL_MS = 60_000;
     const armStallTimer = () => {
       if (stalledTimer) clearTimeout(stalledTimer);
       stalledTimer = setTimeout(() => {

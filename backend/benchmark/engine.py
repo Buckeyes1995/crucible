@@ -161,13 +161,25 @@ async def run_benchmark(
 
                 sampler = PowerSampler()
                 power_available = await sampler.start()
+
+                # Run _run_single as a task and emit heartbeats every 5s so
+                # the client knows the stream is alive during long prompts.
+                run_task = asyncio.create_task(_run_single(
+                    adapter, prompt["text"], config.max_tokens, config.temperature,
+                ))
                 try:
-                    metrics, response_text = await _run_single(
-                        adapter,
-                        prompt["text"],
-                        config.max_tokens,
-                        config.temperature,
-                    )
+                    while not run_task.done():
+                        try:
+                            await asyncio.wait_for(asyncio.shield(run_task), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            yield {
+                                "event": "heartbeat",
+                                "step": step,
+                                "model_id": model_id,
+                                "prompt_id": prompt["id"],
+                                "rep": rep,
+                            }
+                    metrics, response_text = run_task.result()
                 except Exception as e:
                     await sampler.stop()
                     yield {"event": "error", "step": step, "model_id": model_id, "message": str(e)}
