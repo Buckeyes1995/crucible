@@ -1,10 +1,75 @@
 """OpenAI-compatible proxy — rewrites requests to the active adapter's server."""
 import json
+import logging
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+
+
+def _resolve_model_id(registry, requested: str):
+    """Find a ModelEntry matching the requested name. Tolerates bare names and kind-prefixed IDs."""
+    if not requested:
+        return None
+    # Exact ID match
+    m = registry.get(requested)
+    if m:
+        return m
+    # Try common prefix variants
+    for prefix in ("mlx:", "gguf:", "ollama:", "vllm:", "mlx_studio:"):
+        m = registry.get(prefix + requested)
+        if m:
+            return m
+    # Fall back to matching by name (may match multiple — pick first)
+    for m in registry.all():
+        if m.name == requested:
+            return m
+    return None
+
+
+async def _ensure_loaded(app_state, requested_model: str) -> tuple[bool, str]:
+    """Ensure the requested model is the active one; load it if not. Returns (ok, error)."""
+    from routers.models import _resolve_engine, _build_adapter
+    from clients import sync_all_clients
+
+    registry = app_state.registry
+    config = app_state.config
+    target = _resolve_model_id(registry, requested_model)
+    if not target:
+        return False, f"Model '{requested_model}' not found in registry"
+
+    current = app_state.active_adapter
+    if current and current.is_loaded() and current.model_id == target.id:
+        return True, ""
+
+    log.info("Auto-loading %s for proxy request (was: %s)",
+             target.id, current.model_id if current else "none")
+    if current:
+        try:
+            await current.stop()
+        except Exception as e:
+            log.warning("Failed to stop current adapter: %s", e)
+        app_state.active_adapter = None
+
+    engine = _resolve_engine(target, None)
+    adapter, err = _build_adapter(target, config, engine, compare=False)
+    if not adapter:
+        return False, err or "Adapter build failed"
+
+    async for evt in adapter.load(target):
+        kind = evt.get("event")
+        if kind == "error":
+            return False, evt.get("data", {}).get("message", "Load failed")
+        if kind == "done":
+            break
+    app_state.active_adapter = adapter
+    try:
+        sync_all_clients(target.id, base_url="http://127.0.0.1:7777/v1")
+    except Exception:
+        pass
+    return True, ""
 
 
 @router.get("/v1/models")
@@ -32,7 +97,21 @@ async def proxy_models(request: Request):
 
 @router.post("/v1/chat/completions")
 async def proxy_chat(request: Request):
+    body = await request.json()
+
+    # Auto-load the requested model if it's not currently active.
+    # Lets opencode / Qwen Code / any OpenAI client switch models by name
+    # without having to load through Crucible's UI first.
+    requested_model = body.get("model")
     adapter = request.app.state.active_adapter
+    if requested_model and (not adapter or not adapter.is_loaded()
+                            or adapter.model_id != requested_model
+                            and not (adapter.model_id or "").endswith(":" + requested_model)):
+        ok, err = await _ensure_loaded(request.app.state, requested_model)
+        if not ok:
+            return JSONResponse({"error": err}, status_code=503)
+        adapter = request.app.state.active_adapter
+
     if not adapter or not adapter.is_loaded():
         return JSONResponse({"error": "No model loaded"}, status_code=503)
 
@@ -43,7 +122,6 @@ async def proxy_chat(request: Request):
         return JSONResponse({"error": "Adapter has no proxy target"}, status_code=503)
 
     # Smart routing — auto-select model based on prompt content
-    body = await request.json()
     from smart_router import select_model, get_config as get_router_config
     router_cfg = get_router_config()
     if router_cfg.get("enabled"):
