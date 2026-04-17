@@ -58,10 +58,13 @@ class DownloadManager:
                     downloaded_bytes=d.get("downloaded_bytes", 0),
                     local_dir=d.get("local_dir", ""),
                 )
-                # In-flight jobs get re-queued so resume_interrupted() can respawn them.
-                # huggingface_hub.snapshot_download is content-addressed, so resuming
-                # is cheap — already-downloaded files are skipped.
-                if job.status in ("queued", "downloading"):
+                # Any unfinished job is re-queued so resume_interrupted() can
+                # respawn it. This includes "error" state because most errors on
+                # startup are from a previous interrupted restart (OOM, crash),
+                # not a permanent failure. huggingface_hub.snapshot_download is
+                # content-addressed, so resuming is cheap — already-downloaded
+                # files are skipped. "cancelled" and "done" are left alone.
+                if job.status in ("queued", "downloading", "error"):
                     job.status = "queued"
                     job.message = "Queued for auto-resume after restart…"
                     job.error = ""
@@ -286,7 +289,11 @@ class DownloadManager:
 
         download_fut = loop.run_in_executor(None, _do_download)
 
-        t0 = time.monotonic()
+        # Windowed speed: track bytes over the last ~10s instead of cumulative
+        # since start. Resume baselines otherwise make "speed since resume"
+        # show 0 forever when download is actively progressing.
+        prev_bytes = existing_bytes
+        prev_t = time.monotonic()
         while not download_fut.done():
             await asyncio.sleep(2.0)
             try:
@@ -296,9 +303,11 @@ class DownloadManager:
                 job.downloaded_bytes = downloaded
                 if job.total_bytes > 0:
                     job.progress = min(downloaded / job.total_bytes, 0.99)
-                elapsed = int(time.monotonic() - t0)
-                new_bytes = max(downloaded - existing_bytes, 0)
-                speed = new_bytes / max(elapsed, 1)
+                now = time.monotonic()
+                dt = now - prev_t
+                speed = max(downloaded - prev_bytes, 0) / dt if dt > 0 else 0
+                prev_bytes = downloaded
+                prev_t = now
                 job.message = (
                     f"Downloading… {_fmt_bytes(downloaded)} / {_fmt_bytes(job.total_bytes)} "
                     f"({_fmt_bytes(speed)}/s)"
