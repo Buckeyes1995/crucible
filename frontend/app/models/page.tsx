@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2 } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
@@ -279,6 +279,13 @@ export default function ModelsPage() {
               onToggleHidden={() => {
                 api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
               }}
+              onDelete={() => {
+                const label = m.name;
+                if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
+                api.models.deleteFromDisk(m.id)
+                  .then(() => { toast.success(`Deleted ${label}`); fetchModels(); })
+                  .catch((e: Error) => toast.error(`Delete failed: ${e.message}`));
+              }}
               onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
               onOpenParams={() => setParamsModelId(m.id)}
               onOpenNotes={() => setNotesModelId(m.id)}
@@ -326,7 +333,7 @@ export default function ModelsPage() {
 // ── Model card ────────────────────────────────────────────────────────────────
 
 function ModelCard({
-  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onSetAlias, onOpenParams, onOpenNotes,
+  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onDelete, onSetAlias, onOpenParams, onOpenNotes,
 }: {
   model: ModelEntry;
   alias?: string;
@@ -340,6 +347,7 @@ function ModelCard({
   onStop: () => void;
   onToggleFavorite: () => void;
   onToggleHidden: () => void;
+  onDelete: () => void;
   onSetAlias: (alias: string) => void;
   onOpenParams: () => void;
   onOpenNotes: () => void;
@@ -387,7 +395,7 @@ function ModelCard({
           <div className="h-full bg-indigo-500 animate-pulse" style={{ width: "60%" }} />
         </div>
       )}
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-3 space-y-2">
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -561,6 +569,15 @@ function ModelCard({
             >
               {model.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             </button>
+            {(model.kind === "mlx" || model.kind === "gguf" || model.kind === "vllm") && model.node === "local" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="p-0.5 rounded text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                title="Delete from disk"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -587,7 +604,7 @@ function ModelCard({
 
         {/* tok/s sparkline — only shows if model has been benchmarked */}
         {model.avg_tps != null && (
-          <ModelTpsChart modelId={model.id} height={48} />
+          <ModelTpsChart modelId={model.id} height={32} />
         )}
 
         {/* Loading bar */}
