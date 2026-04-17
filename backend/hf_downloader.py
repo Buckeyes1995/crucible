@@ -31,9 +31,16 @@ class DownloadJob:
 
 
 class DownloadManager:
+    # Cap concurrent downloads to prevent one from starving the other.
+    # HF snapshot_download opens ~16 parallel workers per repo, so two
+    # running simultaneously produces ~30+ connections competing for
+    # bandwidth and TCP slots — smaller downloads get throttled to crawl.
+    MAX_CONCURRENT = 1
+
     def __init__(self) -> None:
         self._jobs: dict[str, DownloadJob] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._slots = asyncio.Semaphore(self.MAX_CONCURRENT)
 
     def load_persisted(self) -> None:
         """Load jobs from disk on startup. In-flight jobs are flagged for
@@ -205,10 +212,15 @@ class DownloadManager:
 
     async def _run(self, job: DownloadJob) -> None:
         try:
-            job.status = "downloading"
-            job.message = f"Starting download of {job.repo_id}…"
-            self._persist()
-            await self._download_repo(job)
+            # Respect concurrency cap — other jobs wait here while one runs
+            if self._slots.locked():
+                job.message = "Waiting for another download to finish…"
+                self._persist()
+            async with self._slots:
+                job.status = "downloading"
+                job.message = f"Starting download of {job.repo_id}…"
+                self._persist()
+                await self._download_repo(job)
             job.status = "done"
             job.progress = 1.0
             job.message = f"Downloaded to {job.dest_dir}"
