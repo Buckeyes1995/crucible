@@ -189,7 +189,7 @@ class VLLMAdapter(BaseAdapter):
                     try:
                         data = json.loads(chunk)
                         delta = data["choices"][0]["delta"]
-                        content = delta.get("content") or delta.get("reasoning") or ""
+                        content = delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning") or ""
                         if content:
                             yield {"token": content, "done": False}
                     except Exception:
