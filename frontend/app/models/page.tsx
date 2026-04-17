@@ -784,7 +784,7 @@ function ModelParamsDialog({ model, onClose }: { model: ModelEntry; onClose: () 
             <div className="space-y-4">
               {/* Group sections */}
               <Section title="Inference">
-                {visibleKeys.filter(([k]) => ["temperature","max_tokens","context_window","top_k","top_p","min_p","repetition_penalty","presence_penalty"].includes(k)).map(([key, meta]) => (
+                {visibleKeys.filter(([k]) => ["temperature","max_tokens","context_window","top_k","top_p","min_p","repetition_penalty","presence_penalty","enable_thinking","preserve_thinking"].includes(k)).map(([key, meta]) => (
                   <ParamRow key={key} paramKey={key} meta={meta} params={params} defaults={defaults} set={set} />
                 ))}
               </Section>
@@ -1096,7 +1096,7 @@ function GlobalParamsDialog({ onClose }: { onClose: () => void }) {
     setSaved(false);
   }, []);
 
-  const inferenceKeys = ["temperature","max_tokens","context_window","top_k","top_p","min_p","repetition_penalty","presence_penalty"];
+  const inferenceKeys = ["temperature","max_tokens","context_window","top_k","top_p","min_p","repetition_penalty","presence_penalty","enable_thinking","preserve_thinking"];
 
   return (
     <div
