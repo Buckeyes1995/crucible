@@ -12,8 +12,11 @@ import { api, type PromptTemplate } from "@/lib/api";
 const RAG_SESSION = "chat-main";
 
 export default function ChatPage() {
-  const { messages, streaming, stats, error, sendMessage, clearMessages } = useChatStore();
+  const { messages, streaming, stats, error, sendMessage, clearMessages, resetStreaming } = useChatStore();
   const { activeModelId } = useModelsStore();
+
+  // Safety: always clear a lingering streaming=true on page mount
+  useEffect(() => { resetStreaming(); }, [resetStreaming]);
   const [input, setInput] = useState("");
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(8192);
@@ -285,14 +288,26 @@ export default function ChatPage() {
             disabled={!activeModelId || streaming}
             className="flex-1 bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all disabled:opacity-50"
           />
-          <Button
-            variant="primary"
-            onClick={handleSend}
-            disabled={!activeModelId || streaming || !input.trim()}
-            className="rounded-xl px-5"
-          >
-            <Send className="w-4 h-4" />
-          </Button>
+          {streaming ? (
+            <Button
+              variant="destructive"
+              onClick={resetStreaming}
+              className="rounded-xl px-5"
+              title="Force-unlock the input (use if the stream got stuck)"
+            >
+              <X className="w-4 h-4" />
+              Stop
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={handleSend}
+              disabled={!activeModelId || !input.trim()}
+              className="rounded-xl px-5"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>

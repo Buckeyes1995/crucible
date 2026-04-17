@@ -21,6 +21,7 @@ type ChatState = {
 
   sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
   clearMessages: () => void;
+  resetStreaming: () => void;
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -81,4 +82,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearMessages: () => set({ messages: [], stats: null, error: null }),
+
+  resetStreaming: () => set({ streaming: false, error: null }),
 }));
