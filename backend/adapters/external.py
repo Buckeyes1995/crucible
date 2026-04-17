@@ -122,23 +122,6 @@ class ExternalAdapter(BaseAdapter):
         self._model = None
         self._ext_model_id = None
 
-
-class ManagedExternalAdapter(ExternalAdapter):
-    """ExternalAdapter that kills the server process on stop (e.g. MLX Studio/vMLX)."""
-
-    def __init__(self, base_url: str):
-        super().__init__(base_url)
-        # Parse port from base_url for process cleanup
-        from urllib.parse import urlparse
-        parsed = urlparse(base_url)
-        self._port = parsed.port or 80
-
-    async def stop(self) -> None:
-        from adapters.port_utils import kill_port
-        await kill_port(self._port)
-        self._model = None
-        self._ext_model_id = None
-
     async def chat(
         self,
         messages: list[ChatMessage],
@@ -234,3 +217,20 @@ class ManagedExternalAdapter(ExternalAdapter):
                 self.last_prompt_tps = round(prompt_tokens / ttft_s, 2)
 
         yield {"token": "", "done": True}
+
+
+class ManagedExternalAdapter(ExternalAdapter):
+    """ExternalAdapter that kills the server process on stop (e.g. MLX Studio/vMLX)."""
+
+    def __init__(self, base_url: str):
+        super().__init__(base_url)
+        # Parse port from base_url for process cleanup
+        from urllib.parse import urlparse
+        parsed = urlparse(base_url)
+        self._port = parsed.port or 80
+
+    async def stop(self) -> None:
+        from adapters.port_utils import kill_port
+        await kill_port(self._port)
+        self._model = None
+        self._ext_model_id = None

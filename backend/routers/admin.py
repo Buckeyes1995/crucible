@@ -68,14 +68,15 @@ async def reset_backends(request: Request) -> dict:
     # 4) Restart oMLX if we captured a valid command
     if omlx_cmd:
         try:
-            # Parse and spawn detached; log to /tmp so it persists across backend reloads
+            # Parse and spawn detached; log to /tmp so it persists across backend reloads.
+            # Close our handle after dup() — the subprocess holds its own fd.
             args = shlex.split(omlx_cmd)
-            log_f = open("/tmp/omlx.log", "ab")
-            await asyncio.create_subprocess_exec(
-                *args,
-                stdout=log_f, stderr=log_f,
-                start_new_session=True,
-            )
+            with open("/tmp/omlx.log", "ab") as log_f:
+                await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=log_f, stderr=log_f,
+                    start_new_session=True,
+                )
             steps.append(f"restarted oMLX: {args[0]} …")
         except Exception as e:
             steps.append(f"oMLX restart failed: {e}")
