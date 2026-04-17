@@ -74,6 +74,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
     } catch (e) {
       set({ error: String(e), streaming: false });
+    } finally {
+      // Stream might end without a "done" event — always release the input lock
+      if (get().streaming) set({ streaming: false });
     }
   },
 

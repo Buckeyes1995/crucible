@@ -145,9 +145,11 @@ class ManagedExternalAdapter(ExternalAdapter):
         temperature: float,
         max_tokens: int,
     ) -> AsyncGenerator[dict, None]:
+        from model_params import get_params
         ext_id = self._ext_model_id or (
             _external_model_id(self._model) if self._model else "local"
         )
+        p = get_params(self._model.id) if self._model else {}
         payload = {
             "model": ext_id,
             "messages": [m.model_dump() for m in messages],
@@ -155,6 +157,13 @@ class ManagedExternalAdapter(ExternalAdapter):
             "max_tokens": max_tokens,
             "stream": True,
         }
+        ctk = {}
+        if p.get("enable_thinking") is not None:
+            ctk["enable_thinking"] = bool(p["enable_thinking"])
+        if p.get("preserve_thinking") is not None:
+            ctk["preserve_thinking"] = bool(p["preserve_thinking"])
+        if ctk:
+            payload["chat_template_kwargs"] = ctk
         t0 = time.monotonic()
         first_token_time: float | None = None
         total_tokens = 0

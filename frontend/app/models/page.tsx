@@ -691,6 +691,8 @@ const PARAM_DEFAULTS: Record<string, { label: string; type: "number" | "bool" | 
   min_p:              { label: "Min-P",               type: "number", step: 0.01, min: 0,   max: 1,   placeholder: "—" },
   repetition_penalty: { label: "Repetition penalty",  type: "number", step: 0.05, min: 1,   max: 2,   placeholder: "—",         tip: "Qwen3-Coder: 1.05 · others: 1.0" },
   presence_penalty:   { label: "Presence penalty",    type: "number", step: 0.1,  min: -2,  max: 2,   placeholder: "—",         tip: "Qwen3.5 no-think: 1.5 · think: 0.0" },
+  enable_thinking:    { label: "Enable thinking",     type: "bool",                                                             tip: "Pass chat_template_kwargs={enable_thinking} to skip reasoning output on Qwen3.5/3.6" },
+  preserve_thinking:  { label: "Preserve thinking",   type: "bool",                                                             tip: "Keep prior-turn <think> blocks in multi-turn prompts (Qwen3.5/3.6)" },
   cache_limit_gb:     { label: "Cache limit (GB)",    type: "number", step: 1,    min: 1,             placeholder: "unlimited",  kinds: ["mlx"] },
   draft_model:        { label: "Draft model path",    type: "text",                                   placeholder: "e.g. /path/to/mlx/Qwen3-0.6B", kinds: ["mlx"], tip: "Small model for speculative decoding — must match tokenizer of main model" },
   num_draft_tokens:   { label: "Draft tokens",        type: "number", step: 1,    min: 1,             placeholder: "off",        kinds: ["mlx"], tip: "Number of tokens the draft model generates per step (5–10 recommended)" },

@@ -7,6 +7,12 @@ from typing import Any
 PARAMS_FILE = Path.home() / ".config" / "crucible" / "model_params.json"
 DEFAULTS_KEY = "__defaults__"
 
+# Baseline params applied under global defaults and per-model settings.
+# Override by setting the key in global defaults or per-model params.
+_BASELINE: dict[str, Any] = {
+    "enable_thinking": False,  # skip Qwen3.5/3.6 <think> reasoning blocks by default
+}
+
 log = logging.getLogger(__name__)
 
 
@@ -37,11 +43,11 @@ def set_defaults(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_params(model_id: str) -> dict[str, Any]:
-    """Return merged params: global defaults overridden by model-specific."""
+    """Return merged params: baseline < global defaults < model-specific."""
     all_params = load_all()
     defaults = all_params.get(DEFAULTS_KEY, {})
     model = all_params.get(model_id, {})
-    return {**defaults, **model}
+    return {**_BASELINE, **defaults, **model}
 
 
 def get_params_raw(model_id: str) -> dict[str, Any]:

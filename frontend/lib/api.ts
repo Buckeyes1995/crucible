@@ -220,6 +220,8 @@ export type ModelParams = {
   min_p?: number;
   repetition_penalty?: number;
   presence_penalty?: number;
+  enable_thinking?: boolean;  // Qwen3.5/3.6: false skips <think> reasoning output
+  preserve_thinking?: boolean;  // Qwen3.5/3.6: keep prior-turn <think> in multi-turn prompts
   // MLX-specific
   cache_limit_gb?: number;
   num_draft_tokens?: number;

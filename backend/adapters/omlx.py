@@ -185,6 +185,13 @@ class OMLXAdapter(BaseAdapter):
         ):
             if p.get(key) is not None:
                 payload[key] = p[key]
+        ctk = {}
+        if p.get("enable_thinking") is not None:
+            ctk["enable_thinking"] = bool(p["enable_thinking"])
+        if p.get("preserve_thinking") is not None:
+            ctk["preserve_thinking"] = bool(p["preserve_thinking"])
+        if ctk:
+            payload["chat_template_kwargs"] = ctk
 
         t0 = time.monotonic()
         first_token_time = None

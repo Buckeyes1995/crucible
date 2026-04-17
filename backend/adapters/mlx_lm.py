@@ -213,6 +213,13 @@ class MLXAdapter(BaseAdapter):
             payload["repetition_penalty"] = p["repetition_penalty"]
         if p.get("presence_penalty") is not None:
             payload["presence_penalty"] = p["presence_penalty"]
+        ctk = {}
+        if p.get("enable_thinking") is not None:
+            ctk["enable_thinking"] = bool(p["enable_thinking"])
+        if p.get("preserve_thinking") is not None:
+            ctk["preserve_thinking"] = bool(p["preserve_thinking"])
+        if ctk:
+            payload["chat_template_kwargs"] = ctk
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
