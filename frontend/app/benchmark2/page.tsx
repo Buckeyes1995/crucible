@@ -193,10 +193,24 @@ export default function Benchmark2Page() {
       name: runName || undefined,
     };
 
+    // Safety: if no SSE event arrives within 30s, abort and show a useful error
+    let stalledTimer: ReturnType<typeof setTimeout> | null = null;
+    const STALL_MS = 30_000;
+    const armStallTimer = () => {
+      if (stalledTimer) clearTimeout(stalledTimer);
+      stalledTimer = setTimeout(() => {
+        setRunError(`Connection stalled — no events from the server in ${STALL_MS / 1000}s. Backend may be restarting or the request didn't reach it.`);
+        setPhase("idle");
+        ctrl.abort();
+      }, STALL_MS);
+    };
+
     try {
       const resp = await api.benchmark.run(config);
+      armStallTimer();
       await readSSE(resp, (data) => {
         if (ctrl.signal.aborted) return;
+        armStallTimer(); // reset on every event
         const event = data.event as string;
 
         if (event === "start") {
@@ -252,6 +266,8 @@ export default function Benchmark2Page() {
         setRunError(String(e));
       }
       setPhase("idle");
+    } finally {
+      if (stalledTimer) clearTimeout(stalledTimer);
     }
   };
 
