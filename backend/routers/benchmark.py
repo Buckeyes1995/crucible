@@ -204,6 +204,10 @@ async def start_benchmark(config: BenchmarkConfig, request: Request) -> Streamin
                 request.app.state.active_adapter = adapter
             yield evt
 
+    # 2KB of padding per event (comment line, ignored by clients) so
+    # Cloudflare tunnels flush each chunk instead of buffering to ~4KB.
+    _PAD = ":" + (" " * 2048) + "\n"
+
     async def _stream():
         async for evt in run_benchmark(
             config,
@@ -213,9 +217,13 @@ async def start_benchmark(config: BenchmarkConfig, request: Request) -> Streamin
         ):
             event_type = evt.get("event", "progress")
             data = {k: v for k, v in evt.items() if k not in ("event", "_adapter")}
-            yield f"data: {json.dumps({'event': event_type, **data})}\n\n"
+            yield _PAD + f"data: {json.dumps({'event': event_type, **data})}\n\n"
 
-    return StreamingResponse(_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/benchmark/history")
