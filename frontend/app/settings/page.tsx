@@ -91,6 +91,9 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <ResetBackendsCard />
+
+
       <Card>
         <CardHeader><CardTitle>LAN Serving</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -142,6 +145,51 @@ export default function SettingsPage() {
         </Button>
       </div>
     </div>
+  );
+}
+
+function ResetBackendsCard() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string; steps?: string[] } | null>(null);
+
+  const doReset = async () => {
+    if (!confirm("Reset all backends? This will unload the active model and restart oMLX.")) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.admin.resetBackends();
+      setResult({ ok: true, msg: "Backends reset.", steps: r.steps });
+    } catch (e) {
+      setResult({ ok: false, msg: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Backend Recovery</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-zinc-500">
+          If memory stays high after unloading a model, or a load gets stuck, reset the backends.
+          This stops any active adapter, kills stuck subprocesses (oMLX, llama-server, mlx_lm), and
+          restarts oMLX with its current launch arguments.
+        </p>
+        <Button onClick={doReset} disabled={busy} variant="destructive">
+          {busy ? "Resetting…" : "Reset Backends"}
+        </Button>
+        {result && (
+          <div className={`text-xs rounded border px-3 py-2 ${result.ok ? "bg-emerald-950/30 border-emerald-700/40 text-emerald-300" : "bg-red-950/30 border-red-700/40 text-red-300"}`}>
+            <div className="font-medium">{result.msg}</div>
+            {result.steps && (
+              <ul className="mt-1 list-disc list-inside text-zinc-400 font-mono">
+                {result.steps.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

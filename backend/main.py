@@ -11,6 +11,7 @@ from db.database import init_db
 from model_params import get_params
 from registry import ModelRegistry
 from routers import (
+    admin,
     api_keys,
     arena,
     backup,
@@ -201,6 +202,7 @@ async def auth_middleware(request: Request, call_next):
 
 
 app.include_router(proxy.router)  # OpenAI-compatible proxy at /v1/*
+app.include_router(admin.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")

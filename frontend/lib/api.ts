@@ -391,6 +391,9 @@ export const api = {
     get: () => get<CrucibleConfig>("/settings"),
     save: (cfg: CrucibleConfig) => put<CrucibleConfig>("/settings", cfg),
   },
+  admin: {
+    resetBackends: () => post<{ status: string; steps: string[] }>("/admin/reset-backends"),
+  },
   rag: {
     info: (sessionId: string) => get<{ chunk_count: number; files: Record<string, number> }>(`/rag/${sessionId}/info`),
     clear: (sessionId: string) => del<{ status: string }>(`/rag/${sessionId}`),

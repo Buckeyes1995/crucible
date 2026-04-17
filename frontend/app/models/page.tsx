@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -408,8 +409,10 @@ function ModelCard({
                 <button onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-300 p-0.5"><X className="w-3.5 h-3.5" /></button>
               </div>
             ) : alias ? (
-              <div className="flex items-center gap-1 group/alias mb-0.5">
-                <span className="text-base font-semibold text-zinc-100 truncate">{alias}</span>
+              <div className="flex items-center gap-1 group/alias mb-0.5 min-w-0">
+                <Tooltip label={`${alias} — ${model.name}`} className="min-w-0 flex-1">
+                  <span className="text-base font-semibold text-zinc-100 truncate block">{alias}</span>
+                </Tooltip>
                 <button
                   onClick={startEdit}
                   className="opacity-0 group-hover/alias:opacity-100 text-zinc-600 hover:text-zinc-300 p-0.5 transition-opacity"
@@ -421,13 +424,17 @@ function ModelCard({
             ) : null}
 
             {/* Model name */}
-            <div className="flex items-center gap-1 group/name">
-              <h3 className={cn(
-                "truncate font-medium",
-                alias ? "text-xs text-zinc-500" : "text-sm font-semibold text-zinc-100"
-              )}>
-                {model.name}
-              </h3>
+            <div className="flex items-center gap-1 group/name min-w-0">
+              <Tooltip label={model.name} className="min-w-0 flex-1">
+                <h3
+                  className={cn(
+                    "truncate font-medium",
+                    alias ? "text-xs text-zinc-500" : "text-sm font-semibold text-zinc-100"
+                  )}
+                >
+                  {model.name}
+                </h3>
+              </Tooltip>
               {!alias && !editingAlias && (
                 <button
                   onClick={startEdit}
@@ -714,7 +721,7 @@ function ModelParamsDialog({ model, onClose }: { model: ModelEntry; onClose: () 
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
           <div>
             <div className="text-sm font-semibold text-zinc-100">Model Parameters</div>
-            <div className="text-xs text-zinc-500 truncate max-w-xs mt-0.5">{model.name}</div>
+            <div title={model.name} className="text-xs text-zinc-500 truncate max-w-xs mt-0.5">{model.name}</div>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1 rounded">
             <X className="w-4 h-4" />
@@ -934,7 +941,7 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
           <div>
             <div className="text-sm font-semibold text-zinc-100">Notes & Tags</div>
-            <div className="text-xs text-zinc-500 truncate max-w-xs mt-0.5">{model.name}</div>
+            <div title={model.name} className="text-xs text-zinc-500 truncate max-w-xs mt-0.5">{model.name}</div>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1 rounded">
             <X className="w-4 h-4" />
