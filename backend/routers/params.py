@@ -18,6 +18,9 @@ class ModelParams(BaseModel):
     min_p: float | None = None
     repetition_penalty: float | None = None
     presence_penalty: float | None = None
+    # Qwen3.5/3.6 chat-template kwargs (passed as chat_template_kwargs to the server)
+    enable_thinking: bool | None = None
+    preserve_thinking: bool | None = None
     # MLX-specific
     cache_limit_gb: float | None = None
     num_draft_tokens: int | None = None
