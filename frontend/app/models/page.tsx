@@ -37,8 +37,29 @@ export default function ModelsPage() {
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [filterNode, setFilterNode] = useState<string | null>(null);
+  const [activeDownloads, setActiveDownloads] = useState<Record<string, { progress: number; message: string }>>({});
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
+
+  // Poll download jobs so the Models page can mark in-progress downloads
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const jobs = await api.hf.listDownloads();
+        const map: Record<string, { progress: number; message: string }> = {};
+        for (const j of jobs) {
+          if (j.status === "downloading" || j.status === "queued") {
+            const name = j.repo_id.split("/").pop() ?? j.repo_id;
+            map[`${j.kind}:${name}`] = { progress: j.progress, message: j.message };
+          }
+        }
+        setActiveDownloads(map);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, []);
   useEffect(() => {
     api.tags.list().then(setAllTags).catch(() => {});
   }, []);
@@ -283,12 +304,13 @@ export default function ModelsPage() {
                 const label = m.name;
                 if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
                 api.models.deleteFromDisk(m.id)
-                  .then(() => { toast.success(`Deleted ${label}`); fetchModels(); })
-                  .catch((e: Error) => toast.error(`Delete failed: ${e.message}`));
+                  .then(() => { toast(`Deleted ${label}`, "success"); fetchModels(); })
+                  .catch((e: Error) => toast(`Delete failed: ${e.message}`, "error"));
               }}
               onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
               onOpenParams={() => setParamsModelId(m.id)}
               onOpenNotes={() => setNotesModelId(m.id)}
+              downloadProgress={activeDownloads[m.id]}
             />
           ))}
           {filtered.length === 0 && (
@@ -333,7 +355,7 @@ export default function ModelsPage() {
 // ── Model card ────────────────────────────────────────────────────────────────
 
 function ModelCard({
-  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onDelete, onSetAlias, onOpenParams, onOpenNotes,
+  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onDelete, onSetAlias, onOpenParams, onOpenNotes, downloadProgress,
 }: {
   model: ModelEntry;
   alias?: string;
@@ -351,6 +373,7 @@ function ModelCard({
   onSetAlias: (alias: string) => void;
   onOpenParams: () => void;
   onOpenNotes: () => void;
+  downloadProgress?: { progress: number; message: string };
 }) {
   const [editingAlias, setEditingAlias] = useState(false);
   const [aliasInput, setAliasInput] = useState(alias ?? "");
@@ -387,7 +410,7 @@ function ModelCard({
         isFavorite && !isActive && "border-amber-500/15",
         isLoading && "border-indigo-500/30 bg-indigo-950/5"
       )}
-      onClick={!isActive && !isLoading && !editingAlias ? onLoad : undefined}
+      onClick={!isActive && !isLoading && !editingAlias && !downloadProgress ? onLoad : undefined}
     >
       {/* Loading progress bar */}
       {isLoading && (
@@ -456,6 +479,12 @@ function ModelCard({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {downloadProgress && (
+              <span className="flex items-center gap-1 text-xs text-amber-400">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {Math.round((downloadProgress.progress ?? 0) * 100)}%
+              </span>
+            )}
             {isActive && (
               <>
                 <span className="flex items-center gap-1 text-xs text-green-400">

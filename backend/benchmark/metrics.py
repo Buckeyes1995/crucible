@@ -19,20 +19,20 @@ def _parse_vm_stat() -> dict[str, int]:
 
 
 def get_memory_pressure() -> Optional[float]:
-    """Return memory pressure as a float 0.0–1.0 using vm_stat page counts."""
-    stats = _parse_vm_stat()
-    if not stats:
+    """Return memory pressure as a float 0.0–1.0 matching Activity Monitor.
+
+    Uses psutil's (total-available)/total. psutil's `available` follows macOS
+    semantics: free + inactive + speculative (all reclaimable), so this tracks
+    the "Memory Used" bar rather than the raw active-pages ratio.
+    """
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        if vm.total == 0:
+            return None
+        return round((vm.total - vm.available) / vm.total, 4)
+    except Exception:
         return None
-    pages_free = stats.get("Pages free", 0)
-    pages_active = stats.get("Pages active", 0)
-    pages_inactive = stats.get("Pages inactive", 0)
-    pages_wired = stats.get("Pages wired down", 0)
-    pages_compressed = stats.get("Pages occupied by compressor", 0)
-    total = pages_free + pages_active + pages_inactive + pages_wired + pages_compressed
-    if total == 0:
-        return None
-    used = pages_active + pages_wired + pages_compressed
-    return round(used / total, 4)
 
 
 def get_thermal_state() -> str:

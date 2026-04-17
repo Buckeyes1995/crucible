@@ -317,6 +317,8 @@ class ModelRegistry:
             )
             for result in node_results:
                 models.extend(result)
+        # Replace the full map so deleted models drop out
+        self._models = {}
         stats = _load_stats()
         for m in models:
             if m.id in stats:
