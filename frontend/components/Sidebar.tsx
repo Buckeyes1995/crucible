@@ -10,7 +10,7 @@ import {
   Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
   DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
-  ChevronDown, Search,
+  ChevronDown, Search, Bot,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ReactNode };
@@ -68,6 +68,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Manage",
     items: [
+      { href: "/agents", label: "Agents", icon: <Bot className="w-4 h-4" /> },
       { href: "/groups", label: "Groups", icon: <FolderOpen className="w-4 h-4" /> },
       { href: "/downloads", label: "Downloads", icon: <Download className="w-4 h-4" /> },
       { href: "/schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },

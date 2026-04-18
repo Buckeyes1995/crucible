@@ -11,6 +11,14 @@ class NodeConfig(BaseModel):
     api_key: str = ""   # optional, for remote auth
 
 
+class AgentConfig(BaseModel):
+    """A remote agent (e.g. hermes-control) that Crucible observes + controls."""
+    name: str                     # display name, also used as URL slug
+    url: str                      # base URL to the sidecar, e.g. http://192.168.1.50:7879
+    api_key: str = ""             # bearer token sent on every call
+    kind: str = "hermes"          # future: "frigate", "servarr", etc. — for UI hints
+
+
 class CrucibleConfig(BaseModel):
     mlx_dir: str = "/Volumes/DataNVME/models/mlx"
     gguf_dir: str = "/Volumes/DataNVME/models/gguf"
@@ -34,6 +42,7 @@ class CrucibleConfig(BaseModel):
     omlx_api_key: str = "123456"   # API key for the oMLX subprocess
     mlx_studio_url: str = ""       # e.g. "http://localhost:8090" — leave blank to disable
     nodes: list[NodeConfig] = []   # remote Crucible peers
+    agents: list[AgentConfig] = [] # remote agents (hermes-control, etc.)
 
 
 def load_config() -> CrucibleConfig:

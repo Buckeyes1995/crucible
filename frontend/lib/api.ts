@@ -191,6 +191,69 @@ export type FinetuneJob = {
   loss_log: { iter: number; loss: number; val_loss: number | null }[];
 };
 
+export type AgentListEntry = {
+  name: string;
+  url: string;
+  kind: string;
+  reachable: boolean;
+  error?: string;
+  health?: {
+    status: string;
+    version: string;
+    host: string;
+    uptime_s: number;
+    container_exists: boolean;
+    container_running: boolean;
+  };
+};
+
+export type AgentSession = {
+  id: string;
+  source: "chat" | "cron" | "interactive" | string;
+  updated_at: string;
+  size_bytes: number;
+  title: string | null;
+  message_count: number | null;
+};
+
+export type AgentCronJob = {
+  id: string;
+  name: string;
+  schedule: string;
+  command: string;
+  script?: string | null;
+  enabled: boolean;
+  state?: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_status: string | null;
+  last_error?: string | null;
+};
+
+export type AgentStatus = {
+  container: {
+    exists: boolean;
+    running: boolean;
+    paused: boolean;
+    restarting: boolean;
+    status: string;
+    started_at: string | null;
+    restart_count: number;
+    restart_policy: string;
+    image: string;
+    pid: number | null;
+  };
+  hermes: {
+    paused: boolean;
+    last_tick_at: string | null;
+    recent_sessions: AgentSession[];
+  };
+  cron: { job_count: number; jobs: AgentCronJob[] };
+  state_db: { exists: boolean; tables?: string[]; size_bytes?: number };
+  config: { exists: boolean; size_bytes?: number; updated_at?: string };
+  orphans: { name: string; status: string; state: string; id: string }[];
+};
+
 export type PromptTemplate = {
   id: string;
   name: string;
@@ -395,6 +458,29 @@ export const api = {
   },
   admin: {
     resetBackends: () => post<{ status: string; steps: string[] }>("/admin/reset-backends"),
+  },
+  agents: {
+    list: () => get<AgentListEntry[]>("/agents"),
+    add: (body: { name: string; url: string; api_key?: string; kind?: string }) =>
+      post<{ status: string; name: string }>("/agents", body),
+    update: (name: string, body: { name: string; url: string; api_key?: string; kind?: string }) =>
+      put<{ status: string; name: string }>(`/agents/${encodeURIComponent(name)}`, body),
+    remove: (name: string) => del<{ status: string; name: string }>(`/agents/${encodeURIComponent(name)}`),
+    status: (name: string) => get<AgentStatus>(`/agents/${encodeURIComponent(name)}/status`),
+    cron: (name: string) => get<{ jobs: AgentCronJob[]; last_tick_at: string | null }>(`/agents/${encodeURIComponent(name)}/cron`),
+    sessions: (name: string, limit = 50, offset = 0) =>
+      get<AgentSession[]>(`/agents/${encodeURIComponent(name)}/sessions?limit=${limit}&offset=${offset}`),
+    session: (name: string, id: string) =>
+      get<Record<string, unknown>>(`/agents/${encodeURIComponent(name)}/sessions/${encodeURIComponent(id)}`),
+    logs: (name: string, tail = 500, since?: string) =>
+      get<{ lines: string[]; tail: number; since: string | null }>(
+        `/agents/${encodeURIComponent(name)}/logs?tail=${tail}${since ? `&since=${encodeURIComponent(since)}` : ""}`,
+      ),
+    pause: (name: string) => post<{ ok: boolean }>(`/agents/${encodeURIComponent(name)}/pause`),
+    resume: (name: string) => post<{ ok: boolean }>(`/agents/${encodeURIComponent(name)}/resume`),
+    restart: (name: string) => post<{ ok: boolean }>(`/agents/${encodeURIComponent(name)}/restart`),
+    pruneOrphans: (name: string) =>
+      post<{ removed: string[]; skipped: number }>(`/agents/${encodeURIComponent(name)}/orphans/prune`),
   },
   rag: {
     info: (sessionId: string) => get<{ chunk_count: number; files: Record<string, number> }>(`/rag/${sessionId}/info`),
