@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, readSSE, type ModelEntry, type PromptTemplate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { GitCompare, Play, Loader2, X, Copy, Check, BookOpen, ChevronDown } from "lucide-react";
+import { GitCompare, Play, Loader2, X, Copy, Check, BookOpen, ChevronDown, Sparkles } from "lucide-react";
+import { toast } from "@/components/Toast";
 
 type DiffStatus = "queued" | "loading" | "streaming" | "done" | "error";
 
@@ -120,6 +121,73 @@ export default function DiffPage() {
   };
 
   const fmtGB = (b: number) => (b / 1e9).toFixed(1) + " GB";
+
+  const buildAnalysisMarkdown = (): string => {
+    const indices = Object.keys(responses).map(Number).sort((a, b) => a - b);
+    if (indices.length === 0) return "";
+    const lines: string[] = [];
+    lines.push("# Model Diff Analysis");
+    lines.push("");
+    lines.push("## Prompt");
+    lines.push("");
+    lines.push("```");
+    lines.push(prompt.trim());
+    lines.push("```");
+    lines.push("");
+    lines.push(`**Config:** temperature 0.3 · max_tokens ${maxTokens}`);
+    lines.push("");
+    lines.push("## Model outputs");
+    lines.push("");
+    for (const i of indices) {
+      const r = responses[i];
+      if (!r) continue;
+      const model = models.find((m) => m.name === r.model || m.id.endsWith(":" + r.model));
+      const sizeStr = model?.size_bytes ? `${(model.size_bytes / 1e9).toFixed(1)} GB` : "?";
+      const quantStr = model?.quant ? ` · ${model.quant}` : "";
+      lines.push(`### ${i + 1}. ${r.model}`);
+      lines.push(`- **Size**: ${sizeStr}${quantStr}`);
+      lines.push(`- **Throughput**: ${r.tps != null ? `${r.tps} tok/s` : "n/a"}`);
+      lines.push(`- **Status**: ${r.status}${r.error ? ` (${r.error})` : ""}`);
+      lines.push("");
+      lines.push("**Output:**");
+      lines.push("");
+      lines.push("```");
+      lines.push(r.text || "(empty)");
+      lines.push("```");
+      lines.push("");
+    }
+    lines.push("## Analysis request");
+    lines.push("");
+    lines.push("Please analyze these model outputs and help me decide which model to use for this kind of task. Consider:");
+    lines.push("");
+    lines.push("1. **Correctness** — does each output solve the problem? Any bugs or edge-cases missed?");
+    lines.push("2. **Code quality** — readability, idiomatic style, API design, adherence to the prompt's constraints.");
+    lines.push("3. **Speed/quality tradeoff** — given the tok/s above, is the quality gain worth the throughput cost?");
+    lines.push("4. **Recommendation** — which model would you pick for this class of task, and why? Are there tasks where you'd pick a different one?");
+    lines.push("");
+    return lines.join("\n");
+  };
+
+  const exportForClaude = async () => {
+    const md = buildAnalysisMarkdown();
+    if (!md) {
+      toast("Nothing to export yet", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(md);
+      toast("Copied analysis to clipboard — paste into claude.ai", "success");
+    } catch {
+      // Clipboard may be blocked in insecure contexts — offer download instead
+      const blob = new Blob([md], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `diff-analysis-${Date.now()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
 
   const stopDiff = () => {
     abortRef.current?.abort();
@@ -320,9 +388,21 @@ export default function DiffPage() {
             <X className="w-4 h-4" /> Stop
           </Button>
         ) : (
-          <Button onClick={runDiff} disabled={selected.length < 2 || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
-            <Play className="w-4 h-4" /> Run
-          </Button>
+          <div className="flex items-end gap-2 self-end">
+            {Object.values(responses).some((r) => r?.status === "done" && r.text) && (
+              <Button
+                onClick={exportForClaude}
+                variant="secondary"
+                className="gap-1.5"
+                title="Copy a formatted analysis (prompt + all outputs + metrics) to the clipboard so you can paste it into Claude for a recommendation"
+              >
+                <Sparkles className="w-4 h-4" /> Analyze with Claude
+              </Button>
+            )}
+            <Button onClick={runDiff} disabled={selected.length < 2 || !prompt.trim()} variant="primary" className="gap-1.5">
+              <Play className="w-4 h-4" /> Run
+            </Button>
+          </div>
         )}
       </div>
 
