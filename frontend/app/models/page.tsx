@@ -449,9 +449,10 @@ function ModelCard({
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            {/* Alias row */}
             {editingAlias ? (
-              <div className="flex items-center gap-1 mb-1" onClick={(e) => e.stopPropagation()}>
+              // Editor REPLACES the alias + chips block so the header height
+              // stays stable and nothing overlaps.
+              <div className="flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                 <input
                   ref={inputRef}
                   value={aliasInput}
@@ -461,28 +462,30 @@ function ModelCard({
                     if (e.key === "Escape") cancelEdit();
                   }}
                   placeholder="Add alias…"
-                  className="flex-1 text-base font-semibold bg-transparent border-b border-indigo-500 text-zinc-100 placeholder:text-zinc-600 focus:outline-none py-0.5"
+                  className="flex-1 min-w-0 text-sm font-semibold bg-zinc-950 border border-indigo-500/60 rounded-md text-zinc-100 placeholder:text-zinc-600 focus:outline-none px-2 py-1"
                 />
-                <button onClick={commitEdit} className="text-green-400 hover:text-green-300 p-0.5"><Check className="w-3.5 h-3.5" /></button>
-                <button onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-300 p-0.5"><X className="w-3.5 h-3.5" /></button>
+                <button onClick={commitEdit} className="text-green-400 hover:text-green-300 p-0.5 shrink-0" title="Save (↵)"><Check className="w-3.5 h-3.5" /></button>
+                <button onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-300 p-0.5 shrink-0" title="Cancel (esc)"><X className="w-3.5 h-3.5" /></button>
               </div>
-            ) : alias ? (
-              <div className="flex items-center gap-1 group/alias mb-1 min-w-0">
-                <Tooltip label={`${alias} — ${model.name}`} className="min-w-0 flex-1">
-                  <span className="text-base font-semibold text-zinc-100 truncate block">{alias}</span>
-                </Tooltip>
-                <button
-                  onClick={startEdit}
-                  className="opacity-0 group-hover/alias:opacity-100 text-zinc-600 hover:text-zinc-300 p-0.5 transition-opacity"
-                  title="Edit alias"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              </div>
-            ) : null}
-
-            {/* Schema chips — parsed family / params / variant / quant */}
-            <ModelChips model={model} showEditAlias={!alias && !editingAlias} onEditAlias={startEdit} />
+            ) : (
+              <>
+                {alias && (
+                  <div className="flex items-center gap-1 group/alias mb-1 min-w-0">
+                    <Tooltip label={`${alias} — ${model.name}`} className="min-w-0 flex-1">
+                      <span className="text-base font-semibold text-zinc-100 truncate block">{alias}</span>
+                    </Tooltip>
+                    <button
+                      onClick={startEdit}
+                      className="opacity-0 group-hover/alias:opacity-100 text-zinc-600 hover:text-zinc-300 p-0.5 transition-opacity"
+                      title="Edit alias"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <ModelChips model={model} showEditAlias={!alias} onEditAlias={startEdit} />
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -682,7 +685,7 @@ function ModelCard({
 
         {/* Full model ID — small mono, line of truth (hover for wrap) */}
         <Tooltip label={model.name}>
-          <div className="text-[10px] font-mono text-zinc-600 truncate pt-1 border-t border-white/[0.03] select-text">
+          <div className="text-xs font-mono text-zinc-500 truncate pt-1 border-t border-white/[0.03] select-text">
             {model.name}
           </div>
         </Tooltip>
