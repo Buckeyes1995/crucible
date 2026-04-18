@@ -462,6 +462,7 @@ function ChatModal({ name, onClose, state, setState }: {
     setStreaming(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    let finishedClean = false;
 
     try {
       const resp = await api.agents.chat(name, { prompt, session_id: sessionId }, controller.signal);
@@ -498,6 +499,12 @@ function ChatModal({ name, onClose, state, setState }: {
               return { ...s, messages: copy };
             });
           }
+          // Cloudflare tunnels sometimes hold the stream open after the
+          // sidecar closes it. The "done" event is our real signal that
+          // the turn is over — abort the fetch ourselves so we don't sit
+          // on a zombie connection.
+          finishedClean = true;
+          controller.abort();
         } else if (e.event === "error") {
           setState((s) => {
             const copy = [...s.messages];
@@ -508,16 +515,21 @@ function ChatModal({ name, onClose, state, setState }: {
       });
     } catch (e) {
       const err = e as Error;
-      setState((s) => {
-        const copy = [...s.messages];
-        const last = copy[copy.length - 1];
-        // If the abort was user-initiated, show "stopped" rather than "error: …".
-        const aborted = err.name === "AbortError" || controller.signal.aborted;
-        copy[copy.length - 1] = aborted
-          ? { ...last, content: (last.content ? last.content + "\n\n" : "") + "[stopped by user]", error: true }
-          : { role: "assistant", content: `error: ${err.message}`, error: true };
-        return { ...s, messages: copy };
-      });
+      // Clean "done" is implemented as a self-abort, so an AbortError after
+      // finishedClean is not an error — drop it.
+      if (finishedClean && (err.name === "AbortError" || controller.signal.aborted)) {
+        // nothing to do
+      } else {
+        setState((s) => {
+          const copy = [...s.messages];
+          const last = copy[copy.length - 1];
+          const aborted = err.name === "AbortError" || controller.signal.aborted;
+          copy[copy.length - 1] = aborted
+            ? { ...last, content: (last.content ? last.content + "\n\n" : "") + "[stopped by user]", error: true }
+            : { role: "assistant", content: `error: ${err.message}`, error: true };
+          return { ...s, messages: copy };
+        });
+      }
     } finally {
       setStreaming(false);
       if (abortRef.current === controller) abortRef.current = null;
