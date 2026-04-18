@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GitCompare, Play, Loader2, X, Copy, Check, BookOpen, ChevronDown } from "lucide-react";
 
-type DiffStatus = "queued" | "streaming" | "done" | "error";
+type DiffStatus = "queued" | "loading" | "streaming" | "done" | "error";
 
 export default function DiffPage() {
   const [models, setModels] = useState<ModelEntry[]>([]);
@@ -114,8 +114,15 @@ export default function DiffPage() {
       if (event === "start") {
         const names = data.models as string[];
         setModelNames(names);
-        // Seed all slots as "queued" so status renders immediately for loading models
+        // Seed all slots as "queued" (waiting). Backend sends "running" when each
+        // model actually starts loading in sequential mode.
         setResponses(Object.fromEntries(names.map((n, i) => [i, { model: n, text: "", tps: null, done: false, status: "queued" as DiffStatus }])));
+      } else if (event === "running") {
+        const idx = data.index as number;
+        setResponses((prev) => ({
+          ...prev,
+          [idx]: { ...prev[idx], model: (data.model as string) ?? prev[idx]?.model ?? "", text: "", done: false, tps: null, status: "loading" },
+        }));
       } else if (event === "token") {
         const idx = data.index as number;
         setResponses((prev) => ({
@@ -288,6 +295,9 @@ export default function DiffPage() {
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   <span className="text-xs font-medium text-zinc-300 truncate">{name}</span>
                   {r?.status === "queued" && running && (
+                    <span className="text-[10px] font-medium text-zinc-600 shrink-0">Queued</span>
+                  )}
+                  {r?.status === "loading" && (
                     <span className="flex items-center gap-1 text-[10px] font-medium text-amber-400 shrink-0">
                       <Loader2 className="w-3 h-3 animate-spin" />Loading
                     </span>
@@ -323,7 +333,9 @@ export default function DiffPage() {
               </div>
               <div className="flex-1 overflow-y-auto p-3 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
                 {r?.status === "queued" && running ? (
-                  <span className="text-zinc-600 italic">Waiting for model to load…</span>
+                  <span className="text-zinc-600 italic">Waiting — previous model must finish first…</span>
+                ) : r?.status === "loading" ? (
+                  <span className="text-zinc-600 italic">Loading weights into oMLX…</span>
                 ) : (
                   <>
                     {r?.text ?? ""}

@@ -118,6 +118,8 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
         try:
             yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
             for i, m in enumerate(models):
+                # Tell the frontend we're now starting this model (sequential mode)
+                yield _PAD + f"data: {json.dumps({'event': 'running', 'index': i, 'model': m['name']})}\n\n"
                 current_task = asyncio.create_task(_stream_model(m, i))
                 # Drain this model's events until its done/error before starting the next
                 while True:
