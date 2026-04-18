@@ -18,6 +18,7 @@ export default function DiffPage() {
   const [availableBytes, setAvailableBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
   const [maxTokens, setMaxTokens] = useState(4096);
+  const [maxTokensInput, setMaxTokensInput] = useState("4096");
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [eventCount, setEventCount] = useState(0); // diag — every SSE event ticks this
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
@@ -203,8 +204,15 @@ export default function DiffPage() {
             type="number"
             min={64}
             step={512}
-            value={maxTokens}
-            onChange={(e) => setMaxTokens(Math.max(64, parseInt(e.target.value) || 4096))}
+            value={maxTokensInput}
+            onChange={(e) => setMaxTokensInput(e.target.value)}
+            onBlur={() => {
+              const n = parseInt(maxTokensInput);
+              const clamped = Number.isFinite(n) && n >= 64 ? n : 4096;
+              setMaxTokens(clamped);
+              setMaxTokensInput(String(clamped));
+            }}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             disabled={running}
             className="w-24 bg-zinc-900 border border-white/[0.06] rounded-lg px-2 py-1.5 text-sm font-mono text-zinc-100 focus:outline-none focus:border-indigo-500/40"
           />
