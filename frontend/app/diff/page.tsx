@@ -15,14 +15,41 @@ export default function DiffPage() {
   const [running, setRunning] = useState(false);
   const [responses, setResponses] = useState<Record<number, { model: string; text: string; tps: number | null; done: boolean; status: DiffStatus; error?: string }>>({});
   const [modelNames, setModelNames] = useState<string[]>([]);
+  const [availableBytes, setAvailableBytes] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
 
   useEffect(() => {
     api.models.list().then((all) => setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden)));
+    const refreshMem = () => {
+      fetch("/api/status").then((r) => r.json()).then((s) => {
+        setAvailableBytes(s.available_memory_bytes ?? 0);
+        setTotalBytes(s.total_memory_bytes ?? 0);
+      }).catch(() => {});
+    };
+    refreshMem();
+    const id = setInterval(refreshMem, 5000);
+    return () => clearInterval(id);
   }, []);
 
-  const toggleModel = (id: string) => {
-    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 6 ? [...prev, id] : prev);
+  // Sum of selected model sizes — approximates what oMLX will hold resident during a diff run
+  const selectedBytes = selected.reduce((sum, id) => sum + (models.find((m) => m.id === id)?.size_bytes ?? 0), 0);
+  const remainingBytes = Math.max(availableBytes - selectedBytes, 0);
+
+  const wouldExceed = (m: ModelEntry): boolean => {
+    if (selected.includes(m.id)) return false; // already in; toggle off always allowed
+    const size = m.size_bytes ?? 0;
+    return size > remainingBytes;
   };
+
+  const toggleModel = (id: string) => {
+    setSelected((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 6) return prev;
+      return [...prev, id];
+    });
+  };
+
+  const fmtGB = (b: number) => (b / 1e9).toFixed(1) + " GB";
 
   async function runDiff() {
     if (selected.length < 2 || !prompt.trim()) return;
@@ -73,16 +100,42 @@ export default function DiffPage() {
         <GitCompare className="w-5 h-5 text-indigo-400" />
         <h1 className="text-lg font-semibold text-zinc-100">Model Diff</h1>
         <span className="text-xs text-zinc-500">{selected.length} selected</span>
+        {selected.length > 0 && (
+          <span className="text-xs text-zinc-600 ml-auto font-mono">
+            Selected: <span className="text-zinc-300">{fmtGB(selectedBytes)}</span>
+            {" · "}Free: <span className={cn(remainingBytes < 5e9 ? "text-amber-400" : "text-zinc-300")}>{fmtGB(remainingBytes)}</span> / {fmtGB(availableBytes)}
+          </span>
+        )}
       </div>
 
       <div className="px-6 py-3 border-b border-white/[0.04] flex gap-2 flex-wrap">
-        {models.map((m) => (
-          <button key={m.id} onClick={() => toggleModel(m.id)}
-            className={cn("px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
-              selected.includes(m.id) ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-100")}>
-            {m.name.slice(0, 30)}
-          </button>
-        ))}
+        {models.map((m) => {
+          const isSelected = selected.includes(m.id);
+          const exceeds = wouldExceed(m);
+          const atLimit = selected.length >= 6 && !isSelected;
+          const disabled = exceeds || atLimit;
+          const size = m.size_bytes ? (m.size_bytes / 1e9).toFixed(1) : "?";
+          const title = exceeds
+            ? `Too large — needs ${fmtGB(m.size_bytes ?? 0)}, only ${fmtGB(remainingBytes)} free after selection`
+            : atLimit ? "Max 6 models per diff"
+            : `${size} GB`;
+          return (
+            <button
+              key={m.id}
+              onClick={() => !disabled && toggleModel(m.id)}
+              disabled={disabled}
+              title={title}
+              className={cn("px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+                isSelected && "bg-indigo-600 text-white",
+                !isSelected && !disabled && "bg-zinc-800 text-zinc-400 hover:text-zinc-100",
+                !isSelected && exceeds && "bg-amber-950/30 border border-amber-500/30 text-amber-400/60 cursor-not-allowed",
+                !isSelected && atLimit && !exceeds && "bg-zinc-900 text-zinc-700 cursor-not-allowed opacity-50"
+              )}>
+              {m.name.slice(0, 30)}
+              <span className={cn("text-[10px] font-mono opacity-70", isSelected && "opacity-80")}>{size}G</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
