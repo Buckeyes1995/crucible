@@ -38,6 +38,26 @@ export default function DiffPage() {
     api.templates.list().then(setTemplates).catch(() => {});
   }, []);
 
+  // When running goes false (complete, stop, stall), any panel still stuck in
+  // loading/streaming/queued is pushed to a terminal state so the UI reflects truth.
+  useEffect(() => {
+    if (running) return;
+    setResponses((prev) => {
+      const next: typeof prev = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const stuck = v.status === "loading" || v.status === "streaming" || v.status === "queued";
+        if (stuck) {
+          next[Number(k)] = v.text
+            ? { ...v, done: true, status: "done" }
+            : { ...v, done: true, status: "error", error: v.error ?? "Aborted before first token" };
+        } else {
+          next[Number(k)] = v;
+        }
+      }
+      return next;
+    });
+  }, [running]);
+
   // Close template dropdown on outside click
   useEffect(() => {
     if (!showTemplates) return;

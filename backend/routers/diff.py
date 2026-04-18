@@ -123,9 +123,14 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
                 # Tell the frontend we're now starting this model (sequential mode)
                 yield _PAD + f"data: {json.dumps({'event': 'running', 'index': i, 'model': m['name']})}\n\n"
                 current_task = asyncio.create_task(_stream_model(m, i))
-                # Drain this model's events until its done/error before starting the next
+                # Drain this model's events until its done/error before starting the next.
+                # Heartbeat every 5s during load so the client's stall detector doesn't fire.
                 while True:
-                    item = await queue.get()
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        yield _PAD + f"data: {json.dumps({'event': 'heartbeat', 'index': i})}\n\n"
+                        continue
                     yield _PAD + f"data: {json.dumps(item)}\n\n"
                     if item.get("event") in ("done", "error") and item.get("index") == i:
                         break
