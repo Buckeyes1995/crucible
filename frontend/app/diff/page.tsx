@@ -73,7 +73,9 @@ export default function DiffPage() {
   useEffect(() => {
     const refreshModels = () => {
       api.models.list().then((all) =>
-        setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden))
+        // Include hidden models — "hidden" only hides them from the Models grid,
+        // but a comparison tool should let you pick anything available locally.
+        setModels(all.filter((m) => m.kind === "mlx" && m.node === "local"))
       ).catch(() => {});
     };
     refreshModels();
