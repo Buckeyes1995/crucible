@@ -11,11 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { parseModelName } from "@/lib/model-parse";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2 } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
-import { ModelTpsChart } from "@/components/ModelTpsChart";
 
 type SortKey = "name" | "size" | "tps";
 
@@ -282,45 +281,72 @@ export default function ModelsPage() {
             <div key={i} className="h-40 rounded-2xl skeleton" />
           ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
-          {filtered.map((m) => (
-            <ModelCard
-              key={m.id}
-              model={m}
-              alias={getAlias(m.id)}
-              isActive={m.id === activeModelId && loadingModelId === null}
-              isLoading={m.id === loadingModelId}
-              loadStage={loadStage}
-              isFavorite={isFavorite(m.id)}
-              tags={modelNotes[m.id]?.tags ?? []}
-              onLoad={() => loadModel(m.id)}
-              onCancelLoad={cancelLoad}
-              onStop={stopModel}
-              onToggleFavorite={() => toggleFavorite(m.id)}
-              onToggleHidden={() => {
-                api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
-              }}
-              onDelete={() => {
-                const label = m.name;
-                if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
-                api.models.deleteFromDisk(m.id)
-                  .then(() => { toast(`Deleted ${label}`, "success"); fetchModels(); })
-                  .catch((e: Error) => toast(`Delete failed: ${e.message}`, "error"));
-              }}
-              onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
-              onOpenParams={() => setParamsModelId(m.id)}
-              onOpenNotes={() => setNotesModelId(m.id)}
-              downloadProgress={activeDownloads[m.id]}
-            />
-          ))}
-          {filtered.length === 0 && (
-            <div className="col-span-3 text-center text-zinc-500 py-16">
-              {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
+      ) : (() => {
+        const renderCard = (m: ModelEntry) => (
+          <ModelCard
+            key={m.id}
+            model={m}
+            alias={getAlias(m.id)}
+            isActive={m.id === activeModelId && loadingModelId === null}
+            isLoading={m.id === loadingModelId}
+            loadStage={loadStage}
+            isFavorite={isFavorite(m.id)}
+            tags={modelNotes[m.id]?.tags ?? []}
+            onLoad={() => loadModel(m.id)}
+            onCancelLoad={cancelLoad}
+            onStop={stopModel}
+            onToggleFavorite={() => toggleFavorite(m.id)}
+            onToggleHidden={() => {
+              api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
+            }}
+            onDelete={() => {
+              const label = m.name;
+              if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
+              api.models.deleteFromDisk(m.id)
+                .then(() => { toast(`Deleted ${label}`, "success"); fetchModels(); })
+                .catch((e: Error) => toast(`Delete failed: ${e.message}`, "error"));
+            }}
+            onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
+            onOpenParams={() => setParamsModelId(m.id)}
+            onOpenNotes={() => setNotesModelId(m.id)}
+            downloadProgress={activeDownloads[m.id]}
+          />
+        );
+        const pinnedId = loadingModelId ?? activeModelId;
+        const pinned = pinnedId ? filtered.find((m) => m.id === pinnedId) : undefined;
+        const rest = pinned ? filtered.filter((m) => m.id !== pinned.id) : filtered;
+        return (
+          <>
+            {pinned && (
+              <section className="mb-6">
+                <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full",
+                    loadingModelId ? "bg-indigo-400 animate-pulse" : "bg-emerald-400 animate-pulse",
+                  )} />
+                  {loadingModelId ? "Loading" : "Loaded"}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {renderCard(pinned)}
+                </div>
+              </section>
+            )}
+            {pinned && rest.length > 0 && (
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                Library <span className="text-zinc-600 font-normal normal-case tracking-normal">· {rest.length}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
+              {rest.map(renderCard)}
+              {filtered.length === 0 && (
+                <div className="col-span-3 text-center text-zinc-500 py-16">
+                  {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </>
+        );
+      })()}
 
       {/* Per-model params dialog */}
       {paramsModel && (
@@ -608,11 +634,6 @@ function ModelCard({
           </div>
         )}
 
-        {/* tok/s sparkline — only shows if model has been benchmarked */}
-        {model.avg_tps != null && (
-          <ModelTpsChart modelId={model.id} height={32} />
-        )}
-
         {/* Loading bar */}
         {isLoading && (
           <div className="space-y-1.5">
@@ -635,12 +656,20 @@ function ModelCard({
 
         {/* Action buttons */}
         {isActive && (
-          <Link href={`/benchmark/new?model=${encodeURIComponent(model.id)}`} onClick={(e) => e.stopPropagation()}>
-            <Button variant="secondary" size="sm" className="w-full mt-1">
-              <BarChart2 className="w-3 h-3" />
-              Benchmark
-            </Button>
-          </Link>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <Link href={`/benchmark/new?model=${encodeURIComponent(model.id)}`} onClick={(e) => e.stopPropagation()}>
+              <Button variant="secondary" size="sm" className="w-full">
+                <BarChart2 className="w-3 h-3" />
+                Benchmark
+              </Button>
+            </Link>
+            <Link href="/chat" onClick={(e) => e.stopPropagation()}>
+              <Button variant="primary" size="sm" className="w-full">
+                <MessageSquare className="w-3 h-3" />
+                Chat
+              </Button>
+            </Link>
+          </div>
         )}
         {!isActive && !isLoading && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity pt-1 pointer-events-none group-hover:pointer-events-auto">
