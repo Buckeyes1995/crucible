@@ -75,6 +75,22 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
             yield f"data: {json.dumps(item)}\n\n"
             if item.get("event") in ("done", "error"):
                 finished += 1
+        # Auto-unload every model we loaded for this diff — diff bypasses Crucible's
+        # active_adapter, so oMLX would otherwise keep them in its engine pool forever.
+        # Preserve the model currently held by active_adapter (if any) so we don't
+        # interfere with a chat session.
+        active = request.app.state.active_adapter
+        keep = active.model_id if active and active.is_loaded() else None
+        import httpx
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for m in models:
+                if m["id"] == keep:
+                    continue
+                try:
+                    await client.post(f"{base_url}/v1/models/{m['omlx_name']}/unload", headers=headers)
+                except Exception:
+                    pass
         yield f"data: {json.dumps({'event': 'complete'})}\n\n"
         for t in tasks:
             t.cancel()

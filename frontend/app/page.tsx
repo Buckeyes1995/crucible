@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Cpu, MessageSquare, Zap, Trophy, Swords, Timer, Sparkles,
-  BarChart3, Activity, ArrowUpRight, Loader2,
+  BarChart3, Activity, ArrowUpRight, Loader2, Eraser,
 } from "lucide-react";
 import Link from "next/link";
+import { api } from "@/lib/api";
+import { toast } from "@/components/Toast";
 
 const BASE = "/api";
 
@@ -69,6 +71,7 @@ function QuickAction({ href, icon, label, description }: {
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cleaning, setCleaning] = useState(false);
 
   useEffect(() => {
     fetch(`${BASE}/dashboard`).then((r) => r.json()).then(setData).finally(() => setLoading(false));
@@ -77,6 +80,21 @@ export default function DashboardPage() {
     }, 15_000);
     return () => clearInterval(id);
   }, []);
+
+  const cleanMemory = async () => {
+    if (!confirm("Unload all models and restart inference backends?\n\nThis frees memory held by oMLX / llama-server / mlx_lm.")) return;
+    setCleaning(true);
+    try {
+      const r = await api.admin.resetBackends();
+      toast(`Memory cleared — ${r.steps.length} steps`, "success");
+      // Refresh the dashboard immediately
+      fetch(`${BASE}/dashboard`).then((r) => r.json()).then(setData);
+    } catch (e) {
+      toast(`Clean failed: ${(e as Error).message}`, "error");
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -128,6 +146,19 @@ export default function DashboardPage() {
                 data.thermal_state === "fair" ? "text-amber-400" : "text-red-400"
               )}>{data.thermal_state}</p>
             </div>
+            <button
+              onClick={cleanMemory}
+              disabled={cleaning}
+              title="Unload all models + restart inference backends to reclaim memory"
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition-all",
+                "border-zinc-700/50 bg-zinc-800/40 text-zinc-300 hover:border-amber-500/40 hover:text-amber-300 hover:bg-amber-950/30",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              {cleaning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eraser className="w-3.5 h-3.5" />}
+              {cleaning ? "Cleaning…" : "Clean memory"}
+            </button>
           </div>
         </div>
         {/* Subtle gradient background */}
