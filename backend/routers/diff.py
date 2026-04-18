@@ -108,6 +108,7 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
 
     async def _merged():
         tasks: list[asyncio.Task] = []
+        completed_cleanly = False
         try:
             yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
             tasks = [asyncio.create_task(_stream_model(m, i)) for i, m in enumerate(models)]
@@ -119,17 +120,20 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
                 if item.get("event") in ("done", "error"):
                     finished += 1
             yield f"data: {json.dumps({'event': 'complete'})}\n\n"
+            completed_cleanly = True
         finally:
-            # Cancel any tasks still running (happens on abort)
+            # Always cancel leftover inference tasks so they don't keep talking to oMLX
             for t in tasks:
                 if not t.done():
                     t.cancel()
-            # Unload always — the entire point of finally. Protects against the
-            # disconnect-mid-run case that used to leak 60GB of resident weights.
-            try:
-                await _unload_all_except_active()
-            except Exception:
-                pass
+            # Only unload on CLEAN completion. On abort (Stop, disconnect), keep
+            # models warm so the user can retry without paying a 30-60s reload.
+            # Memory can still be reclaimed via Dashboard → Clean memory.
+            if completed_cleanly:
+                try:
+                    await _unload_all_except_active()
+                except Exception:
+                    pass
 
     return StreamingResponse(_merged(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
