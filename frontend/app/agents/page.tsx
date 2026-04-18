@@ -546,7 +546,7 @@ function ChatModal({ name, onClose, state, setState }: {
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       send();
     }
@@ -578,7 +578,7 @@ function ChatModal({ name, onClose, state, setState }: {
           {messages.length === 0 ? (
             <div className="text-xs text-zinc-600 italic text-center mt-12">
               Send a prompt to start a conversation with {name}.
-              <div className="mt-1 text-zinc-700">⌘/Ctrl+Enter to send</div>
+              <div className="mt-1 text-zinc-700">Enter to send · Shift+Enter for newline</div>
             </div>
           ) : (
             messages.map((m, i) => (
