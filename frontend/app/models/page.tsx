@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
+import { parseModelName } from "@/lib/model-parse";
 import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
@@ -440,7 +441,7 @@ function ModelCard({
                 <button onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-300 p-0.5"><X className="w-3.5 h-3.5" /></button>
               </div>
             ) : alias ? (
-              <div className="flex items-center gap-1 group/alias mb-0.5 min-w-0">
+              <div className="flex items-center gap-1 group/alias mb-1 min-w-0">
                 <Tooltip label={`${alias} — ${model.name}`} className="min-w-0 flex-1">
                   <span className="text-base font-semibold text-zinc-100 truncate block">{alias}</span>
                 </Tooltip>
@@ -454,28 +455,8 @@ function ModelCard({
               </div>
             ) : null}
 
-            {/* Model name */}
-            <div className="flex items-center gap-1 group/name min-w-0">
-              <Tooltip label={model.name} className="min-w-0 flex-1">
-                <h3
-                  className={cn(
-                    "truncate font-medium",
-                    alias ? "text-xs text-zinc-500" : "text-sm font-semibold text-zinc-100"
-                  )}
-                >
-                  {model.name}
-                </h3>
-              </Tooltip>
-              {!alias && !editingAlias && (
-                <button
-                  onClick={startEdit}
-                  className="opacity-0 group-hover/name:opacity-100 text-zinc-600 hover:text-zinc-400 p-0.5 transition-opacity"
-                  title="Add alias"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              )}
-            </div>
+            {/* Schema chips — parsed family / params / variant / quant */}
+            <ModelChips model={model} showEditAlias={!alias && !editingAlias} onEditAlias={startEdit} />
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -617,10 +598,6 @@ function ModelCard({
           <Stat label="Avg tok/s" value={formatTps(model.avg_tps)} />
         </div>
 
-        {model.quant && (
-          <div className="text-xs text-zinc-500 font-mono">{model.quant}</div>
-        )}
-
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {tags.map(t => (
@@ -673,8 +650,71 @@ function ModelCard({
             </Button>
           </div>
         )}
+
+        {/* Full model ID — small mono, line of truth (hover for wrap) */}
+        <Tooltip label={model.name}>
+          <div className="text-[10px] font-mono text-zinc-600 truncate pt-1 border-t border-white/[0.03] select-text">
+            {model.name}
+          </div>
+        </Tooltip>
       </CardContent>
     </Card>
+  );
+}
+
+// Chip row rendered in the upper-left: parsed family / params / variant / quant.
+function ModelChips({ model, showEditAlias, onEditAlias }: {
+  model: ModelEntry;
+  showEditAlias: boolean;
+  onEditAlias: (e: React.MouseEvent) => void;
+}) {
+  const parsed = parseModelName(model.name, model.quant);
+  const chips: Array<{ label: string; tone: "family" | "params" | "variant" | "quant" }> = [];
+  if (parsed.family)  chips.push({ label: parsed.family,  tone: "family" });
+  if (parsed.params)  chips.push({ label: parsed.params,  tone: "params" });
+  if (parsed.variant) chips.push({ label: parsed.variant, tone: "variant" });
+  if (parsed.quant)   chips.push({ label: parsed.quant,   tone: "quant" });
+
+  // No chips parsed? Fall back to showing a truncated model name so the card isn't empty.
+  if (chips.length === 0) {
+    return (
+      <Tooltip label={model.name} className="min-w-0 flex-1">
+        <span className="text-sm font-semibold text-zinc-100 truncate block">{model.name}</span>
+      </Tooltip>
+    );
+  }
+
+  const toneClass = {
+    family:  "bg-indigo-500/15 text-indigo-200 border-indigo-500/25",
+    params:  "bg-zinc-800/80 text-zinc-200 border-white/10",
+    variant: "bg-fuchsia-500/10 text-fuchsia-200 border-fuchsia-500/25",
+    quant:   "bg-emerald-500/10 text-emerald-300 border-emerald-500/25",
+  } as const;
+
+  return (
+    <div className="flex items-center flex-wrap gap-1 min-w-0">
+      {chips.map((c, i) => (
+        <span
+          key={i}
+          className={cn(
+            "px-1.5 py-0.5 rounded text-[11px] font-mono font-medium border leading-tight",
+            toneClass[c.tone],
+            c.tone === "family" && "text-xs",
+          )}
+        >
+          {c.label}
+        </span>
+      ))}
+      {showEditAlias && (
+        <button
+          onClick={onEditAlias}
+          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-300 p-0.5 transition-opacity ml-0.5"
+          title="Add alias"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+      )}
+    </div>
   );
 }
 
