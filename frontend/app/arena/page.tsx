@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { api, readSSE, type ArenaVoteResult } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { api, readSSE, type ArenaVoteResult, type PromptTemplate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight, BookOpen, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { toast } from "@/components/Toast";
 
@@ -23,6 +23,24 @@ export default function ArenaPage() {
   const [statsA, setStatsA] = useState<{ tps: number | null; ttft_ms: number | null }>({ tps: null, ttft_ms: null });
   const [statsB, setStatsB] = useState<{ tps: number | null; ttft_ms: number | null }>({ tps: null, ttft_ms: null });
   const [voteResult, setVoteResult] = useState<ArenaVoteResult | null>(null);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const templateRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api.templates.list().then(setTemplates).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!showTemplates) return;
+    const handler = (e: MouseEvent) => {
+      if (templateRef.current && !templateRef.current.contains(e.target as Node)) {
+        setShowTemplates(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTemplates]);
   const [error, setError] = useState<string | null>(null);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
@@ -124,21 +142,52 @@ export default function ArenaPage() {
       ) : (
         <>
           {/* Prompt input */}
-          <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
-            <input
-              className="flex-1 bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all"
-              placeholder="Enter a prompt for both models…"
-              value={prompt} onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && phase === "ready" && sendPrompt()}
-              disabled={phase !== "ready"}
-            />
-            <div className="flex items-center gap-2 text-xs text-zinc-600">
+          <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3 items-start">
+            <div className="flex-1 flex flex-col gap-1.5">
+              <div ref={templateRef} className="relative">
+                <button
+                  onClick={() => setShowTemplates((v) => !v)}
+                  disabled={phase !== "ready"}
+                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded border border-zinc-700/50 hover:border-zinc-600 bg-zinc-800/60 transition-colors disabled:opacity-50"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  Templates
+                  <ChevronDown className={cn("w-3 h-3 transition-transform", showTemplates && "rotate-180")} />
+                </button>
+                {showTemplates && (
+                  <div className="absolute top-full left-0 mt-1 w-96 max-h-80 overflow-y-auto bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-20">
+                    {templates.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-zinc-500">No templates saved. Create some in the Templates page.</div>
+                    ) : (
+                      templates.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => { setPrompt(t.content); setShowTemplates(false); }}
+                          className="w-full text-left px-3 py-2 hover:bg-zinc-800 border-b border-white/5 last:border-0"
+                        >
+                          <div className="text-xs font-medium text-zinc-100 truncate">{t.name}</div>
+                          {t.description && <div className="text-[10px] text-zinc-500 truncate mt-0.5">{t.description}</div>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <input
+                className="w-full bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all"
+                placeholder="Enter a prompt for both models…"
+                value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && phase === "ready" && sendPrompt()}
+                disabled={phase !== "ready"}
+              />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-600 self-end pb-0.5">
               <span>T:</span>
               <input type="number" step="0.1" min="0" max="2"
                 className="w-14 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
                 value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value) || 0.7)} />
             </div>
-            <Button onClick={sendPrompt} disabled={phase !== "ready" || !prompt.trim()} variant="primary" className="gap-1.5">
+            <Button onClick={sendPrompt} disabled={phase !== "ready" || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
               <Send className="w-4 h-4" /> Send
             </Button>
           </div>
