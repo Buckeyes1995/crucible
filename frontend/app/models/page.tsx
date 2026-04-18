@@ -430,7 +430,7 @@ function ModelCard({
   return (
     <Card
       className={cn(
-        "transition-all duration-200 group relative overflow-hidden",
+        "transition-all duration-200 group relative overflow-hidden h-full flex flex-col",
         isActive
           ? "border-emerald-500/30 bg-emerald-950/10 cursor-default glow-emerald"
           : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer hover-lift",
@@ -445,7 +445,7 @@ function ModelCard({
           <div className="h-full bg-indigo-500 animate-pulse" style={{ width: "60%" }} />
         </div>
       )}
-      <CardContent className="p-3 space-y-2">
+      <CardContent className="p-3 flex flex-col gap-2 flex-1">
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -632,9 +632,11 @@ function ModelCard({
           </div>
         )}
 
-        {/* Status pills — draft / update indicators, grouped just above the ID line */}
+        {/* Status pills + full ID pinned to the bottom so cards align regardless of
+            optional middle content (tags, loading bar, hover actions). */}
+        <div className="mt-auto flex flex-col gap-2">
         {(model.dflash_draft || (!model.dflash_draft && model.available_draft_repo) || (model.update_available && model.origin_repo)) && (
-          <div className="flex flex-wrap items-center gap-1 pt-1">
+          <div className="flex flex-wrap items-center gap-1">
             {model.dflash_draft && (
               <button
                 onClick={async (e) => {
@@ -695,6 +697,7 @@ function ModelCard({
             {model.name}
           </div>
         </Tooltip>
+        </div>
       </CardContent>
     </Card>
   );
