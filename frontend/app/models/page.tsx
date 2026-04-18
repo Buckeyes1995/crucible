@@ -724,7 +724,7 @@ function ModelChips({ model, showEditAlias, onEditAlias }: {
   } as const;
 
   return (
-    <div className="flex items-center flex-wrap gap-1 min-w-0">
+    <div className="flex content-start items-center flex-wrap gap-1 min-w-0 min-h-9">
       {chips.map((c, i) => (
         <span
           key={i}
