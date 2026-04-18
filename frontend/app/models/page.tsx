@@ -519,57 +519,6 @@ function ModelCard({
                 @{model.node}
               </span>
             )}
-            {model.dflash_draft && (
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await api.dflash.toggle(model.id, !model.dflash_enabled);
-                    const { fetchModels } = useModelsStore.getState();
-                    fetchModels();
-                    toast(model.dflash_enabled ? "DFlash disabled" : "DFlash enabled — 3-4x faster generation", model.dflash_enabled ? "info" : "success");
-                  } catch { toast("Failed to toggle DFlash", "error"); }
-                }}
-                className={cn(
-                  "text-[10px] px-1.5 py-0.5 rounded border font-medium flex items-center gap-0.5 transition-colors",
-                  model.dflash_enabled
-                    ? "border-amber-500/50 text-amber-400 bg-amber-900/30 hover:bg-amber-900/50"
-                    : "border-zinc-600 text-zinc-500 bg-zinc-800/50 hover:text-amber-400 hover:border-amber-500/30"
-                )}
-                title={model.dflash_enabled ? "DFlash enabled — click to disable" : "Enable DFlash speculative decoding"}
-              >
-                <Bolt className="w-3 h-3" />
-                DFlash
-              </button>
-            )}
-            {!model.dflash_draft && model.available_draft_repo && (
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await api.zlab.downloadDraft(model.available_draft_repo!);
-                    toast(`Downloading ${model.available_draft_repo} — check Downloads`, "success");
-                  } catch { toast("Failed to start draft download", "error"); }
-                }}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400/80 bg-amber-900/10 hover:bg-amber-900/30 hover:border-amber-500/50 font-medium flex items-center gap-0.5 transition-colors"
-                title={`z-lab draft available: ${model.available_draft_repo} — click to download`}
-              >
-                <Bolt className="w-3 h-3" />
-                Draft available
-              </button>
-            )}
-            {model.update_available && model.origin_repo && (
-              <a
-                href={`https://huggingface.co/${model.origin_repo}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-sky-500/40 text-sky-300 bg-sky-900/20 hover:bg-sky-900/40 font-medium flex items-center gap-0.5 transition-colors"
-                title={`Upstream ${model.origin_repo} updated ${model.upstream_last_modified ?? ""}`}
-              >
-                New version
-              </a>
-            )}
             <button
               onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
               className="p-0.5 rounded text-zinc-600 hover:text-zinc-300 transition-colors opacity-0 group-hover:opacity-100"
@@ -680,6 +629,63 @@ function ModelCard({
               <Zap className="w-3 h-3" />
               Load model
             </Button>
+          </div>
+        )}
+
+        {/* Status pills — draft / update indicators, grouped just above the ID line */}
+        {(model.dflash_draft || (!model.dflash_draft && model.available_draft_repo) || (model.update_available && model.origin_repo)) && (
+          <div className="flex flex-wrap items-center gap-1 pt-1">
+            {model.dflash_draft && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api.dflash.toggle(model.id, !model.dflash_enabled);
+                    const { fetchModels } = useModelsStore.getState();
+                    fetchModels();
+                    toast(model.dflash_enabled ? "DFlash disabled" : "DFlash enabled — 3-4x faster generation", model.dflash_enabled ? "info" : "success");
+                  } catch { toast("Failed to toggle DFlash", "error"); }
+                }}
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded border font-medium flex items-center gap-0.5 transition-colors",
+                  model.dflash_enabled
+                    ? "border-amber-500/50 text-amber-400 bg-amber-900/30 hover:bg-amber-900/50"
+                    : "border-zinc-600 text-zinc-500 bg-zinc-800/50 hover:text-amber-400 hover:border-amber-500/30",
+                )}
+                title={model.dflash_enabled ? "DFlash enabled — click to disable" : "Enable DFlash speculative decoding"}
+              >
+                <Bolt className="w-3 h-3" />
+                DFlash
+              </button>
+            )}
+            {!model.dflash_draft && model.available_draft_repo && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api.zlab.downloadDraft(model.available_draft_repo!);
+                    toast(`Downloading ${model.available_draft_repo} — check Downloads`, "success");
+                  } catch { toast("Failed to start draft download", "error"); }
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400/80 bg-amber-900/10 hover:bg-amber-900/30 hover:border-amber-500/50 font-medium flex items-center gap-0.5 transition-colors"
+                title={`z-lab draft available: ${model.available_draft_repo} — click to download`}
+              >
+                <Bolt className="w-3 h-3" />
+                Draft available
+              </button>
+            )}
+            {model.update_available && model.origin_repo && (
+              <a
+                href={`https://huggingface.co/${model.origin_repo}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-sky-500/40 text-sky-300 bg-sky-900/20 hover:bg-sky-900/40 font-medium flex items-center gap-0.5 transition-colors"
+                title={`Upstream ${model.origin_repo} updated ${model.upstream_last_modified ?? ""}`}
+              >
+                New version
+              </a>
+            )}
           </div>
         )}
 
