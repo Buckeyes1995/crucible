@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { api, readSSE, type ChatMessage } from "@/lib/api";
+import { useModelsStore } from "@/lib/stores/models";
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -18,17 +19,57 @@ type ChatState = {
   streaming: boolean;
   stats: ChatStats | null;
   error: string | null;
+  sessionId: string | null;
 
   sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
   clearMessages: () => void;
   resetStreaming: () => void;
 };
 
+// Fire-and-forget persistence helper. We POST to the chat-history router after
+// each turn completes; failures are logged but don't block the UI — history is
+// a nice-to-have, not a critical path.
+async function persistTurn(
+  sessionId: string | null,
+  userText: string,
+  assistantText: string,
+  modelId: string | null,
+): Promise<string | null> {
+  try {
+    let id = sessionId;
+    if (!id) {
+      const title = userText.trim().slice(0, 80) || "New Chat";
+      const resp = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, model_id: modelId }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      id = data.id as string;
+    }
+    await fetch(`/api/chat/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "user", content: userText }),
+    });
+    await fetch(`/api/chat/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "assistant", content: assistantText }),
+    });
+    return id;
+  } catch {
+    return sessionId;
+  }
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streaming: false,
   stats: null,
   error: null,
+  sessionId: null,
 
   sendMessage: async (text, temperature, maxTokens, systemPrompt, ragSessionId) => {
     const userMsg: ChatMsg = { role: "user", content: text };
@@ -69,6 +110,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 output_tokens: (data.output_tokens as number) ?? null,
               },
             });
+            // Persist this turn (both user + assistant messages) to chat history.
+            const state = get();
+            const assistantText = state.messages[assistantIdx]?.content ?? "";
+            if (assistantText) {
+              const modelId = useModelsStore.getState().activeModelId ?? null;
+              persistTurn(state.sessionId, text, assistantText, modelId).then((id) => {
+                if (id && id !== get().sessionId) set({ sessionId: id });
+              });
+            }
           }
         },
         (err) => set({ error: err.message, streaming: false })
@@ -81,7 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  clearMessages: () => set({ messages: [], stats: null, error: null }),
+  clearMessages: () => set({ messages: [], stats: null, error: null, sessionId: null }),
 
   resetStreaming: () => set({ streaming: false, error: null }),
 }));

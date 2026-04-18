@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatBytes } from "@/lib/utils";
-import { Search, Download, X, CheckCircle2, AlertCircle, Loader2, ExternalLink, RotateCcw } from "lucide-react";
+import { Search, Download, X, CheckCircle2, AlertCircle, Loader2, ExternalLink, RotateCcw, Trash2 } from "lucide-react";
+import { toast } from "@/components/Toast";
 
 export default function DownloadsPage() {
   const [query, setQuery] = useState("");
@@ -190,7 +191,23 @@ export default function DownloadsPage() {
       {/* Completed / errored jobs */}
       {doneJobs.length > 0 && (
         <div>
-          <h2 className="text-sm font-medium text-zinc-400 mb-3">History</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-zinc-400">History</h2>
+            <button
+              onClick={async () => {
+                if (!confirm(`Clear ${doneJobs.length} finished download${doneJobs.length === 1 ? "" : "s"} from history? Active jobs are not affected.`)) return;
+                try {
+                  const r = await api.hf.clearHistory();
+                  await loadJobs();
+                  toast(`Removed ${r.removed} from history`, "success");
+                } catch (e) { toast(`Clear failed: ${(e as Error).message}`, "error"); }
+              }}
+              className="text-xs text-zinc-500 hover:text-red-400 transition-colors flex items-center gap-1"
+              title="Remove completed, errored, and cancelled jobs"
+            >
+              <Trash2 className="w-3 h-3" /> Clear history
+            </button>
+          </div>
           <div className="space-y-2">
             {doneJobs.map(job => (
               <JobCard

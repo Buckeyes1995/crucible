@@ -33,7 +33,11 @@ async def refresh_updates(request: Request) -> dict:
             title="Model update available",
             message=f"{name} has a new version on {info['origin_repo']}",
             type="info",
-            link=f"/models",
+            link="/models",
+            meta={"kind": "model_update",
+                  "model_id": mid,
+                  "model_kind": (m.kind if m else "mlx"),
+                  "repo_id": info["origin_repo"]},
         )
     return {
         "newly_flagged": list(newly.keys()),

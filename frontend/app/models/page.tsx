@@ -11,12 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { parseModelName } from "@/lib/model-parse";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown } from "lucide-react";
 import Link from "next/link";
 import { api, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
 
 type SortKey = "name" | "size" | "tps";
+type SortDir = "asc" | "desc";
 
 export default function ModelsPage() {
   const {
@@ -29,6 +30,7 @@ export default function ModelsPage() {
   const [search, setSearch] = useState("");
   const [filterKind, setFilterKind] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [paramsModelId, setParamsModelId] = useState<string | null>(null);
   const [notesModelId, setNotesModelId] = useState<string | null>(null);
   const [showGlobalParams, setShowGlobalParams] = useState(false);
@@ -97,9 +99,10 @@ export default function ModelsPage() {
       const aFav = isFavorite(a.id) ? 0 : 1;
       const bFav = isFavorite(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
-      if (sortKey === "size") return (b.size_bytes ?? 0) - (a.size_bytes ?? 0);
-      if (sortKey === "tps") return (b.avg_tps ?? 0) - (a.avg_tps ?? 0);
-      return a.name.localeCompare(b.name);
+      const mul = sortDir === "asc" ? 1 : -1;
+      if (sortKey === "size") return mul * ((a.size_bytes ?? 0) - (b.size_bytes ?? 0));
+      if (sortKey === "tps")  return mul * ((a.avg_tps ?? 0) - (b.avg_tps ?? 0));
+      return mul * a.name.localeCompare(b.name);
     });
 
   const paramsModel = paramsModelId ? models.find((m) => m.id === paramsModelId) : null;
@@ -257,20 +260,28 @@ export default function ModelsPage() {
 
         <div className="flex gap-1 ml-auto">
           <span className="text-xs text-zinc-500 self-center mr-1">Sort:</span>
-          {(["name", "size", "tps"] as SortKey[]).map((k) => (
-            <button
-              key={k}
-              onClick={() => setSortKey(k)}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors",
-                sortKey === k
-                  ? "bg-zinc-700 text-zinc-100"
-                  : "bg-zinc-800 text-zinc-500 hover:text-zinc-100"
-              )}
-            >
-              {k === "tps" ? "Avg tok/s" : k}
-            </button>
-          ))}
+          {(["name", "size", "tps"] as SortKey[]).map((k) => {
+            const active = sortKey === k;
+            return (
+              <button
+                key={k}
+                onClick={() => {
+                  if (active) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                  else {
+                    setSortKey(k);
+                    setSortDir(k === "name" ? "asc" : "desc");
+                  }
+                }}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors flex items-center gap-1",
+                  active ? "bg-zinc-700 text-zinc-100" : "bg-zinc-800 text-zinc-500 hover:text-zinc-100",
+                )}
+              >
+                {k === "tps" ? "Avg tok/s" : k}
+                {active && (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -495,22 +506,6 @@ function ModelCard({
                 {Math.round((downloadProgress.progress ?? 0) * 100)}%
               </span>
             )}
-            {isActive && (
-              <>
-                <span className="flex items-center gap-1 text-xs text-green-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-                  Active
-                </span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStop(); }}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors"
-                  title="Unload model"
-                >
-                  <Square className="w-3 h-3 fill-current" />
-                  Unload
-                </button>
-              </>
-            )}
             <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio" | "vllm"}>
               {model.kind === "mlx_studio" ? "MLX Studio" : model.kind === "vllm" ? "vLLM" : model.kind.toUpperCase()}
             </Badge>
@@ -691,12 +686,25 @@ function ModelCard({
           </div>
         )}
 
-        {/* Full model ID — small mono, line of truth (hover for wrap) */}
-        <Tooltip label={model.name}>
-          <div className="text-xs font-mono text-zinc-500 truncate pt-1 border-t border-white/[0.03] select-text">
-            {model.name}
-          </div>
-        </Tooltip>
+        {/* Full model ID — small mono, line of truth (hover for wrap).
+            Unload button (active-only) sits on the right side of this row. */}
+        <div className="flex items-center gap-2 pt-1 border-t border-white/[0.03]">
+          <Tooltip label={model.name} className="min-w-0 flex-1">
+            <div className="text-xs font-mono text-zinc-500 truncate select-text">
+              {model.name}
+            </div>
+          </Tooltip>
+          {isActive && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onStop(); }}
+              className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors"
+              title="Unload model"
+            >
+              <Square className="w-2.5 h-2.5 fill-current" />
+              Unload
+            </button>
+          )}
+        </div>
         </div>
       </CardContent>
     </Card>

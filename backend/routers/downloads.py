@@ -142,6 +142,14 @@ async def list_downloads() -> list[dict]:
     return download_manager.list_jobs()
 
 
+@router.delete("/hf/downloads/history")
+async def clear_downloads_history() -> dict:
+    """Remove finished / errored / cancelled download jobs from the history.
+    Active jobs are preserved."""
+    removed = download_manager.clear_finished()
+    return {"status": "ok", "removed": removed}
+
+
 @router.get("/hf/download/{job_id}")
 async def get_download(job_id: str) -> dict:
     job = download_manager.get_job(job_id)

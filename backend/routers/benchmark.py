@@ -313,6 +313,20 @@ async def delete_run(run_id: str) -> dict:
     return {"status": "deleted"}
 
 
+@router.delete("/benchmark/history")
+async def delete_all_runs() -> dict:
+    """Nuke the entire benchmark history. Returns the number of runs removed."""
+    import aiosqlite
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        async with db.execute("SELECT COUNT(*) FROM benchmark_runs") as cur:
+            row = await cur.fetchone()
+            n = row[0] if row else 0
+        await db.execute("DELETE FROM benchmark_runs")
+        await db.commit()
+    return {"status": "deleted", "count": n}
+
+
 @router.get("/benchmark/model/{model_id:path}/history")
 async def model_benchmark_history(model_id: str, limit: int = 50) -> list[dict]:
     """Per-run avg tok/s for a model, ordered by run date. Powers the tok/s over time chart."""

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { formatTps, cn } from "@/lib/utils";
-import { Trash2, ExternalLink, AlertTriangle } from "lucide-react";
+import { Trash2, ExternalLink, AlertTriangle, Trash } from "lucide-react";
+import { toast } from "@/components/Toast";
 import Link from "next/link";
 
 type RunSummary = {
@@ -35,12 +36,31 @@ export default function HistoryPage() {
   useEffect(() => { load(); }, []);
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Delete this benchmark run? This can't be undone.")) return;
     setDeleting(id);
     try {
       await api.benchmark.delete(id);
       setRuns((r) => r.filter((x) => x.run_id !== id));
+    } catch (e) {
+      toast(`Delete failed: ${(e as Error).message}`, "error");
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const [wiping, setWiping] = useState(false);
+  const handleDeleteAll = async () => {
+    if (runs.length === 0) return;
+    if (!confirm(`Delete ALL ${runs.length} benchmark runs? This can't be undone.`)) return;
+    setWiping(true);
+    try {
+      const r = await api.benchmark.deleteAll();
+      setRuns([]);
+      toast(`Removed ${r.count} runs`, "success");
+    } catch (e) {
+      toast(`Delete all failed: ${(e as Error).message}`, "error");
+    } finally {
+      setWiping(false);
     }
   };
 
@@ -48,9 +68,16 @@ export default function HistoryPage() {
     <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-zinc-100">Benchmark History</h1>
-        <Link href="/benchmark/new">
-          <Button variant="primary" size="sm">+ New Run</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {runs.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={handleDeleteAll} disabled={wiping} className="gap-1.5 text-red-400 hover:text-red-300">
+              <Trash className="w-3.5 h-3.5" /> {wiping ? "Deleting…" : "Delete all"}
+            </Button>
+          )}
+          <Link href="/benchmark/new">
+            <Button variant="primary" size="sm">+ New Run</Button>
+          </Link>
+        </div>
       </div>
 
       {loading ? (

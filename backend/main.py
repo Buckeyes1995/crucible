@@ -153,6 +153,10 @@ async def lifespan(app: FastAPI):
                         message=f"{name} has a new version on {info['origin_repo']}",
                         type="info",
                         link="/models",
+                        meta={"kind": "model_update",
+                              "model_id": mid,
+                              "model_kind": (m.kind if m else "mlx"),
+                              "repo_id": info["origin_repo"]},
                     )
         except Exception as e:
             log.warning("initial hf update check failed: %s", e)

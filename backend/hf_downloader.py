@@ -123,6 +123,20 @@ class DownloadManager:
     def list_jobs(self) -> list[dict]:
         return [self._job_dict(j) for j in self._jobs.values()]
 
+    def clear_finished(self) -> int:
+        """Drop every completed / errored / cancelled job from the history.
+        In-flight jobs (queued, downloading) are left alone. Returns the count
+        of removed jobs so the caller can report it back to the UI.
+        """
+        finished = {"done", "error", "cancelled"}
+        to_remove = [jid for jid, j in self._jobs.items() if j.status in finished]
+        for jid in to_remove:
+            self._jobs.pop(jid, None)
+            self._tasks.pop(jid, None)
+        if to_remove:
+            self._persist()
+        return len(to_remove)
+
     def get_job(self, job_id: str) -> Optional[DownloadJob]:
         return self._jobs.get(job_id)
 

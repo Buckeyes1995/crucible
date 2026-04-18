@@ -432,6 +432,7 @@ export const api = {
     history: () => get<unknown[]>("/benchmark/history"),
     getrun: (id: string) => get<unknown>(`/benchmark/run/${id}`),
     delete: (id: string) => del<{ status: string }>(`/benchmark/run/${id}`),
+    deleteAll: () => del<{ status: string; count: number }>("/benchmark/history"),
     modelHistory: (modelId: string, limit = 50) =>
       get<ModelBenchmarkPoint[]>(`/benchmark/model/${encodeURIComponent(modelId)}/history?limit=${limit}`),
     marketplace: () => get<MarketplaceData>("/benchmark/marketplace"),
@@ -441,6 +442,7 @@ export const api = {
     startDownload: (repo_id: string, kind: string, dest_dir?: string) =>
       post<{ job_id: string; status: string }>("/hf/download", { repo_id, kind, dest_dir }),
     listDownloads: () => get<DownloadJob[]>("/hf/downloads"),
+    clearHistory: () => del<{ status: string; removed: number }>("/hf/downloads/history"),
     getDownload: (id: string) => get<DownloadJob>(`/hf/download/${id}`),
     streamDownload: (id: string) => stream(`/hf/download/${id}/stream`),
     cancelDownload: (id: string) => del<{ status: string }>(`/hf/download/${id}`),

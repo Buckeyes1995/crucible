@@ -18,10 +18,22 @@ def _save(notifs):
     NOTIF_FILE.parent.mkdir(parents=True, exist_ok=True)
     NOTIF_FILE.write_text(json.dumps(notifs[-200:], indent=2))
 
-def push(title: str, message: str, type: str = "info", link: str = ""):
-    """Push a notification (called from other modules)."""
+def push(title: str, message: str, type: str = "info", link: str = "",
+         meta: Optional[dict] = None):
+    """Push a notification (called from other modules).
+
+    `meta` carries structured payload (e.g. {"model_id": ..., "repo_id": ...})
+    that the UI can use to render contextual actions like "Update & replace".
+    """
     notifs = _load()
-    notifs.append({"id": str(uuid.uuid4()), "title": title, "message": message, "type": type, "link": link, "read": False, "ts": time.time()})
+    entry = {
+        "id": str(uuid.uuid4()),
+        "title": title, "message": message, "type": type,
+        "link": link, "read": False, "ts": time.time(),
+    }
+    if meta:
+        entry["meta"] = meta
+    notifs.append(entry)
     _save(notifs)
 
 @router.get("/notifications")
