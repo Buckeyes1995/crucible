@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, readSSE, type AgentListEntry, type AgentStatus, type AgentCronJob, type AgentSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ export default function AgentsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [logsFor, setLogsFor] = useState<string | null>(null);
   const [chatFor, setChatFor] = useState<string | null>(null);
+  const [chatStates, setChatStates] = useState<Record<string, { messages: ChatMsg[]; sessionId: string | null }>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -94,7 +95,20 @@ export default function AgentsPage() {
 
       {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
       {logsFor && <LogsModal name={logsFor} onClose={() => setLogsFor(null)} />}
-      {chatFor && <ChatModal name={chatFor} onClose={() => setChatFor(null)} />}
+      {chatFor && (
+        <ChatModal
+          name={chatFor}
+          onClose={() => setChatFor(null)}
+          state={chatStates[chatFor] ?? { messages: [], sessionId: null }}
+          setState={(updater) =>
+            setChatStates((prev) => {
+              const current = prev[chatFor] ?? { messages: [], sessionId: null };
+              const next = typeof updater === "function" ? updater(current) : updater;
+              return { ...prev, [chatFor]: next };
+            })
+          }
+        />
+      )}
     </div>
   );
 }
@@ -403,55 +417,84 @@ function Field({ label, value, onChange, placeholder, type = "text" }: {
 }
 
 type ChatMsg = { role: "user" | "assistant"; content: string; error?: boolean };
+type ChatState = { messages: ChatMsg[]; sessionId: string | null };
 
-function ChatModal({ name, onClose }: { name: string; onClose: () => void }) {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+function ChatModal({ name, onClose, state, setState }: {
+  name: string;
+  onClose: () => void;
+  state: ChatState;
+  setState: (updater: ChatState | ((prev: ChatState) => ChatState)) => void;
+}) {
+  const { messages, sessionId } = state;
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
+
+  // Track whether the user is pinned to the bottom; if so, auto-scroll on new content.
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  // On open (or when switching agents), jump to the bottom so re-opened history lands at the latest turn.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    stickRef.current = true;
+  }, [name]);
 
   const send = async () => {
     const prompt = input.trim();
     if (!prompt || streaming) return;
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: prompt }, { role: "assistant", content: "" }]);
+    stickRef.current = true; // sending implies the user wants to watch the new reply
+    setState((s) => ({ ...s, messages: [...s.messages, { role: "user", content: prompt }, { role: "assistant", content: "" }] }));
     setStreaming(true);
 
     try {
       const resp = await api.agents.chat(name, { prompt, session_id: sessionId });
       if (!resp.ok) {
         const text = await resp.text();
-        setMessages((m) => {
-          const copy = [...m];
+        setState((s) => {
+          const copy = [...s.messages];
           copy[copy.length - 1] = { role: "assistant", content: `error: ${resp.status} ${text.slice(0, 400)}`, error: true };
-          return copy;
+          return { ...s, messages: copy };
         });
         return;
       }
       await readSSE(resp, (evt) => {
         const e = evt as { event?: string; line?: string; session_id?: string | null; message?: string };
         if (e.event === "line" && typeof e.line === "string") {
-          setMessages((m) => {
-            const copy = [...m];
+          setState((s) => {
+            const copy = [...s.messages];
             const last = copy[copy.length - 1];
             copy[copy.length - 1] = { ...last, content: last.content + (last.content ? "\n" : "") + e.line };
-            return copy;
+            return { ...s, messages: copy };
           });
         } else if (e.event === "done") {
-          if (e.session_id) setSessionId(e.session_id);
+          if (e.session_id) setState((s) => ({ ...s, sessionId: e.session_id! }));
         } else if (e.event === "error") {
-          setMessages((m) => {
-            const copy = [...m];
+          setState((s) => {
+            const copy = [...s.messages];
             copy[copy.length - 1] = { role: "assistant", content: e.message || "error", error: true };
-            return copy;
+            return { ...s, messages: copy };
           });
         }
       });
     } catch (e) {
-      setMessages((m) => {
-        const copy = [...m];
+      setState((s) => {
+        const copy = [...s.messages];
         copy[copy.length - 1] = { role: "assistant", content: `error: ${(e as Error).message}`, error: true };
-        return copy;
+        return { ...s, messages: copy };
       });
     } finally {
       setStreaming(false);
@@ -460,8 +503,7 @@ function ChatModal({ name, onClose }: { name: string; onClose: () => void }) {
 
   const resetSession = () => {
     if (streaming) return;
-    setSessionId(null);
-    setMessages([]);
+    setState({ messages: [], sessionId: null });
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -493,7 +535,7 @@ function ChatModal({ name, onClose }: { name: string; onClose: () => void }) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+        <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-auto px-5 py-4 space-y-4">
           {messages.length === 0 ? (
             <div className="text-xs text-zinc-600 italic text-center mt-12">
               Send a prompt to start a conversation with {name}.
