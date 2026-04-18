@@ -179,3 +179,43 @@ async def agent_orphans(name: str, request: Request) -> Any:
 @router.post("/agents/{name}/orphans/prune")
 async def agent_orphans_prune(name: str, request: Request) -> Any:
     return await _proxy_json(_find(request, name), "/orphans/prune", method="POST")
+
+
+class ChatBody(BaseModel):
+    prompt: str
+    session_id: str | None = None
+    max_turns: int = 30
+    skills: list[str] = []
+
+
+@router.post("/agents/{name}/chat")
+async def agent_chat(name: str, body: ChatBody, request: Request) -> StreamingResponse:
+    """Stream a conversational turn with the agent — SSE passthrough.
+
+    Lets the Crucible UI chat with hermes as if it were another chat platform,
+    including preserving session_id across turns for multi-turn conversations.
+    """
+    agent = _find(request, name)
+    url = agent.url.rstrip("/") + "/chat"
+    headers = _headers(agent)
+    headers["Content-Type"] = "application/json"
+
+    async def _stream():
+        try:
+            # Timeout must be long — a chat turn can run tool calls for minutes
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                async with client.stream("POST", url, headers=headers,
+                                         json=body.model_dump()) as resp:
+                    if not resp.is_success:
+                        err_bytes = await resp.aread()
+                        err_text = err_bytes.decode("utf-8", errors="replace")[:300]
+                        msg = f"agent returned {resp.status_code}: {err_text}"
+                        yield f"data: {json.dumps({'event': 'error', 'message': msg})}\n\n"
+                        return
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk.decode("utf-8", errors="replace")
+        except httpx.HTTPError as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': f'agent unreachable: {e}'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
