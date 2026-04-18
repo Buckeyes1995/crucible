@@ -154,8 +154,12 @@ export default function DiffPage() {
         )}
         {!running && selected.length > 0 && (
           <span className="text-xs text-zinc-600 ml-auto font-mono">
-            Selected: <span className="text-zinc-300">{fmtGB(selectedBytes)}</span>
-            {" · "}Free: <span className={cn(remainingBytes < 5e9 ? "text-amber-400" : "text-zinc-300")}>{fmtGB(remainingBytes)}</span> / {fmtGB(availableBytes)}
+            <span className={cn(selectedBytes > availableBytes ? "text-red-400" : selectedBytes > availableBytes * 0.85 ? "text-amber-400" : "text-zinc-300")}>
+              {fmtGB(selectedBytes)}
+            </span>
+            <span className="text-zinc-600"> needed · </span>
+            <span className="text-zinc-300">{fmtGB(availableBytes)}</span>
+            <span className="text-zinc-600"> free</span>
           </span>
         )}
       </div>

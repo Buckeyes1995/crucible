@@ -87,35 +87,49 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
     # 2KB padding so proxies flush each chunk rather than buffering up to ~4KB
     _PAD = ":" + (" " * 2048) + "\n"
 
-    async def _merged():
-        yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
-        tasks = [asyncio.create_task(_stream_model(m, i)) for i, m in enumerate(models)]
-        finished = 0
-        total = len(models)
-        while finished < total:
-            item = await queue.get()
-            yield _PAD + f"data: {json.dumps(item)}\n\n"
-            if item.get("event") in ("done", "error"):
-                finished += 1
-        # Auto-unload every model we loaded for this diff — diff bypasses Crucible's
-        # active_adapter, so oMLX would otherwise keep them in its engine pool forever.
-        # Preserve the model currently held by active_adapter (if any) so we don't
-        # interfere with a chat session.
+    async def _unload_all_except_active():
+        """Unload every model this diff touched. Fires on clean completion AND on
+        abort/disconnect — wrapped in try/finally so it can't leak models."""
         active = request.app.state.active_adapter
         keep = active.model_id if active and active.is_loaded() else None
         import httpx
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for m in models:
-                if m["id"] == keep:
-                    continue
-                try:
-                    await client.post(f"{base_url}/v1/models/{m['omlx_name']}/unload", headers=headers)
-                except Exception:
-                    pass
-        yield f"data: {json.dumps({'event': 'complete'})}\n\n"
-        for t in tasks:
-            t.cancel()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for m in models:
+                    if m["id"] == keep:
+                        continue
+                    try:
+                        await client.post(f"{base_url}/v1/models/{m['omlx_name']}/unload", headers=headers)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    async def _merged():
+        tasks: list[asyncio.Task] = []
+        try:
+            yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
+            tasks = [asyncio.create_task(_stream_model(m, i)) for i, m in enumerate(models)]
+            finished = 0
+            total = len(models)
+            while finished < total:
+                item = await queue.get()
+                yield _PAD + f"data: {json.dumps(item)}\n\n"
+                if item.get("event") in ("done", "error"):
+                    finished += 1
+            yield f"data: {json.dumps({'event': 'complete'})}\n\n"
+        finally:
+            # Cancel any tasks still running (happens on abort)
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            # Unload always — the entire point of finally. Protects against the
+            # disconnect-mid-run case that used to leak 60GB of resident weights.
+            try:
+                await _unload_all_except_active()
+            except Exception:
+                pass
 
     return StreamingResponse(_merged(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
