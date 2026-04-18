@@ -113,7 +113,22 @@ export default function DiffPage() {
           ...prev,
           [idx]: { ...prev[idx], model: (data.model as string) ?? prev[idx]?.model ?? "", done: true, status: "error", error: (data.message as string) ?? "Error", tps: prev[idx]?.tps ?? null, text: prev[idx]?.text ?? "" },
         }));
-      } else if (event === "complete") setRunning(false);
+      } else if (event === "complete") {
+        // Safety: if any panel is still stuck in streaming/queued (missed done event),
+        // mark it done so the UI doesn't lie about what's running.
+        setResponses((prev) => {
+          const next: typeof prev = {};
+          for (const [k, v] of Object.entries(prev)) {
+            if (v.status === "streaming" || v.status === "queued") {
+              next[Number(k)] = { ...v, done: true, status: "done" };
+            } else {
+              next[Number(k)] = v;
+            }
+          }
+          return next;
+        });
+        setRunning(false);
+      }
     });
     } catch (e) {
       if ((e as Error)?.name !== "AbortError") console.error("diff failed:", e);
