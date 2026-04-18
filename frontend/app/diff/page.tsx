@@ -17,8 +17,8 @@ export default function DiffPage() {
   const [modelNames, setModelNames] = useState<string[]>([]);
   const [availableBytes, setAvailableBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
-  const [maxTokens, setMaxTokens] = useState(4096);
-  const [maxTokensInput, setMaxTokensInput] = useState("4096");
+  const [maxTokens, setMaxTokens] = useState(8192);
+  const [maxTokensInput, setMaxTokensInput] = useState("8192");
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [eventCount, setEventCount] = useState(0); // diag — every SSE event ticks this
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
@@ -71,7 +71,17 @@ export default function DiffPage() {
   }, [showTemplates]);
 
   useEffect(() => {
-    api.models.list().then((all) => setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden)));
+    const refreshModels = () => {
+      api.models.list().then((all) =>
+        setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden))
+      ).catch(() => {});
+    };
+    refreshModels();
+    // Re-fetch when user returns to the tab (favorited/hid/downloaded a model elsewhere)
+    const onFocus = () => refreshModels();
+    const onVisibility = () => { if (!document.hidden) refreshModels(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     const refreshMem = () => {
       fetch("/api/status").then((r) => r.json()).then((s) => {
         setAvailableBytes(s.available_memory_bytes ?? 0);
@@ -80,7 +90,11 @@ export default function DiffPage() {
     };
     refreshMem();
     const id = setInterval(refreshMem, 5000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   // Sequential diff: each model runs solo so only individual size matters
@@ -290,7 +304,7 @@ export default function DiffPage() {
             onChange={(e) => setMaxTokensInput(e.target.value)}
             onBlur={() => {
               const n = parseInt(maxTokensInput);
-              const clamped = Number.isFinite(n) && n >= 64 ? n : 4096;
+              const clamped = Number.isFinite(n) && n >= 64 ? n : 8192;
               setMaxTokens(clamped);
               setMaxTokensInput(String(clamped));
             }}
