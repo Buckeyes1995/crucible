@@ -115,9 +115,11 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
         """
         completed_cleanly = False
         current_task: asyncio.Task | None = None
+        current_model: dict | None = None  # track which model is being processed for abort-unload
         try:
             yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
             for i, m in enumerate(models):
+                current_model = m
                 # Tell the frontend we're now starting this model (sequential mode)
                 yield _PAD + f"data: {json.dumps({'event': 'running', 'index': i, 'model': m['name']})}\n\n"
                 current_task = asyncio.create_task(_stream_model(m, i))
@@ -137,11 +139,25 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
                     except Exception:
                         pass
                 current_task = None
+                current_model = None
             yield f"data: {json.dumps({'event': 'complete'})}\n\n"
             completed_cleanly = True
         finally:
             if current_task and not current_task.done():
                 current_task.cancel()
+            # On abort, explicitly unload the in-progress model so oMLX stops its load/infer.
+            # oMLX honors POST /v1/models/X/unload even mid-load ("immediate abort" in its logs).
+            if not completed_cleanly and current_model is not None:
+                try:
+                    import httpx
+                    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        await client.post(
+                            f"{base_url}/v1/models/{current_model['omlx_name']}/unload",
+                            headers=headers,
+                        )
+                except Exception:
+                    pass
             if completed_cleanly:
                 try:
                     await _unload_all_except_active()

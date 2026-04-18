@@ -63,14 +63,16 @@ export default function DiffPage() {
     return () => clearInterval(id);
   }, []);
 
-  // Sum of selected model sizes — approximates what oMLX will hold resident during a diff run
-  const selectedBytes = selected.reduce((sum, id) => sum + (models.find((m) => m.id === id)?.size_bytes ?? 0), 0);
-  const remainingBytes = Math.max(availableBytes - selectedBytes, 0);
+  // Sequential diff: each model runs solo so only individual size matters
+  const largestSelected = selected.reduce((max, id) => {
+    const sz = models.find((m) => m.id === id)?.size_bytes ?? 0;
+    return Math.max(max, sz);
+  }, 0);
 
   const wouldExceed = (m: ModelEntry): boolean => {
-    if (selected.includes(m.id)) return false; // already in; toggle off always allowed
+    if (selected.includes(m.id)) return false;
     const size = m.size_bytes ?? 0;
-    return size > remainingBytes;
+    return size > availableBytes;
   };
 
   const toggleModel = (id: string) => {
@@ -182,12 +184,14 @@ export default function DiffPage() {
         )}
         {!running && selected.length > 0 && (
           <span className="text-xs text-zinc-600 ml-auto font-mono">
-            <span className={cn(selectedBytes > availableBytes ? "text-red-400" : selectedBytes > availableBytes * 0.85 ? "text-amber-400" : "text-zinc-300")}>
-              {fmtGB(selectedBytes)}
+            <span className="text-zinc-600">largest: </span>
+            <span className={cn(largestSelected > availableBytes ? "text-red-400" : largestSelected > availableBytes * 0.85 ? "text-amber-400" : "text-zinc-300")}>
+              {fmtGB(largestSelected)}
             </span>
-            <span className="text-zinc-600"> needed · </span>
+            <span className="text-zinc-600"> · </span>
             <span className="text-zinc-300">{fmtGB(availableBytes)}</span>
-            <span className="text-zinc-600"> free</span>
+            <span className="text-zinc-600"> free · </span>
+            <span className="text-zinc-600">runs sequentially</span>
           </span>
         )}
       </div>
@@ -200,7 +204,7 @@ export default function DiffPage() {
           const disabled = exceeds || atLimit;
           const size = m.size_bytes ? (m.size_bytes / 1e9).toFixed(1) : "?";
           const title = exceeds
-            ? `Too large — needs ${fmtGB(m.size_bytes ?? 0)}, only ${fmtGB(remainingBytes)} free after selection`
+            ? `Too large on its own — needs ${fmtGB(m.size_bytes ?? 0)}, only ${fmtGB(availableBytes)} free`
             : atLimit ? "Max 6 models per diff"
             : `${size} GB`;
           return (
