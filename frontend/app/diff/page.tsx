@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, readSSE, type ModelEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { GitCompare, Play, Loader2 } from "lucide-react";
+import { GitCompare, Play, Loader2, X } from "lucide-react";
 
 type DiffStatus = "queued" | "streaming" | "done" | "error";
 
@@ -17,6 +17,13 @@ export default function DiffPage() {
   const [modelNames, setModelNames] = useState<string[]>([]);
   const [availableBytes, setAvailableBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Safety: clear any stuck "running" state left over from a prior stream that hung
+  useEffect(() => {
+    setRunning(false);
+    setResponses({});
+  }, []);
 
   useEffect(() => {
     api.models.list().then((all) => setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden)));
@@ -51,15 +58,26 @@ export default function DiffPage() {
 
   const fmtGB = (b: number) => (b / 1e9).toFixed(1) + " GB";
 
+  const stopDiff = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setRunning(false);
+  };
+
   async function runDiff() {
     if (selected.length < 2 || !prompt.trim()) return;
     setRunning(true);
     setResponses({});
 
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
     const resp = await fetch("/api/diff/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model_ids: selected, prompt: prompt.trim(), temperature: 0.7, max_tokens: 1024 }),
+      signal: ctrl.signal,
     });
 
     await readSSE(resp, (data) => {
@@ -89,7 +107,12 @@ export default function DiffPage() {
         }));
       } else if (event === "complete") setRunning(false);
     });
-    setRunning(false);
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") console.error("diff failed:", e);
+    } finally {
+      setRunning(false);
+      abortRef.current = null;
+    }
   }
 
   const cols = Math.min(selected.length || 2, 4);
@@ -141,9 +164,15 @@ export default function DiffPage() {
       <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
         <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
           rows={2} placeholder="Enter prompt to send to all models…" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-        <Button onClick={runDiff} disabled={running || selected.length < 2 || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Run
-        </Button>
+        {running ? (
+          <Button onClick={stopDiff} variant="destructive" className="gap-1.5 self-end" title="Abort the running diff">
+            <X className="w-4 h-4" /> Stop
+          </Button>
+        ) : (
+          <Button onClick={runDiff} disabled={selected.length < 2 || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
+            <Play className="w-4 h-4" /> Run
+          </Button>
+        )}
       </div>
 
       <div className={`flex-1 grid gap-3 p-4`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
