@@ -1,7 +1,7 @@
 """Admin endpoints: backend reset, memory recovery."""
 import asyncio
 import logging
-import shlex
+import os
 
 from fastapi import APIRouter, Request
 
@@ -11,8 +11,8 @@ router = APIRouter()
 log = logging.getLogger(__name__)
 
 
-async def _get_listening_cmdline(port: int) -> str | None:
-    """Return the full command line of whatever is listening on the given TCP port."""
+async def _port_pid(port: int) -> int | None:
+    """Return the PID listening on TCP `port`, or None."""
     try:
         proc = await asyncio.create_subprocess_exec(
             "lsof", "-ti", f":{port}", "-sTCP:LISTEN",
@@ -21,32 +21,39 @@ async def _get_listening_cmdline(port: int) -> str | None:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
     except Exception:
         return None
-    pids = [p for p in out.decode().split() if p.strip().isdigit()]
-    if not pids:
-        return None
-    pid = pids[0]
+    for token in out.decode().split():
+        if token.strip().isdigit():
+            return int(token)
+    return None
+
+
+async def _kickstart_omlx() -> bool:
+    """Ask launchd to restart com.jim.omlx. Returns True on success."""
     try:
+        uid = os.getuid()
         proc = await asyncio.create_subprocess_exec(
-            "ps", "-p", pid, "-ww", "-o", "command=",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            "launchctl", "kickstart", "-k", f"gui/{uid}/com.jim.omlx",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
-    except Exception:
-        return None
-    cmd = out.decode().strip()
-    return cmd or None
+        await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        return proc.returncode == 0
+    except Exception as e:
+        log.warning("launchctl kickstart failed: %s", e)
+        return False
 
 
 @router.post("/admin/reset-backends")
 async def reset_backends(request: Request) -> dict:
-    """Stop all adapters, kill backend subprocesses, and restart oMLX with its current args.
+    """Stop all adapters and force a fresh oMLX process.
 
-    Used when memory doesn't free up properly (e.g. oMLX stale-state, stuck llama-server).
+    Used when memory doesn't free up properly (e.g. oMLX stale-state).
+    Unlike plain kill_port, this uses launchctl kickstart so launchd's
+    keepalive doesn't race against our kill, producing a reliable fresh PID.
     """
     cfg = request.app.state.config
     steps: list[str] = []
 
-    # 1) Clean-stop any active adapters
+    # 1) Drop adapters so callers don't think a stale one is usable
     for attr in ("active_adapter", "compare_adapter"):
         adapter = getattr(request.app.state, attr, None)
         if adapter:
@@ -57,30 +64,29 @@ async def reset_backends(request: Request) -> dict:
                 steps.append(f"{attr} stop failed: {e}")
             setattr(request.app.state, attr, None)
 
-    # 2) Capture oMLX's current command line BEFORE killing it so we can relaunch
-    omlx_cmd = await _get_listening_cmdline(8000)
+    # 2) Restart oMLX via launchd (preserves args, avoids kill-vs-respawn race)
+    pid_before = await _port_pid(8000)
+    if await _kickstart_omlx():
+        # Wait up to ~15s for launchd to come back up with a NEW pid
+        pid_after = pid_before
+        for _ in range(50):
+            await asyncio.sleep(0.3)
+            pid_after = await _port_pid(8000)
+            if pid_after and pid_after != pid_before:
+                break
+        if pid_after and pid_after != pid_before:
+            steps.append(f"oMLX restarted (pid {pid_before} → {pid_after})")
+        else:
+            # launchd will finish the respawn async — return anyway, user can verify
+            steps.append(f"oMLX kickstart issued; launchd will respawn (was pid {pid_before})")
+    else:
+        # Fallback: kill_port directly
+        await kill_port(8000)
+        steps.append("launchctl kickstart failed, fell back to kill_port(8000)")
 
-    # 3) Kill backend ports — oMLX (8000), mlx_lm.server, llama-server (+ compare)
-    for port in (8000, cfg.mlx_port, cfg.llama_port, cfg.llama_compare_port):
+    # 3) Other subprocess ports — these have no launchd keeper, plain kill is fine
+    for port in (cfg.mlx_port, cfg.llama_port, cfg.llama_compare_port):
         await kill_port(port)
         steps.append(f"killed port {port}")
-
-    # 4) Restart oMLX if we captured a valid command
-    if omlx_cmd:
-        try:
-            # Parse and spawn detached; log to /tmp so it persists across backend reloads.
-            # Close our handle after dup() — the subprocess holds its own fd.
-            args = shlex.split(omlx_cmd)
-            with open("/tmp/omlx.log", "ab") as log_f:
-                await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=log_f, stderr=log_f,
-                    start_new_session=True,
-                )
-            steps.append(f"restarted oMLX: {args[0]} …")
-        except Exception as e:
-            steps.append(f"oMLX restart failed: {e}")
-    else:
-        steps.append("oMLX was not running — not restarted")
 
     return {"status": "ok", "steps": steps}
