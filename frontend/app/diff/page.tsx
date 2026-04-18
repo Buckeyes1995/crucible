@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, readSSE, type ModelEntry } from "@/lib/api";
+import { api, readSSE, type ModelEntry, type PromptTemplate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { GitCompare, Play, Loader2, X, Copy, Check } from "lucide-react";
+import { GitCompare, Play, Loader2, X, Copy, Check, BookOpen, ChevronDown } from "lucide-react";
 
 type DiffStatus = "queued" | "streaming" | "done" | "error";
 
@@ -22,6 +22,9 @@ export default function DiffPage() {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [eventCount, setEventCount] = useState(0); // diag — every SSE event ticks this
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const templateRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Safety: clear any stuck "running" state left over from a prior stream that hung
@@ -29,6 +32,23 @@ export default function DiffPage() {
     setRunning(false);
     setResponses({});
   }, []);
+
+  // Load prompt templates once
+  useEffect(() => {
+    api.templates.list().then(setTemplates).catch(() => {});
+  }, []);
+
+  // Close template dropdown on outside click
+  useEffect(() => {
+    if (!showTemplates) return;
+    const handler = (e: MouseEvent) => {
+      if (templateRef.current && !templateRef.current.contains(e.target as Node)) {
+        setShowTemplates(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTemplates]);
 
   useEffect(() => {
     api.models.list().then((all) => setModels(all.filter((m) => m.kind === "mlx" && m.node === "local" && !m.hidden)));
@@ -196,8 +216,39 @@ export default function DiffPage() {
       </div>
 
       <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
-        <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
-          rows={2} placeholder="Enter prompt to send to all models…" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+        <div className="flex-1 flex flex-col gap-1.5">
+          <div ref={templateRef} className="relative">
+            <button
+              onClick={() => setShowTemplates((v) => !v)}
+              disabled={running}
+              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded border border-zinc-700/50 hover:border-zinc-600 bg-zinc-800/60 transition-colors disabled:opacity-50"
+            >
+              <BookOpen className="w-3 h-3" />
+              Templates
+              <ChevronDown className={cn("w-3 h-3 transition-transform", showTemplates && "rotate-180")} />
+            </button>
+            {showTemplates && (
+              <div className="absolute top-full left-0 mt-1 w-96 max-h-80 overflow-y-auto bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-20">
+                {templates.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-zinc-500">No templates saved. Create some in the Templates page.</div>
+                ) : (
+                  templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setPrompt(t.content); setShowTemplates(false); }}
+                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 border-b border-white/5 last:border-0"
+                    >
+                      <div className="text-xs font-medium text-zinc-100 truncate">{t.name}</div>
+                      {t.description && <div className="text-[10px] text-zinc-500 truncate mt-0.5">{t.description}</div>}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <textarea className="w-full bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
+            rows={2} placeholder="Enter prompt to send to all models…" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+        </div>
         <div className="flex flex-col gap-1 self-end">
           <label className="text-[10px] uppercase tracking-wider text-zinc-600">Max tokens</label>
           <input
