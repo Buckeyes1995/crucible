@@ -481,8 +481,8 @@ export const api = {
     restart: (name: string) => post<{ ok: boolean }>(`/agents/${encodeURIComponent(name)}/restart`),
     pruneOrphans: (name: string) =>
       post<{ removed: string[]; skipped: number }>(`/agents/${encodeURIComponent(name)}/orphans/prune`),
-    chat: (name: string, body: { prompt: string; session_id?: string | null; max_turns?: number; skills?: string[] }) =>
-      stream(`/agents/${encodeURIComponent(name)}/chat`, body),
+    chat: (name: string, body: { prompt: string; session_id?: string | null; max_turns?: number; skills?: string[] }, signal?: AbortSignal) =>
+      stream(`/agents/${encodeURIComponent(name)}/chat`, body, signal),
   },
   rag: {
     info: (sessionId: string) => get<{ chunk_count: number; files: Record<string, number> }>(`/rag/${sessionId}/info`),

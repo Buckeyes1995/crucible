@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/Toast";
 import {
   Bot, Plus, Trash2, Pause, Play as PlayIcon, RotateCw, FileText, Loader2, Trash, ChevronDown, ChevronRight,
-  MessageSquare, Send, X,
+  MessageSquare, Send, X, Square,
 } from "lucide-react";
 
 function fmtAgo(iso: string | null | undefined): string {
@@ -430,6 +430,7 @@ function ChatModal({ name, onClose, state, setState }: {
   const [streaming, setStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Track whether the user is pinned to the bottom; if so, auto-scroll on new content.
   const onScroll = () => {
@@ -459,9 +460,11 @@ function ChatModal({ name, onClose, state, setState }: {
     stickRef.current = true; // sending implies the user wants to watch the new reply
     setState((s) => ({ ...s, messages: [...s.messages, { role: "user", content: prompt }, { role: "assistant", content: "" }] }));
     setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      const resp = await api.agents.chat(name, { prompt, session_id: sessionId });
+      const resp = await api.agents.chat(name, { prompt, session_id: sessionId }, controller.signal);
       if (!resp.ok) {
         const text = await resp.text();
         setState((s) => {
@@ -481,7 +484,20 @@ function ChatModal({ name, onClose, state, setState }: {
             return { ...s, messages: copy };
           });
         } else if (e.event === "done") {
-          if (e.session_id) setState((s) => ({ ...s, sessionId: e.session_id! }));
+          const doneEvt = evt as { session_id?: string | null; exit_code?: number };
+          if (doneEvt.session_id) setState((s) => ({ ...s, sessionId: doneEvt.session_id! }));
+          if (doneEvt.exit_code && doneEvt.exit_code !== 0) {
+            setState((s) => {
+              const copy = [...s.messages];
+              const last = copy[copy.length - 1];
+              copy[copy.length - 1] = {
+                ...last,
+                content: (last.content ? last.content + "\n\n" : "") + `[hermes exited with code ${doneEvt.exit_code} — likely hit --max-turns]`,
+                error: true,
+              };
+              return { ...s, messages: copy };
+            });
+          }
         } else if (e.event === "error") {
           setState((s) => {
             const copy = [...s.messages];
@@ -491,14 +507,25 @@ function ChatModal({ name, onClose, state, setState }: {
         }
       });
     } catch (e) {
+      const err = e as Error;
       setState((s) => {
         const copy = [...s.messages];
-        copy[copy.length - 1] = { role: "assistant", content: `error: ${(e as Error).message}`, error: true };
+        const last = copy[copy.length - 1];
+        // If the abort was user-initiated, show "stopped" rather than "error: …".
+        const aborted = err.name === "AbortError" || controller.signal.aborted;
+        copy[copy.length - 1] = aborted
+          ? { ...last, content: (last.content ? last.content + "\n\n" : "") + "[stopped by user]", error: true }
+          : { role: "assistant", content: `error: ${err.message}`, error: true };
         return { ...s, messages: copy };
       });
     } finally {
       setStreaming(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
+  };
+
+  const stop = () => {
+    abortRef.current?.abort();
   };
 
   const resetSession = () => {
@@ -574,10 +601,15 @@ function ChatModal({ name, onClose, state, setState }: {
             className="flex-1 bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 font-mono resize-none focus:outline-none focus:border-indigo-500/40"
             disabled={streaming}
           />
-          <Button variant="primary" size="sm" onClick={send} disabled={streaming || !input.trim()} className="gap-1">
-            {streaming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            Send
-          </Button>
+          {streaming ? (
+            <Button variant="destructive" size="sm" onClick={stop} className="gap-1" title="Abort the current turn">
+              <Square className="w-3.5 h-3.5 fill-current" /> Stop
+            </Button>
+          ) : (
+            <Button variant="primary" size="sm" onClick={send} disabled={!input.trim()} className="gap-1">
+              <Send className="w-3.5 h-3.5" /> Send
+            </Button>
+          )}
         </div>
       </div>
     </div>

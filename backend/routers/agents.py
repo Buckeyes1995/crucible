@@ -202,8 +202,10 @@ async def agent_chat(name: str, body: ChatBody, request: Request) -> StreamingRe
 
     async def _stream():
         try:
-            # Timeout must be long — a chat turn can run tool calls for minutes
-            async with httpx.AsyncClient(timeout=600.0) as client:
+            # No read timeout — a chat turn can silently run a single MCP tool
+            # call for many minutes. The UI's Stop button is the real way out.
+            timeout = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, headers=headers,
                                          json=body.model_dump()) as resp:
                     if not resp.is_success:
