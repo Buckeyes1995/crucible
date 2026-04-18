@@ -84,14 +84,17 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
         except Exception as e:
             await queue.put({"event": "error", "index": index, "model": model["name"], "message": str(e)})
 
+    # 2KB padding so proxies flush each chunk rather than buffering up to ~4KB
+    _PAD = ":" + (" " * 2048) + "\n"
+
     async def _merged():
-        yield f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
+        yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
         tasks = [asyncio.create_task(_stream_model(m, i)) for i, m in enumerate(models)]
         finished = 0
         total = len(models)
         while finished < total:
             item = await queue.get()
-            yield f"data: {json.dumps(item)}\n\n"
+            yield _PAD + f"data: {json.dumps(item)}\n\n"
             if item.get("event") in ("done", "error"):
                 finished += 1
         # Auto-unload every model we loaded for this diff — diff bypasses Crucible's

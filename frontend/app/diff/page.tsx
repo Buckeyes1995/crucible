@@ -19,6 +19,8 @@ export default function DiffPage() {
   const [totalBytes, setTotalBytes] = useState(0);
   const [maxTokens, setMaxTokens] = useState(4096);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [eventCount, setEventCount] = useState(0); // diag — every SSE event ticks this
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Safety: clear any stuck "running" state left over from a prior stream that hung
@@ -82,7 +84,11 @@ export default function DiffPage() {
       signal: ctrl.signal,
     });
 
+    setEventCount(0);
+    setLastEventAt(null);
     await readSSE(resp, (data) => {
+      setEventCount((c) => c + 1);
+      setLastEventAt(Date.now());
       const event = data.event as string;
       if (event === "start") {
         const names = data.models as string[];
@@ -125,7 +131,13 @@ export default function DiffPage() {
         <GitCompare className="w-5 h-5 text-indigo-400" />
         <h1 className="text-lg font-semibold text-zinc-100">Model Diff</h1>
         <span className="text-xs text-zinc-500">{selected.length} selected</span>
-        {selected.length > 0 && (
+        {running && (
+          <span className="text-xs font-mono text-zinc-500 ml-auto">
+            events: <span className="text-indigo-400">{eventCount}</span>
+            {lastEventAt && <span className="text-zinc-600"> · {Math.floor((Date.now() - lastEventAt) / 1000)}s ago</span>}
+          </span>
+        )}
+        {!running && selected.length > 0 && (
           <span className="text-xs text-zinc-600 ml-auto font-mono">
             Selected: <span className="text-zinc-300">{fmtGB(selectedBytes)}</span>
             {" · "}Free: <span className={cn(remainingBytes < 5e9 ? "text-amber-400" : "text-zinc-300")}>{fmtGB(remainingBytes)}</span> / {fmtGB(availableBytes)}
