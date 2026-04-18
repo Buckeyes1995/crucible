@@ -14,7 +14,7 @@ export default function DiffPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [running, setRunning] = useState(false);
-  const [responses, setResponses] = useState<Record<number, { model: string; text: string; tps: number | null; done: boolean; status: DiffStatus; error?: string }>>({});
+  const [responses, setResponses] = useState<Record<number, { model: string; text: string; tps: number | null; ttft_ms?: number | null; output_tokens?: number | null; done: boolean; status: DiffStatus; error?: string }>>({});
   const [modelNames, setModelNames] = useState<string[]>([]);
   const [availableBytes, setAvailableBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
@@ -46,11 +46,15 @@ export default function DiffPage() {
     setResponses((prev) => {
       const next: typeof prev = {};
       for (const [k, v] of Object.entries(prev)) {
-        const stuck = v.status === "loading" || v.status === "streaming" || v.status === "queued";
-        if (stuck) {
-          next[Number(k)] = v.text
-            ? { ...v, done: true, status: "done" }
-            : { ...v, done: true, status: "error", error: v.error ?? "Aborted before first token" };
+        if (v.status === "streaming" || (v.status === "loading" && v.text)) {
+          // Had tokens flowing when the run ended
+          next[Number(k)] = { ...v, done: true, status: "done" };
+        } else if (v.status === "loading") {
+          // Model was mid-load when aborted
+          next[Number(k)] = { ...v, done: true, status: "error", error: v.error ?? "Aborted during model load" };
+        } else if (v.status === "queued") {
+          // Never got a turn — sequential diff ended before reaching this model
+          next[Number(k)] = { ...v, done: true, status: "error", error: v.error ?? "Skipped — run ended before this model's turn" };
         } else {
           next[Number(k)] = v;
         }
@@ -138,18 +142,37 @@ export default function DiffPage() {
     lines.push("");
     lines.push("## Model outputs");
     lines.push("");
+    // Summary metrics table up top for quick scanning
+    lines.push("| # | Model | Size | Quant | tok/s | TTFT | Output tokens | Total | Status |");
+    lines.push("|---|-------|------|-------|-------|------|---------------|-------|--------|");
+    for (const i of indices) {
+      const r = responses[i];
+      if (!r) continue;
+      const model = models.find((m) => m.name === r.model || m.id.endsWith(":" + r.model));
+      const sizeStr = model?.size_bytes ? `${(model.size_bytes / 1e9).toFixed(1)} GB` : "?";
+      const quantStr = model?.quant ?? "—";
+      const tpsStr = r.tps != null ? `${r.tps}` : "—";
+      const ttftStr = r.ttft_ms != null ? `${Math.round(r.ttft_ms)} ms` : "—";
+      const outTok = r.output_tokens ?? "—";
+      // Approx total wall-clock: TTFT + output_tokens / tps
+      let totalStr = "—";
+      if (r.ttft_ms != null && r.tps && r.output_tokens) {
+        const totalSec = r.ttft_ms / 1000 + r.output_tokens / r.tps;
+        totalStr = `${totalSec.toFixed(1)} s`;
+      }
+      lines.push(`| ${i + 1} | ${r.model} | ${sizeStr} | ${quantStr} | ${tpsStr} | ${ttftStr} | ${outTok} | ${totalStr} | ${r.status} |`);
+    }
+    lines.push("");
+    lines.push("### Full outputs");
+    lines.push("");
     for (const i of indices) {
       const r = responses[i];
       if (!r) continue;
       const model = models.find((m) => m.name === r.model || m.id.endsWith(":" + r.model));
       const sizeStr = model?.size_bytes ? `${(model.size_bytes / 1e9).toFixed(1)} GB` : "?";
       const quantStr = model?.quant ? ` · ${model.quant}` : "";
-      lines.push(`### ${i + 1}. ${r.model}`);
-      lines.push(`- **Size**: ${sizeStr}${quantStr}`);
-      lines.push(`- **Throughput**: ${r.tps != null ? `${r.tps} tok/s` : "n/a"}`);
-      lines.push(`- **Status**: ${r.status}${r.error ? ` (${r.error})` : ""}`);
-      lines.push("");
-      lines.push("**Output:**");
+      lines.push(`#### ${i + 1}. ${r.model}`);
+      lines.push(`${sizeStr}${quantStr} · ${r.tps != null ? `${r.tps} tok/s` : "no tps"}${r.ttft_ms != null ? ` · TTFT ${Math.round(r.ttft_ms)} ms` : ""}${r.output_tokens != null ? ` · ${r.output_tokens} tokens generated` : ""}${r.error ? ` · error: ${r.error}` : ""}`);
       lines.push("");
       lines.push("```");
       lines.push(r.text || "(empty)");
@@ -162,8 +185,9 @@ export default function DiffPage() {
     lines.push("");
     lines.push("1. **Correctness** — does each output solve the problem? Any bugs or edge-cases missed?");
     lines.push("2. **Code quality** — readability, idiomatic style, API design, adherence to the prompt's constraints.");
-    lines.push("3. **Speed/quality tradeoff** — given the tok/s above, is the quality gain worth the throughput cost?");
-    lines.push("4. **Recommendation** — which model would you pick for this class of task, and why? Are there tasks where you'd pick a different one?");
+    lines.push("3. **Efficiency metrics** — look at the tok/s and TTFT columns. A model with 2× the throughput at slightly lower quality might still be the better pick for agentic / interactive use. Highlight which models give the best quality-per-second.");
+    lines.push("4. **Size vs quality** — larger quants (bf16 > 8bit > 4bit) cost memory. If a smaller quant matched the larger one here, note that.");
+    lines.push("5. **Recommendation** — which model would you pick for this class of task as a default? Are there other task types (reasoning-heavy, long-form, simple boilerplate) where you'd pick differently?");
     lines.push("");
     return lines.join("\n");
   };
@@ -239,7 +263,15 @@ export default function DiffPage() {
         const idx = data.index as number;
         setResponses((prev) => ({
           ...prev,
-          [idx]: { model: data.model as string, text: data.response as string, tps: data.tps as number | null, done: true, status: "done" },
+          [idx]: {
+            model: data.model as string,
+            text: data.response as string,
+            tps: data.tps as number | null,
+            ttft_ms: (data.ttft_ms as number | null) ?? null,
+            output_tokens: (data.output_tokens as number | null) ?? null,
+            done: true,
+            status: "done",
+          },
         }));
       } else if (event === "error") {
         const idx = data.index as number;
