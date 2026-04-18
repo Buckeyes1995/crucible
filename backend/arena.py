@@ -94,8 +94,13 @@ async def stream_to_omlx(
     api_key: str,
     temperature: float = 0.7,
     max_tokens: int = 1024,
+    extra_params: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Stream chat completion from oMLX for a specific model."""
+    """Stream chat completion from oMLX for a specific model.
+
+    `extra_params` is merged into the request body verbatim — used by diff/arena
+    to forward per-model Crucible params (top_k, top_p, chat_template_kwargs, etc).
+    """
     payload = {
         "model": model_name,
         "messages": messages,
@@ -103,6 +108,10 @@ async def stream_to_omlx(
         "max_tokens": max_tokens,
         "stream": True,
     }
+    if extra_params:
+        for k, v in extra_params.items():
+            if v is not None:
+                payload[k] = v
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     t0 = time.monotonic()
     first_token_time = None

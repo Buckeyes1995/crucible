@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, readSSE, type ModelEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { GitCompare, Play, Loader2, X } from "lucide-react";
+import { GitCompare, Play, Loader2, X, Copy, Check } from "lucide-react";
 
 type DiffStatus = "queued" | "streaming" | "done" | "error";
 
@@ -17,6 +17,8 @@ export default function DiffPage() {
   const [modelNames, setModelNames] = useState<string[]>([]);
   const [availableBytes, setAvailableBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
+  const [maxTokens, setMaxTokens] = useState(4096);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Safety: clear any stuck "running" state left over from a prior stream that hung
@@ -76,7 +78,7 @@ export default function DiffPage() {
     const resp = await fetch("/api/diff/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_ids: selected, prompt: prompt.trim(), temperature: 0.7, max_tokens: 1024 }),
+      body: JSON.stringify({ model_ids: selected, prompt: prompt.trim(), temperature: 0.7, max_tokens: maxTokens }),
       signal: ctrl.signal,
     });
 
@@ -164,6 +166,18 @@ export default function DiffPage() {
       <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
         <textarea className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-none"
           rows={2} placeholder="Enter prompt to send to all models…" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+        <div className="flex flex-col gap-1 self-end">
+          <label className="text-[10px] uppercase tracking-wider text-zinc-600">Max tokens</label>
+          <input
+            type="number"
+            min={64}
+            step={512}
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(Math.max(64, parseInt(e.target.value) || 4096))}
+            disabled={running}
+            className="w-24 bg-zinc-900 border border-white/[0.06] rounded-lg px-2 py-1.5 text-sm font-mono text-zinc-100 focus:outline-none focus:border-indigo-500/40"
+          />
+        </div>
         {running ? (
           <Button onClick={stopDiff} variant="destructive" className="gap-1.5 self-end" title="Abort the running diff">
             <X className="w-4 h-4" /> Stop
@@ -200,7 +214,22 @@ export default function DiffPage() {
                     <span className="text-[10px] font-medium text-red-400 shrink-0" title={r.error}>✗ Error</span>
                   )}
                 </div>
-                {r?.tps && <span className="text-xs font-mono text-indigo-400 shrink-0">{r.tps} tok/s</span>}
+                <div className="flex items-center gap-2 shrink-0">
+                  {r?.tps && <span className="text-xs font-mono text-indigo-400">{r.tps} tok/s</span>}
+                  {r?.text && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(r.text ?? "");
+                        setCopiedIdx(i);
+                        setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 1200);
+                      }}
+                      title="Copy output"
+                      className="text-zinc-500 hover:text-zinc-200 transition-colors"
+                    >
+                      {copiedIdx === i ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-3 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
                 {r?.status === "queued" && running ? (

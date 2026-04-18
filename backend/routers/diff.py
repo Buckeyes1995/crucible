@@ -16,7 +16,7 @@ class DiffRequest(BaseModel):
     model_ids: list[str]
     prompt: str
     temperature: float = 0.7
-    max_tokens: int = 1024
+    max_tokens: int = 2048
 
 
 @router.post("/diff/run")
@@ -43,12 +43,31 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
 
     queue: asyncio.Queue = asyncio.Queue()
 
+    # Build per-model param overrides from Crucible's model_params store so
+    # diff respects enable_thinking, top_k/p, presence_penalty, etc.
+    from model_params import get_params
+    def _extra_for(model_id: str) -> dict:
+        p = get_params(model_id)
+        extra: dict = {}
+        for key in ("top_k", "top_p", "min_p", "repetition_penalty", "presence_penalty"):
+            if p.get(key) is not None:
+                extra[key] = p[key]
+        ctk: dict = {}
+        if p.get("enable_thinking") is not None:
+            ctk["enable_thinking"] = bool(p["enable_thinking"])
+        if p.get("preserve_thinking") is not None:
+            ctk["preserve_thinking"] = bool(p["preserve_thinking"])
+        if ctk:
+            extra["chat_template_kwargs"] = ctk
+        return extra
+
     async def _stream_model(model: dict, index: int):
         tokens = []
         try:
             async for chunk in stream_to_omlx(
                 model["omlx_name"], messages, base_url, api_key,
                 body.temperature, body.max_tokens,
+                extra_params=_extra_for(model["id"]),
             ):
                 if chunk.get("done"):
                     await queue.put({
