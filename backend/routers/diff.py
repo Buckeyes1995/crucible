@@ -107,28 +107,39 @@ async def run_diff(body: DiffRequest, request: Request) -> StreamingResponse:
             pass
 
     async def _merged():
-        tasks: list[asyncio.Task] = []
+        """Sequential diff: run one model at a time.
+
+        Parallel execution thrashes oMLX's engine pool when combined model
+        weights exceed its memory budget — models keep evicting each other
+        and no one finishes. Sequential is slower wall-clock but reliable.
+        """
         completed_cleanly = False
+        current_task: asyncio.Task | None = None
         try:
             yield _PAD + f"data: {json.dumps({'event': 'start', 'models': [m['name'] for m in models]})}\n\n"
-            tasks = [asyncio.create_task(_stream_model(m, i)) for i, m in enumerate(models)]
-            finished = 0
-            total = len(models)
-            while finished < total:
-                item = await queue.get()
-                yield _PAD + f"data: {json.dumps(item)}\n\n"
-                if item.get("event") in ("done", "error"):
-                    finished += 1
+            for i, m in enumerate(models):
+                current_task = asyncio.create_task(_stream_model(m, i))
+                # Drain this model's events until its done/error before starting the next
+                while True:
+                    item = await queue.get()
+                    yield _PAD + f"data: {json.dumps(item)}\n\n"
+                    if item.get("event") in ("done", "error") and item.get("index") == i:
+                        break
+                # Unload before loading the next — keeps oMLX memory headroom open
+                if i < len(models) - 1:
+                    try:
+                        import httpx
+                        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            await client.post(f"{base_url}/v1/models/{m['omlx_name']}/unload", headers=headers)
+                    except Exception:
+                        pass
+                current_task = None
             yield f"data: {json.dumps({'event': 'complete'})}\n\n"
             completed_cleanly = True
         finally:
-            # Always cancel leftover inference tasks so they don't keep talking to oMLX
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-            # Only unload on CLEAN completion. On abort (Stop, disconnect), keep
-            # models warm so the user can retry without paying a 30-60s reload.
-            # Memory can still be reclaimed via Dashboard → Clean memory.
+            if current_task and not current_task.done():
+                current_task.cancel()
             if completed_cleanly:
                 try:
                     await _unload_all_except_active()
