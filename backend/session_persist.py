@@ -8,14 +8,22 @@ loaded and the UI should offer a one-click restore.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 SESSION_FILE = Path.home() / ".config" / "crucible" / "session.json"
+LOCK_FILE = SESSION_FILE.parent / "session.lock"
+
+# Process-scoped. The OS releases fcntl locks automatically when the holder
+# dies (including kill -9), which is exactly what we need to distinguish a
+# crashed primary from a cleanly-exited duplicate-that-failed-to-bind.
+_lock_fd = None
 
 
 def _read() -> dict:
@@ -48,20 +56,54 @@ def record_load(model_id: str | None, engine: str | None = None) -> None:
     _write(state)
 
 
+def mark_running() -> None:
+    """Acquire the session lock, record running state. If another process
+    already holds the lock (= we're a duplicate backend that failed to bind)
+    this is a no-op — we must not touch state."""
+    global _lock_fd
+    try:
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _lock_fd = open(LOCK_FILE, "w")
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        # Another live process owns the state. Don't touch session.json.
+        try:
+            if _lock_fd is not None:
+                _lock_fd.close()
+        except Exception:
+            pass
+        _lock_fd = None
+        log.info("session_persist: another process holds the lock; skipping mark_running")
+        return
+    except Exception as e:
+        log.warning("session_persist: failed to acquire lock: %s", e)
+        _lock_fd = None
+        return
+
+    state = _read()
+    state["clean_shutdown"] = False
+    state["started_at"] = time.time()
+    state["pid"] = os.getpid()
+    _write(state)
+
+
 def mark_clean_shutdown() -> None:
+    """Only flips the flag if we actually held the lock. A duplicate process
+    that never acquired the lock (failed to bind) can't clobber the real
+    process's dirty-shutdown marker."""
+    global _lock_fd
+    if _lock_fd is None:
+        return
     state = _read()
     state["clean_shutdown"] = True
     state["stopped_at"] = time.time()
     _write(state)
-
-
-def mark_running() -> None:
-    """Called on startup — flips clean_shutdown to False so any crash before
-    the next mark_clean_shutdown() leaves a dirty marker."""
-    state = _read()
-    state["clean_shutdown"] = False
-    state["started_at"] = time.time()
-    _write(state)
+    try:
+        fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+        _lock_fd.close()
+    except Exception:
+        pass
+    _lock_fd = None
 
 
 def read_recoverable() -> dict | None:
