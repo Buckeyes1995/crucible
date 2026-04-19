@@ -106,14 +106,20 @@ function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: strin
       </button>
       {open && (
         <div className="space-y-px">
-          {group.items.map(({ href, label, icon }) => {
+          {group.items.map(({ href, label, icon }, i) => {
             const active = href === "/" ? pathname === "/" : (pathname === href || pathname.startsWith(href + "/"));
+            // Auto-indent sub-routes: if another item in this same group is a
+            // strict prefix of this item's path, render it as a nested child.
+            const isSubItem = group.items.some(
+              (other, j) => j !== i && href !== other.href && href.startsWith(other.href + "/"),
+            );
             return (
               <Link
                 key={href}
                 href={href}
                 className={cn(
-                  "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                  "flex items-center gap-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                  isSubItem ? "pl-7 pr-3 text-[12px]" : "px-3",
                   active
                     ? "bg-indigo-500/15 text-indigo-300 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.2)]"
                     : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
