@@ -93,12 +93,11 @@ export default function Benchmark2Page() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [currentActivity, setCurrentActivity] = useState<{ modelId: string; promptId?: string; rep?: number } | null>(null);
-  // elapsedMs is owned by the interval below rather than derived from a
-  // ticking `now`. Writing directly to elapsedMs guarantees the render sees
-  // a new value on each tick — no chance of useState batching or derived-
-  // state staleness. ETA is still computed in render because it also depends
-  // on completedSteps.
-  const [elapsedMs, setElapsedMs] = useState(0);
+  // Force-re-render tick counter. Everything time-dependent below reads
+  // Date.now() directly at render time — no chance of stale closures. The
+  // tick is only here to guarantee React re-runs the render function while
+  // a run is live.
+  const [tick, setTick] = useState(0);
 
   // History
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -109,20 +108,12 @@ export default function Benchmark2Page() {
   // Init
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  // Elapsed clock — writes directly to elapsedMs state so React is guaranteed
-  // to re-render with the new value each tick. Freezes once finishedAt is set.
+  // Force re-render every 500ms while a run is in flight so elapsedMs
+  // (derived from Date.now() below) stays current. Gates on startedAt so it
+  // doesn't burn cycles when idle.
   useEffect(() => {
-    if (!startedAt) {
-      setElapsedMs(0);
-      return;
-    }
-    // Immediate update so the first tile value doesn't look stale between
-    // run-start and the first interval fire.
-    setElapsedMs((finishedAt ?? Date.now()) - startedAt);
-    if (finishedAt) return; // don't tick once the run is done
-    const id = setInterval(() => {
-      setElapsedMs(Date.now() - startedAt);
-    }, 500);
+    if (!startedAt || finishedAt) return;
+    const id = setInterval(() => setTick(t => t + 1), 500);
     return () => clearInterval(id);
   }, [startedAt, finishedAt]);
   useEffect(() => {
@@ -209,7 +200,7 @@ export default function Benchmark2Page() {
     setStartedAt(Date.now());
     setFinishedAt(null);
     setCurrentActivity(null);
-    setElapsedMs(0);
+    setTick(0);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -331,6 +322,11 @@ export default function Benchmark2Page() {
   };
 
   // Derived stats for the live dashboard. Cheap to recompute each render.
+  // Reads Date.now() fresh on every render — the tick state above guarantees
+  // re-renders while a run is live. Reference `tick` so React doesn't strip
+  // the subscription when optimizing.
+  void tick;
+  const elapsedMs = startedAt ? (finishedAt ?? Date.now()) - startedAt : 0;
   const etaMs = (() => {
     if (phase !== "running" || completedSteps === 0 || totalSteps === 0) return null;
     const perStep = elapsedMs / completedSteps;
