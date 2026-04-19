@@ -48,6 +48,7 @@ from routers import (
     model_leaderboard,
     model_size,
     models,
+    niah_api,
     notes,
     notifications,
     optimizer,
@@ -268,6 +269,7 @@ app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
 app.include_router(ensemble.router, prefix="/api")
 app.include_router(curator.router, prefix="/api")
+app.include_router(niah_api.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
