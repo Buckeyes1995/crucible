@@ -36,19 +36,16 @@ async def stream_with_logprobs(body: LogprobRequest, request: Request) -> Stream
             iter([f"data: {json.dumps({'event': 'error', 'message': 'no model loaded'})}\n\n"]),
             media_type="text/event-stream",
         )
-    base_url = f"http://127.0.0.1:{cfg.mlx_port}" if adapter.kind == "mlx" else None
-    # Prefer the running adapter's direct base_url if it exposes one.
-    if hasattr(adapter, "base_url") and adapter.base_url:
-        base_url = adapter.base_url.rstrip("/")
+    # Adapter-agnostic: each adapter that serves an OpenAI-compatible /v1
+    # exposes base_url and api_key properties. The wire-format model id is
+    # `server_model_id` on oMLX (bare dir name) and `model_id` elsewhere.
+    base_url = (getattr(adapter, "base_url", "") or "").rstrip("/")
     if not base_url:
         return StreamingResponse(
-            iter([f"data: {json.dumps({'event': 'error', 'message': 'no base_url for active adapter'})}\n\n"]),
+            iter([f"data: {json.dumps({'event': 'error', 'message': 'active adapter does not expose base_url'})}\n\n"]),
             media_type="text/event-stream",
         )
-    api_key = cfg.omlx_api_key if adapter.kind == "mlx" else ""
-
-    # oMLX's /v1 uses the bare directory name; fall back to model_id for other
-    # adapters (mlx_lm, vllm) that already speak in full-path / raw form.
+    api_key = getattr(adapter, "api_key", "") or ""
     wire_model = getattr(adapter, "server_model_id", None) or adapter.model_id
     payload = {
         "model": wire_model,

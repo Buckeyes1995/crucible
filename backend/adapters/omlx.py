@@ -42,6 +42,14 @@ class OMLXAdapter(BaseAdapter):
         Differs from model_id, which carries the 'mlx:' prefix for UI use."""
         return self._server_model_id
 
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def api_key(self) -> str:
+        return self._api_key
+
     def is_loaded(self) -> bool:
         return self._model is not None
 
