@@ -31,6 +31,7 @@ from routers import (
     curator,
     disk,
     ensemble,
+    eval_suite_api,
     dashboard,
     dflash,
     dflash_bench,
@@ -270,6 +271,7 @@ app.include_router(disk.router, prefix="/api")
 app.include_router(ensemble.router, prefix="/api")
 app.include_router(curator.router, prefix="/api")
 app.include_router(niah_api.router, prefix="/api")
+app.include_router(eval_suite_api.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
