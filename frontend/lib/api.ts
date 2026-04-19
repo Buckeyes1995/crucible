@@ -397,8 +397,8 @@ export const api = {
   },
   arena: {
     startBattle: () => post<ArenaBattle>("/arena/battle"),
-    chat: (battleId: string, body: { prompt: string; temperature?: number; max_tokens?: number }) =>
-      stream(`/arena/battle/${battleId}/chat`, body),
+    chat: (battleId: string, body: { prompt: string; temperature?: number; max_tokens?: number }, signal?: AbortSignal) =>
+      stream(`/arena/battle/${battleId}/chat`, body, signal),
     vote: (battleId: string, winner: string) =>
       post<ArenaVoteResult>(`/arena/battle/${battleId}/vote`, { winner }),
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),

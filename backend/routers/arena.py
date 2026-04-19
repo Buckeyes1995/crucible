@@ -41,54 +41,57 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
     api_key = cfg.omlx_api_key
     messages = [{"role": "user", "content": body.prompt}]
 
-    queue: asyncio.Queue[dict | None] = asyncio.Queue()
-
     async def _stream_slot(model_name: str, slot: str):
-        tokens = []
+        """Generator that yields SSE events for one slot and records the
+        accumulated text on the battle state at the end."""
+        tokens: list[str] = []
         try:
+            yield {"event": "slot_start", "slot": slot}
             async for chunk in arena.stream_to_omlx(
                 model_name, messages, base_url, api_key,
                 body.temperature, body.max_tokens,
             ):
                 if chunk.get("done"):
-                    await queue.put({
+                    yield {
                         "event": "done", "slot": slot,
                         "tps": chunk.get("tps"),
                         "ttft_ms": chunk.get("ttft_ms"),
                         "output_tokens": chunk.get("output_tokens"),
-                    })
+                    }
                     return
                 token = chunk.get("token", "")
                 if token:
                     tokens.append(token)
-                    await queue.put({"event": "token", "slot": slot, "token": token})
+                    yield {"event": "token", "slot": slot, "token": token}
+        except asyncio.CancelledError:
+            yield {"event": "cancelled", "slot": slot}
+            raise
         except Exception as e:
-            await queue.put({"event": "error", "slot": slot, "message": str(e)})
+            yield {"event": "error", "slot": slot, "message": str(e)}
         finally:
-            # Store accumulated response
             text = "".join(tokens)
             if slot == "a":
                 battle.response_a = text
             else:
                 battle.response_b = text
 
-    async def _merged():
-        tasks = [
-            asyncio.create_task(_stream_slot(battle.model_a, "a")),
-            asyncio.create_task(_stream_slot(battle.model_b, "b")),
-        ]
-        finished = 0
-        while finished < 2:
-            item = await queue.get()
-            yield f"data: {json.dumps(item)}\n\n"
-            if item.get("event") in ("done", "error"):
-                finished += 1
-        yield f"data: {json.dumps({'event': 'complete'})}\n\n"
-        for t in tasks:
-            t.cancel()
+    async def _sequential():
+        """Drive slots one after the other. Two MLX models share the same oMLX
+        server, and running them in parallel just fights over the single active-
+        model slot — so we generate A fully, then B. Client aborts propagate
+        through the generator's CancelledError path."""
+        try:
+            async for evt in _stream_slot(battle.model_a, "a"):
+                yield f"data: {json.dumps(evt)}\n\n"
+            async for evt in _stream_slot(battle.model_b, "b"):
+                yield f"data: {json.dumps(evt)}\n\n"
+            yield f"data: {json.dumps({'event': 'complete'})}\n\n"
+        except asyncio.CancelledError:
+            yield f"data: {json.dumps({'event': 'complete', 'cancelled': True})}\n\n"
+            raise
 
     return StreamingResponse(
-        _merged(),
+        _sequential(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight, BookOpen, ChevronDown } from "lucide-react";
+import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight, BookOpen, ChevronDown, Square } from "lucide-react";
 import Link from "next/link";
 import { toast } from "@/components/Toast";
 
@@ -46,6 +46,7 @@ export default function ArenaPage() {
   const [maxTokens, setMaxTokens] = useState(1024);
   const aRef = useRef<HTMLDivElement>(null);
   const bRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   async function startBattle() {
     setError(null); setResponseA(""); setResponseB("");
@@ -64,24 +65,56 @@ export default function ArenaPage() {
 
   async function sendPrompt() {
     if (!battleId || !prompt.trim()) return;
-    setPhase("streaming"); setStreamingA(true); setStreamingB(true);
+    // Backend generates A fully before B (two MLX models share one oMLX slot).
+    // Start with only A marked streaming; B flips to streaming when A's done.
+    setPhase("streaming"); setStreamingA(true); setStreamingB(false);
     setResponseA(""); setResponseB("");
+    setStatsA({ tps: null, ttft_ms: null }); setStatsB({ tps: null, ttft_ms: null });
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const resp = await api.arena.chat(battleId, { prompt: prompt.trim(), temperature, max_tokens: maxTokens });
+      const resp = await api.arena.chat(
+        battleId,
+        { prompt: prompt.trim(), temperature, max_tokens: maxTokens },
+        controller.signal,
+      );
       await readSSE(resp, (data) => {
         const slot = data.slot as string;
         const event = data.event as string;
-        if (event === "token") {
+        if (event === "slot_start") {
+          if (slot === "a") { setStreamingA(true); setStreamingB(false); }
+          else { setStreamingA(false); setStreamingB(true); }
+        } else if (event === "token") {
           const token = data.token as string;
           if (slot === "a") { setResponseA((p) => p + token); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
           else { setResponseB((p) => p + token); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
         } else if (event === "done") {
           if (slot === "a") { setStreamingA(false); setStatsA({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
           else { setStreamingB(false); setStatsB({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
+        } else if (event === "cancelled") {
+          if (slot === "a") setStreamingA(false);
+          else setStreamingB(false);
         } else if (event === "complete") setPhase("done");
       });
       setPhase("done"); setStreamingA(false); setStreamingB(false);
-    } catch (e) { setError(e instanceof Error ? e.message : "Stream failed"); setPhase("ready"); }
+    } catch (e) {
+      const err = e as Error;
+      const aborted = err.name === "AbortError" || controller.signal.aborted;
+      setStreamingA(false); setStreamingB(false);
+      if (aborted) {
+        setPhase("ready");
+        toast("Battle cancelled", "info");
+      } else {
+        setError(err.message || "Stream failed");
+        setPhase("ready");
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }
+
+  function stopPrompt() {
+    abortRef.current?.abort();
   }
 
   async function vote(winner: string) {
@@ -187,9 +220,15 @@ export default function ArenaPage() {
                 className="w-14 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
                 value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value) || 0.7)} />
             </div>
-            <Button onClick={sendPrompt} disabled={phase !== "ready" || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
-              <Send className="w-4 h-4" /> Send
-            </Button>
+            {phase === "streaming" ? (
+              <Button onClick={stopPrompt} variant="destructive" className="gap-1.5 self-end">
+                <Square className="w-3.5 h-3.5 fill-current" /> Stop
+              </Button>
+            ) : (
+              <Button onClick={sendPrompt} disabled={phase !== "ready" || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
+                <Send className="w-4 h-4" /> Send
+              </Button>
+            )}
           </div>
 
           {/* Response panels */}
@@ -229,6 +268,9 @@ export default function ArenaPage() {
                           {revealed && modelName ? modelName : `Model ${slot.toUpperCase()}`}
                         </span>
                         {streaming && <span className="ml-2 text-[10px] text-indigo-400">generating…</span>}
+                        {phase === "streaming" && !streaming && !response && (
+                          <span className="ml-2 text-[10px] text-zinc-500">waiting…</span>
+                        )}
                         {isWinner && <span className="ml-2 text-[10px] text-indigo-400 font-semibold">WINNER</span>}
                       </div>
                     </div>
