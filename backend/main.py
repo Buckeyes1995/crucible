@@ -59,6 +59,7 @@ from routers import (
     rag,
     recommender_api,
     recovery,
+    router_replay,
     response_cache,
     rss,
     schedules,
@@ -263,6 +264,7 @@ app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
+app.include_router(router_replay.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
