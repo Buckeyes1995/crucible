@@ -6,7 +6,7 @@ import { useModelsStore } from "@/lib/stores/models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMs, formatTps, cn } from "@/lib/utils";
-import { Send, Trash2, BookOpen, X, ChevronDown, Paperclip, FileText } from "lucide-react";
+import { Send, Trash2, BookOpen, X, ChevronDown, Paperclip, FileText, Plus } from "lucide-react";
 import { api, type PromptTemplate } from "@/lib/api";
 
 const RAG_SESSION = "chat-main";
@@ -117,8 +117,15 @@ export default function ChatPage() {
               onChange={(e) => setMaxTokens(Number(e.target.value))}
               className="w-16 bg-zinc-900 border border-white/[0.08] rounded-md px-2 py-1 text-zinc-300 text-[10px] font-mono" />
           </div>
-          <Button variant="ghost" size="xs" onClick={clearMessages} className="text-zinc-600 hover:text-red-400">
-            <Trash2 className="w-3.5 h-3.5" />
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={clearMessages}
+            disabled={streaming}
+            className="gap-1"
+            title="Start a new conversation — clears the current thread and drops the resumed-session link."
+          >
+            <Plus className="w-3 h-3" /> New chat
           </Button>
         </div>
       </div>
