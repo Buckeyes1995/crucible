@@ -336,8 +336,23 @@ function SearchResultRow({ result, kind, availableBytes, totalBytes, alreadyQueu
   );
 }
 
+function formatEta(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm.toString().padStart(2, "0")}m`;
+}
+
 function JobCard({ job, onCancel, onResume }: { job: DownloadJob; onCancel: () => void; onResume?: () => void }) {
   const pct = Math.round(job.progress * 100);
+  const bytesPerSec = job.elapsed_s > 0 ? job.downloaded_bytes / job.elapsed_s : 0;
+  const remaining = Math.max(0, (job.total_bytes || 0) - job.downloaded_bytes);
+  const etaSec = bytesPerSec > 0 ? remaining / bytesPerSec : null;
+  const target = job.local_dir || job.dest_dir;
 
   return (
     <Card className={cn(
@@ -360,6 +375,11 @@ function JobCard({ job, onCancel, onResume }: { job: DownloadJob; onCancel: () =
             <div className="text-xs text-zinc-500 mt-0.5 truncate">
               {job.status === "error" ? job.error : job.message}
             </div>
+            {target && (
+              <div className="text-[10px] text-zinc-600 mt-0.5 truncate font-mono" title={target}>
+                → {target}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-zinc-500">{job.elapsed_s}s</span>
@@ -378,9 +398,15 @@ function JobCard({ job, onCancel, onResume }: { job: DownloadJob; onCancel: () =
 
         {job.status === "downloading" && (
           <div className="space-y-1">
-            <div className="flex justify-between text-xs text-zinc-500">
-              <span>{pct}%</span>
-              <span>{formatBytes(job.downloaded_bytes)} / {formatBytes(job.total_bytes)}</span>
+            <div className="flex justify-between items-baseline text-xs text-zinc-500 gap-3">
+              <span className="font-mono text-zinc-300">{pct}%</span>
+              <span className="font-mono">{formatBytes(job.downloaded_bytes)} / {formatBytes(job.total_bytes)}</span>
+              {bytesPerSec > 0 && (
+                <span className="font-mono text-zinc-400">{formatBytes(bytesPerSec)}/s</span>
+              )}
+              {etaSec != null && (
+                <span className="font-mono text-indigo-300 ml-auto">ETA {formatEta(etaSec)}</span>
+              )}
             </div>
             <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div

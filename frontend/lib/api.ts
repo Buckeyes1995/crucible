@@ -146,6 +146,7 @@ export type DownloadJob = {
   job_id: string;
   repo_id: string;
   dest_dir: string;
+  local_dir?: string;
   kind: string;
   status: "queued" | "downloading" | "done" | "error" | "cancelled";
   progress: number;
