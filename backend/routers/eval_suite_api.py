@@ -1,4 +1,6 @@
 """HTTP endpoints for the structured eval suite."""
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -11,12 +13,20 @@ class EvalStart(BaseModel):
     model_id: str
 
 
+def _omlx_name(model_id: str, registry) -> str:
+    m = registry.get(model_id) if registry else None
+    if m and getattr(m, "path", None):
+        return Path(m.path).name
+    return model_id.split(":", 1)[-1] if ":" in model_id else model_id
+
+
 @router.post("/eval-suite/start")
 async def start(body: EvalStart, request: Request) -> dict:
     cfg = request.app.state.config
     base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
     api_key = cfg.omlx_api_key
-    job = eval_suite.start(body.model_id, base_url, api_key)
+    omlx_name = _omlx_name(body.model_id, request.app.state.registry)
+    job = eval_suite.start(body.model_id, omlx_name, base_url, api_key)
     return {"job_id": job.id, "total_items": len(eval_suite.EVAL_ITEMS)}
 
 

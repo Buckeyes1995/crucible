@@ -47,8 +47,11 @@ async def stream_with_logprobs(body: LogprobRequest, request: Request) -> Stream
         )
     api_key = cfg.omlx_api_key if adapter.kind == "mlx" else ""
 
+    # oMLX's /v1 uses the bare directory name; fall back to model_id for other
+    # adapters (mlx_lm, vllm) that already speak in full-path / raw form.
+    wire_model = getattr(adapter, "server_model_id", None) or adapter.model_id
     payload = {
-        "model": adapter.model_id,
+        "model": wire_model,
         "messages": [{"role": "user", "content": body.prompt}],
         "max_tokens": body.max_tokens,
         "temperature": body.temperature,

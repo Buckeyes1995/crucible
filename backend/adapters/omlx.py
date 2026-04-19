@@ -36,6 +36,12 @@ class OMLXAdapter(BaseAdapter):
     def model_id(self) -> str | None:
         return self._model.id if self._model else None
 
+    @property
+    def server_model_id(self) -> str | None:
+        """Bare oMLX name (directory basename) that /v1/* endpoints expect.
+        Differs from model_id, which carries the 'mlx:' prefix for UI use."""
+        return self._server_model_id
+
     def is_loaded(self) -> bool:
         return self._model is not None
 

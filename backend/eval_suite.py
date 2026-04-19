@@ -141,7 +141,8 @@ class EvalResult:
 @dataclass
 class EvalJob:
     id: str
-    model_id: str
+    model_id: str       # display id (e.g. "mlx:Foo") — what the UI shows
+    omlx_name: str      # bare directory name — what oMLX's /v1 expects
     results: list[EvalResult] = field(default_factory=list)
     status: str = "queued"
     started_at: float = field(default_factory=time.time)
@@ -195,7 +196,7 @@ async def _run_job(job: EvalJob, base_url: str, api_key: str) -> None:
             _persist(job)
             return
         t0 = time.monotonic()
-        resp, err = await _gen_once(base_url, api_key, job.model_id, item.prompt)
+        resp, err = await _gen_once(base_url, api_key, job.omlx_name, item.prompt)
         elapsed = time.monotonic() - t0
         passed = _score(resp, item) if not err else False
         job.results.append(EvalResult(
@@ -208,8 +209,8 @@ async def _run_job(job: EvalJob, base_url: str, api_key: str) -> None:
     _persist(job)
 
 
-def start(model_id: str, base_url: str, api_key: str) -> EvalJob:
-    job = EvalJob(id=uuid.uuid4().hex[:12], model_id=model_id)
+def start(model_id: str, omlx_name: str, base_url: str, api_key: str) -> EvalJob:
+    job = EvalJob(id=uuid.uuid4().hex[:12], model_id=model_id, omlx_name=omlx_name)
     _jobs[job.id] = job
     asyncio.create_task(_run_job(job, base_url, api_key))
     return job
