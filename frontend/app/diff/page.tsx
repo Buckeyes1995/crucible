@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GitCompare, Play, Loader2, X, Copy, Check, BookOpen, ChevronDown, Sparkles } from "lucide-react";
 import { toast } from "@/components/Toast";
+import { SaveCodeButton } from "@/components/SaveCodeButton";
 
 type DiffStatus = "queued" | "loading" | "streaming" | "done" | "error";
 
@@ -21,6 +22,7 @@ export default function DiffPage() {
   const [maxTokens, setMaxTokens] = useState(8192);
   const [maxTokensInput, setMaxTokensInput] = useState("8192");
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [eventCount, setEventCount] = useState(0); // diag — every SSE event ticks this
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -223,6 +225,7 @@ export default function DiffPage() {
     if (selected.length < 2 || !prompt.trim()) return;
     setRunning(true);
     setResponses({});
+    setRunId(`diff-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -468,6 +471,14 @@ export default function DiffPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {r?.tps && <span className="text-xs font-mono text-indigo-400">{r.tps} tok/s</span>}
+                  {r?.status === "done" && r.text && runId && (
+                    <SaveCodeButton
+                      text={r.text}
+                      source="diff"
+                      runId={runId}
+                      filenamePrefix={`model-${i + 1}`}
+                    />
+                  )}
                   {r?.text && (
                     <button
                       onClick={() => {

@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Send, Trophy, RotateCcw, Swords, Loader2, ThumbsUp, Minus, ChevronLeft, ChevronRight, BookOpen, ChevronDown, Square } from "lucide-react";
 import Link from "next/link";
 import { toast } from "@/components/Toast";
+import { SaveCodeButton } from "@/components/SaveCodeButton";
 
 type Phase = "idle" | "ready" | "streaming" | "done" | "voted";
 
@@ -274,9 +275,17 @@ export default function ArenaPage() {
                         {isWinner && <span className="ml-2 text-[10px] text-indigo-400 font-semibold">WINNER</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 text-xs font-mono text-zinc-600">
+                    <div className="flex items-center gap-3 text-xs font-mono text-zinc-600">
                       {stats.ttft_ms != null && <span>TTFT <span className="text-zinc-400">{stats.ttft_ms}ms</span></span>}
                       {stats.tps != null && <span className="text-indigo-400">{stats.tps} tok/s</span>}
+                      {!streaming && response && battleId && (
+                        <SaveCodeButton
+                          text={response}
+                          source="arena"
+                          runId={battleId}
+                          filenamePrefix={`model-${slot}`}
+                        />
+                      )}
                     </div>
                   </div>
 

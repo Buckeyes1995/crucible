@@ -404,6 +404,16 @@ export const api = {
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
+  output: {
+    save: (body: { source: "arena" | "diff" | "chat"; run_id: string; filename: string; content: string }) =>
+      post<{ status: string; path: string; bytes: number }>("/output/save", body),
+    reveal: (body: { source: "arena" | "diff" | "chat"; run_id: string }) =>
+      post<{ status: string; path: string }>("/output/reveal", body),
+    list: (source: string, runId: string) =>
+      get<{ path: string; files: { name: string; bytes: number; modified: number }[] }>(
+        `/output/list?source=${encodeURIComponent(source)}&run_id=${encodeURIComponent(runId)}`,
+      ),
+  },
   dflash: {
     get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),
     toggle: (id: string, enabled: boolean, draftQuantBits?: number) =>
