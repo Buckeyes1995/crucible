@@ -23,6 +23,7 @@ class ModelEntry(BaseModel):
     upstream_last_modified: Optional[str] = None # ISO-8601 timestamp from HF
     available_engines: list[str] = []    # engines capable of running this model (e.g. ["omlx","mlx_lm"])
     preferred_engine: Optional[str] = None  # user-set engine preference; None = use default for kind
+    capabilities: list[str] = []         # capability chips from the fixed taxonomy (code/reasoning/...)
 
 
 class ChatMessage(BaseModel):

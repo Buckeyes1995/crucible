@@ -12,7 +12,7 @@ import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { parseModelName } from "@/lib/model-parse";
 import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown } from "lucide-react";
 import Link from "next/link";
-import { api, type ModelEntry, type ModelParams } from "@/lib/api";
+import { api, CAPABILITY_TAXONOMY, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
 
 type SortKey = "name" | "size" | "tps";
@@ -49,6 +49,7 @@ export default function ModelsPage() {
   const [notesModelId, setNotesModelId] = useState<string | null>(null);
   const [showGlobalParams, setShowGlobalParams] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [capFilter, setCapFilter] = useState<string | null>(null);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
   const [showHidden, setShowHidden] = useState(false);
@@ -101,6 +102,9 @@ export default function ModelsPage() {
       if (tagFilter) {
         const tags = modelNotes[m.id]?.tags ?? [];
         if (!tags.includes(tagFilter)) return false;
+      }
+      if (capFilter) {
+        if (!(m.capabilities ?? []).includes(capFilter)) return false;
       }
       return true;
     })
@@ -270,6 +274,32 @@ export default function ModelsPage() {
             ))}
           </div>
         )}
+
+        {(() => {
+          const shown = CAPABILITY_TAXONOMY.filter(c =>
+            models.some(m => (m.capabilities ?? []).includes(c)),
+          );
+          if (!shown.length) return null;
+          return (
+            <div className="flex gap-1 flex-wrap">
+              <span className="text-xs text-zinc-500 self-center mr-1">Cap:</span>
+              {shown.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setCapFilter(capFilter === c ? null : c)}
+                  className={cn(
+                    "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wide transition-colors",
+                    capFilter === c
+                      ? "bg-emerald-600/30 text-emerald-200 border border-emerald-500/40"
+                      : "bg-zinc-800 text-zinc-400 hover:text-zinc-100",
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         <div className="flex gap-1 ml-auto">
           <span className="text-xs text-zinc-500 self-center mr-1">Sort:</span>
@@ -582,15 +612,23 @@ function ModelCard({
           <Stat label="Avg tok/s" value={formatTps(model.avg_tps)} />
         </div>
 
-        {tags.length > 0 && (
+        {(model.capabilities?.length || tags.length) ? (
           <div className="flex flex-wrap gap-1">
+            {(model.capabilities ?? []).map(c => (
+              <span
+                key={`c-${c}`}
+                className="text-[10px] font-medium uppercase tracking-wide bg-emerald-900/25 text-emerald-300 border border-emerald-500/25 px-1.5 py-0.5 rounded"
+              >
+                {c}
+              </span>
+            ))}
             {tags.map(t => (
-              <span key={t} className="text-xs bg-indigo-900/30 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+              <span key={`t-${t}`} className="text-xs bg-indigo-900/30 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded">
                 {t}
               </span>
             ))}
           </div>
-        )}
+        ) : null}
 
         {/* Loading bar */}
         {isLoading && (
@@ -1073,6 +1111,7 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
   const [tagsInput, setTagsInput] = useState("");
   const [preferredEngine, setPreferredEngine] = useState<string | null>(model.preferred_engine ?? null);
   const [originRepo, setOriginRepo] = useState<string>(model.origin_repo ?? "");
+  const [capabilities, setCapabilities] = useState<string[]>(model.capabilities ?? []);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const engines = model.available_engines ?? [];
@@ -1080,10 +1119,11 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
 
   useEffect(() => {
     api.models.getNotes(model.id)
-      .then((d: { notes: string; tags: string[]; preferred_engine?: string | null }) => {
+      .then((d: { notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[] }) => {
         setNotes(d.notes);
         setTagsInput(d.tags.join(", "));
         if (d.preferred_engine !== undefined) setPreferredEngine(d.preferred_engine ?? null);
+        if (d.capabilities) setCapabilities(d.capabilities);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -1094,7 +1134,7 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
 
   const save = useCallback(async () => {
     const tags = tagsInput.split(",").map(t => t.trim()).filter(Boolean);
-    const result = await api.models.setNotes(model.id, notes, tags);
+    const result = await api.models.setNotes(model.id, notes, tags, capabilities);
     if (showEnginePicker) {
       await api.models.setPreferredEngine(model.id, preferredEngine);
     }
@@ -1104,7 +1144,7 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
     }
     onSaved(result);
     setSaved(true);
-  }, [model.id, notes, tagsInput, onSaved, preferredEngine, showEnginePicker, originRepo, model.origin_repo]);
+  }, [model.id, notes, tagsInput, capabilities, onSaved, preferredEngine, showEnginePicker, originRepo, model.origin_repo]);
 
   return (
     <div
@@ -1127,6 +1167,32 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
             <div className="text-zinc-500 text-sm text-center py-4">Loading…</div>
           ) : (
             <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Capabilities</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CAPABILITY_TAXONOMY.map(cap => {
+                    const on = capabilities.includes(cap);
+                    return (
+                      <button
+                        type="button"
+                        key={cap}
+                        onClick={() => {
+                          setCapabilities(prev => on ? prev.filter(c => c !== cap) : [...prev, cap]);
+                          setSaved(false);
+                        }}
+                        className={cn(
+                          "px-2 py-0.5 rounded text-[11px] font-medium border transition",
+                          on
+                            ? "bg-indigo-500/20 border-indigo-400/40 text-indigo-200"
+                            : "bg-zinc-800/50 border-white/8 text-zinc-500 hover:text-zinc-300",
+                        )}
+                      >
+                        {cap}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-zinc-400">Tags (comma-separated)</label>
                 <input

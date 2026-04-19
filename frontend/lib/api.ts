@@ -21,7 +21,14 @@ export type ModelEntry = {
   origin_repo?: string | null;          // HF repo we downloaded this from
   update_available?: boolean;           // upstream HF repo has been updated since we downloaded
   upstream_last_modified?: string | null; // ISO-8601 from HF
+  capabilities?: string[];              // chips from the fixed taxonomy
 };
+
+export const CAPABILITY_TAXONOMY = [
+  "code", "reasoning", "vision", "math", "instruction",
+  "long-context", "small", "agentic",
+] as const;
+export type Capability = typeof CAPABILITY_TAXONOMY[number];
 
 export type ChatMessage = { role: string; content: string };
 
@@ -71,11 +78,16 @@ export type DFlashToggleResult = {
   settings: Record<string, unknown>;
 };
 
-export type ArenaBattle = { battle_id: string; status: string };
+export type ArenaBattle = {
+  battle_id: string; status: string;
+  n?: number;
+  slots?: { slot_id: string; display: string }[];
+};
 export type ArenaVoteResult = {
   model_a: string; model_b: string; winner: string;
   elo_before: { a: number; b: number };
   elo_after: { a: number; b: number };
+  slots?: { slot_id: string; display: string; elo_before: number; elo_after: number }[];
 };
 export type ArenaLeaderboardEntry = {
   model_id: string; elo: number; wins: number; losses: number;
@@ -362,9 +374,9 @@ export const api = {
     getParams: (id: string) => get<ModelParams>(`/models/${encodeURIComponent(id)}/params`),
     setParams: (id: string, params: ModelParams) => put<ModelParams>(`/models/${encodeURIComponent(id)}/params`, params),
     resetParams: (id: string) => del<{ status: string }>(`/models/${encodeURIComponent(id)}/params`),
-    getNotes: (id: string) => get<{ notes: string; tags: string[]; preferred_engine?: string | null }>(`/models/${encodeURIComponent(id)}/notes`),
-    setNotes: (id: string, notes: string, tags: string[]) =>
-      put<{ notes: string; tags: string[] }>(`/models/${encodeURIComponent(id)}/notes`, { notes, tags }),
+    getNotes: (id: string) => get<{ notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[] }>(`/models/${encodeURIComponent(id)}/notes`),
+    setNotes: (id: string, notes: string, tags: string[], capabilities?: string[]) =>
+      put<{ notes: string; tags: string[]; capabilities?: string[] }>(`/models/${encodeURIComponent(id)}/notes`, { notes, tags, capabilities }),
     setHidden: (id: string, hidden: boolean) =>
       put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
     setPreferredEngine: (id: string, engine: string | null) =>
@@ -397,8 +409,8 @@ export const api = {
     list: () => get<NodeStatus[]>("/nodes"),
   },
   arena: {
-    startBattle: () => post<ArenaBattle>("/arena/battle"),
-    chat: (battleId: string, body: { prompt: string; temperature?: number; max_tokens?: number }, signal?: AbortSignal) =>
+    startBattle: (n: number = 2) => post<ArenaBattle>("/arena/battle", { n }),
+    chat: (battleId: string, body: { prompt: string; temperature?: number; max_tokens?: number; norm_mode?: "uniform" | "per_model" }, signal?: AbortSignal) =>
       stream(`/arena/battle/${battleId}/chat`, body, signal),
     vote: (battleId: string, winner: string) =>
       post<ArenaVoteResult>(`/arena/battle/${battleId}/vote`, { winner }),
@@ -464,6 +476,11 @@ export const api = {
       get<{ path: string; files: { name: string; bytes: number; modified: number }[] }>(
         `/output/list?source=${encodeURIComponent(source)}&run_id=${encodeURIComponent(runId)}`,
       ),
+    run: (body: { source: "arena" | "diff" | "chat"; run_id: string; subdir?: string; filename: string }) =>
+      post<{
+        status: string; exit_code: number | null; timed_out: boolean;
+        elapsed_s: number; stdout: string; stderr: string; runner: string;
+      }>("/output/run", body),
   },
   dflash: {
     get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),

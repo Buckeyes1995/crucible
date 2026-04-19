@@ -11,6 +11,8 @@ router = APIRouter()
 class NotePayload(BaseModel):
     notes: str = ""
     tags: list[str] = []
+    # Optional — when omitted, existing capabilities on the model are preserved.
+    capabilities: list[str] | None = None
 
 
 class HiddenPayload(BaseModel):
@@ -28,7 +30,17 @@ async def get_notes(model_id: str) -> dict[str, Any]:
 
 @router.put("/models/{model_id:path}/notes")
 async def set_notes(model_id: str, payload: NotePayload) -> dict[str, Any]:
-    return model_notes.set_note(model_id, payload.notes, payload.tags)
+    return model_notes.set_note(model_id, payload.notes, payload.tags,
+                                 capabilities=payload.capabilities)
+
+
+@router.get("/capabilities")
+async def list_capabilities() -> dict[str, Any]:
+    """Capability taxonomy + per-model assignments."""
+    return {
+        "taxonomy": model_notes.CAPABILITIES,
+        "assignments": model_notes.all_capabilities(),
+    }
 
 
 @router.put("/models/{model_id:path}/hidden")

@@ -7,6 +7,12 @@ from typing import Any
 NOTES_FILE = Path.home() / ".config" / "crucible" / "model_notes.json"
 log = logging.getLogger(__name__)
 
+# Fixed capability taxonomy. Surfaced as colored chips on model cards and used
+# by the models-page filter. Free-form tags (the `tags` field) stay separate
+# so the taxonomy can evolve without forcing everyone to re-tag.
+CAPABILITIES = ["code", "reasoning", "vision", "math", "instruction",
+                "long-context", "small", "agentic"]
+
 
 def _load() -> dict[str, dict]:
     if not NOTES_FILE.exists():
@@ -24,20 +30,36 @@ def _save(data: dict) -> None:
 
 
 def get_note(model_id: str) -> dict[str, Any]:
-    return _load().get(model_id, {"notes": "", "tags": [], "hidden": False, "preferred_engine": None})
+    return _load().get(model_id, {
+        "notes": "", "tags": [], "hidden": False,
+        "preferred_engine": None, "capabilities": [],
+    })
 
 
-def set_note(model_id: str, notes: str, tags: list[str]) -> dict[str, Any]:
+def set_note(model_id: str, notes: str, tags: list[str],
+             capabilities: list[str] | None = None) -> dict[str, Any]:
     data = _load()
     existing = data.get(model_id, {})
+    caps = capabilities if capabilities is not None else existing.get("capabilities", [])
+    # Clamp to the known taxonomy — silently drop anything else so the
+    # frontend chip renderer can trust the list.
+    caps = [c for c in caps if c in CAPABILITIES]
     data[model_id] = {
         "notes": notes,
         "tags": [t.strip() for t in tags if t.strip()],
         "hidden": existing.get("hidden", False),
         "preferred_engine": existing.get("preferred_engine"),
+        "capabilities": caps,
     }
     _save(data)
     return data[model_id]
+
+
+def all_capabilities() -> dict[str, list[str]]:
+    """Return map of model_id → capability list for models that have any."""
+    data = _load()
+    return {mid: entry.get("capabilities", []) for mid, entry in data.items()
+            if entry.get("capabilities")}
 
 
 def set_hidden(model_id: str, hidden: bool) -> dict[str, Any]:

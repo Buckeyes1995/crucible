@@ -61,12 +61,14 @@ ENGINES_BY_KIND: dict[str, list[str]] = {
 def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
     hidden_map = model_notes.all_hidden()
     pref_map = model_notes.all_preferred_engines()
+    caps_map = model_notes.all_capabilities()
     dflash_state = _load_omlx_dflash_state()
     # z-lab match uses the cache only (no network here). Refresh endpoint below re-fetches.
     zlab_repos = zlab._load_cache().get("repos", [])
     updates_state = hf_updates.all_state()
     for m in models:
         m.hidden = hidden_map.get(m.id, False)
+        m.capabilities = caps_map.get(m.id, [])
         m.backend_meta = _strip_internal_meta(m.backend_meta)
         if m.dflash_draft and m.name in dflash_state:
             m.dflash_enabled = dflash_state[m.name]
