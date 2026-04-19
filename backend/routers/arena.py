@@ -75,20 +75,51 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
             else:
                 battle.response_b = text
 
+    async def _unload(model_name: str) -> None:
+        """Best-effort force-unload on oMLX. Matches the pattern used by diff —
+        oMLX v0.10.0's engine pool keeps multiple models loaded otherwise, so
+        between serial slots we explicitly evict the previous one. Silent on
+        failure; worst case is just memory pressure."""
+        import httpx
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(f"{base_url}/v1/models/{model_name}/unload",
+                                  headers=headers)
+        except Exception:
+            pass
+
     async def _sequential():
-        """Drive slots one after the other. Two MLX models share the same oMLX
-        server, and running them in parallel just fights over the single active-
-        model slot — so we generate A fully, then B. Client aborts propagate
-        through the generator's CancelledError path."""
+        """Drive slots one after the other. We explicitly unload slot A before
+        starting slot B so oMLX doesn't end up with both models resident (which
+        it happily does with v0.10.0's engine pool). Aborts propagate through
+        CancelledError; we also unload on error / cancel to keep the server
+        tidy between battles."""
+        completed_slots: list[str] = []
         try:
             async for evt in _stream_slot(battle.model_a, "a"):
                 yield f"data: {json.dumps(evt)}\n\n"
+            completed_slots.append(battle.model_a)
+            await _unload(battle.model_a)
             async for evt in _stream_slot(battle.model_b, "b"):
                 yield f"data: {json.dumps(evt)}\n\n"
+            completed_slots.append(battle.model_b)
             yield f"data: {json.dumps({'event': 'complete'})}\n\n"
         except asyncio.CancelledError:
             yield f"data: {json.dumps({'event': 'complete', 'cancelled': True})}\n\n"
             raise
+        finally:
+            # Don't leave the losing side (or a cancelled half-run) parked in
+            # memory either — unload everything we touched.
+            for name in (battle.model_a, battle.model_b):
+                if name not in completed_slots:
+                    continue
+            # unload both unconditionally; the helper is idempotent + silent
+            for name in {battle.model_a, battle.model_b}:
+                try:
+                    await _unload(name)
+                except Exception:
+                    pass
 
     return StreamingResponse(
         _sequential(),
