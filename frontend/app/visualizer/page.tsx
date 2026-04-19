@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, readSSE, type ModelEntry } from "@/lib/api";
+import { api, readSSE, type ModelEntry, type PromptTemplate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Eye, Send, Loader2 } from "lucide-react";
+import { Eye, Send, Loader2, BookOpen, ChevronDown } from "lucide-react";
 
 type TokenData = { token: string; timestamp: number; delta_ms: number };
 
@@ -15,9 +15,21 @@ export default function VisualizerPage() {
   const [tokens, setTokens] = useState<TokenData[]>([]);
   const [ttft, setTtft] = useState<number | null>(null);
   const [tps, setTps] = useState<number | null>(null);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const templateRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api.models.list().then(setModels); }, []);
+  useEffect(() => { api.templates.list().then(setTemplates).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!showTemplates) return;
+    const h = (e: MouseEvent) => {
+      if (templateRef.current && !templateRef.current.contains(e.target as Node)) setShowTemplates(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [showTemplates]);
 
   const activeModel = models.find((m) => m.id === models.find(() => true)?.id);
 
@@ -89,11 +101,43 @@ export default function VisualizerPage() {
         </div>
       </div>
 
-      <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3">
-        <input className="flex-1 bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
-          placeholder="Enter prompt…" value={prompt} onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()} disabled={streaming} />
-        <Button onClick={send} disabled={streaming || !prompt.trim()} variant="primary" className="gap-1.5">
+      <div className="px-6 py-3 border-b border-white/[0.04] flex gap-3 items-start">
+        <div className="flex-1 flex flex-col gap-1.5">
+          <div ref={templateRef} className="relative self-start">
+            <button
+              onClick={() => setShowTemplates((v) => !v)}
+              disabled={streaming}
+              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded border border-zinc-700/50 hover:border-zinc-600 bg-zinc-800/60 transition-colors disabled:opacity-50"
+            >
+              <BookOpen className="w-3 h-3" /> Templates
+              <ChevronDown className={cn("w-3 h-3 transition-transform", showTemplates && "rotate-180")} />
+            </button>
+            {showTemplates && (
+              <div className="absolute top-full left-0 mt-1 w-96 max-h-80 overflow-y-auto bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-20">
+                {templates.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-zinc-500">No templates saved. Create some in the Templates page.</div>
+                ) : (
+                  templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setPrompt(t.content); setShowTemplates(false); }}
+                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 border-b border-white/5 last:border-0"
+                    >
+                      <div className="text-xs font-medium text-zinc-100 truncate">{t.name}</div>
+                      {t.description && <div className="text-[10px] text-zinc-500 truncate mt-0.5">{t.description}</div>}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <input
+            className="w-full bg-zinc-900 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+            placeholder="Enter prompt…" value={prompt} onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()} disabled={streaming}
+          />
+        </div>
+        <Button onClick={send} disabled={streaming || !prompt.trim()} variant="primary" className="gap-1.5 self-end">
           {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send
         </Button>
       </div>
