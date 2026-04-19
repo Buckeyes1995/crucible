@@ -153,9 +153,11 @@ export default function ReviewPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="text-xs text-zinc-500 flex items-center justify-between">
-              <span className="truncate">{current.prompt}</span>
-              <span className="font-mono shrink-0 ml-3">{queue.length} left</span>
+            <div className="rounded-lg border border-white/[0.06] bg-zinc-900/50 p-3 flex items-start justify-between gap-4">
+              <div className="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap">
+                {current.prompt}
+              </div>
+              <span className="text-xs font-mono shrink-0 text-zinc-500 mt-0.5">{queue.length} left</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {(["a", "b"] as const).map((slot) => {
