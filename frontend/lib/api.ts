@@ -405,6 +405,17 @@ export const api = {
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
+  memPlan: {
+    plan: (model_ids: string[]) =>
+      post<{
+        total_bytes: number; available_bytes: number;
+        system_headroom_bytes: number; budget_bytes: number;
+        required_bytes: number; headroom_bytes: number;
+        fits: boolean;
+        models: { id: string; name: string; kind: string; size_bytes: number; overhead_bytes: number }[];
+        overhead_per_model_bytes: number;
+      }>("/mem-plan", { model_ids }),
+  },
   output: {
     save: (body: { source: "arena" | "diff" | "chat"; run_id: string; subdir?: string; filename: string; content: string }) =>
       post<{ status: string; path: string; bytes: number }>("/output/save", body),

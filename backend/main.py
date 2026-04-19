@@ -48,6 +48,7 @@ from routers import (
     notifications,
     optimizer,
     outputs,
+    mem_plan,
     params,
     perf_trends,
     perplexity,
@@ -246,6 +247,7 @@ app.include_router(groups.router, prefix="/api")
 app.include_router(heatmap.router, prefix="/api")
 app.include_router(optimizer.router, prefix="/api")
 app.include_router(outputs.router, prefix="/api")
+app.include_router(mem_plan.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
