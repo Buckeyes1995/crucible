@@ -42,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/chat/compare", label: "Side by Side", icon: <GitCompare className="w-4 h-4" /> },
       { href: "/diff", label: "Model Diff", icon: <GitCompare className="w-4 h-4" /> },
       { href: "/arena", label: "Arena", icon: <Swords className="w-4 h-4" /> },
+      { href: "/arena/review", label: "Review Queue", icon: <Swords className="w-4 h-4" /> },
       { href: "/arena/leaderboard", label: "Leaderboard", icon: <Trophy className="w-4 h-4" /> },
     ],
   },
