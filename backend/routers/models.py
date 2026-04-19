@@ -251,6 +251,11 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
                     session_persist.record_load(model.id, engine)
                 except Exception:
                     pass
+                try:
+                    from routers.warmth import record_load_event
+                    record_load_event(model.id)
+                except Exception:
+                    pass
             elif event_type == "error":
                 return
 

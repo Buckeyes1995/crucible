@@ -70,6 +70,7 @@ from routers import (
     system_prompts,
     templates,
     token_analytics,
+    warmth,
     token_counter,
     uptime,
     webhooks,
@@ -261,6 +262,7 @@ app.include_router(mem_plan.router, prefix="/api")
 app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
+app.include_router(warmth.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
