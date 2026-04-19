@@ -43,6 +43,7 @@ from routers import (
     health,
     heatmap,
     finetune,
+    finetune_pipeline,
     humaneval,
     metrics_ws,
     model_changelog,
@@ -276,6 +277,7 @@ app.include_router(niah_api.router, prefix="/api")
 app.include_router(eval_suite_api.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 app.include_router(logprobs_router.router, prefix="/api")
+app.include_router(finetune_pipeline.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
