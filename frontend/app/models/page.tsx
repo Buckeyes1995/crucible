@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useModelsStore } from "@/lib/stores/models";
 import { useFavoritesStore } from "@/lib/stores/favorites";
 import { useAliasesStore } from "@/lib/stores/aliases";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -521,9 +520,7 @@ function ModelCard({
                 {Math.round((downloadProgress.progress ?? 0) * 100)}%
               </span>
             )}
-            <Badge variant={model.kind as "mlx" | "gguf" | "ollama" | "mlx_studio" | "vllm"}>
-              {model.kind === "mlx_studio" ? "MLX Studio" : model.kind === "vllm" ? "vLLM" : model.kind.toUpperCase()}
-            </Badge>
+            <EngineBadge model={model} />
             {model.node && model.node !== "local" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 font-medium">
                 @{model.node}
@@ -727,6 +724,32 @@ function ModelCard({
 }
 
 // Chip row rendered in the upper-left: parsed family / params / variant / quant.
+// Two-part badge: file format (MLX / GGUF / vLLM) + serving engine
+// (omlx / mlx_lm / llama.cpp / ollama). Makes "why is Qwen 2.5 OLLAMA vs GGUF"
+// legible at a glance — the underlying `kind` field is unchanged, this is
+// purely a display relabel.
+function EngineBadge({ model }: { model: ModelEntry }) {
+  // Map kind → (format label, default engine, colour hint).
+  const config: Record<string, { format: string; engine: string; tone: string }> = {
+    mlx:        { format: "MLX",  engine: model.preferred_engine ?? "omlx",  tone: "border-indigo-500/30 bg-indigo-900/20 text-indigo-300" },
+    gguf:       { format: "GGUF", engine: "llama.cpp",                       tone: "border-emerald-500/30 bg-emerald-900/20 text-emerald-300" },
+    ollama:     { format: "GGUF", engine: "ollama",                          tone: "border-amber-500/30 bg-amber-900/20 text-amber-300" },
+    vllm:       { format: "vLLM", engine: "vllm",                            tone: "border-fuchsia-500/30 bg-fuchsia-900/20 text-fuchsia-300" },
+    mlx_studio: { format: "MLX",  engine: "Studio",                          tone: "border-sky-500/30 bg-sky-900/20 text-sky-300" },
+  };
+  const c = config[model.kind] ?? { format: model.kind.toUpperCase(), engine: "?", tone: "border-white/10 bg-zinc-800 text-zinc-300" };
+  return (
+    <span
+      className={cn("text-[10px] px-1.5 py-0.5 rounded border font-mono font-medium inline-flex items-center gap-1", c.tone)}
+      title={`File format: ${c.format}, served by ${c.engine}`}
+    >
+      <span>{c.format}</span>
+      <span className="opacity-50">·</span>
+      <span>{c.engine}</span>
+    </span>
+  );
+}
+
 function ModelChips({ model, showEditAlias, onEditAlias }: {
   model: ModelEntry;
   showEditAlias: boolean;
