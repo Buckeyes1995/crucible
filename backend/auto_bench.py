@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from omlx_admin import find_dflash_draft
@@ -115,6 +116,48 @@ async def on_download_complete(job) -> None:
     log.info("Auto-benchmark complete for %s: avg %.1f tok/s, DFlash: %s",
              model_name, avg_tps or 0, "eligible" if dflash_draft else "no")
 
+    # Stamp the headline tok/s number onto the shared registry so the model
+    # card shows a real value instead of "—" from the first moment. We try a
+    # couple of possible model_ids — the download's "model_name" is the on-
+    # disk directory name, which most adapters use as the id.
+    if avg_tps is not None:
+        try:
+            from registry import ModelRegistry  # type: ignore
+            import inspect
+            # Reach the app-scoped registry via the uvicorn app state. If we
+            # can't find it (e.g. when running outside the FastAPI context),
+            # fall through to a standalone stats-file write.
+            registry = _find_registry()
+            iso = datetime.now(timezone.utc).isoformat()
+            if registry is not None:
+                for candidate in (model_name, f"mlx:{model_name}"):
+                    try:
+                        registry.update_stats(candidate, avg_tps, iso)
+                        break
+                    except Exception:
+                        continue
+            _ = ModelRegistry  # keep import for type-checkers
+            _ = inspect
+        except Exception as e:
+            log.warning("Failed to stamp avg_tps onto registry: %s", e)
+
+    # User-visible ping — avoid a second notification if avg_tps is None.
+    if avg_tps is not None:
+        try:
+            from routers import notifications as notif
+            notif.push(
+                title="Benchmark ready",
+                message=f"{model_name}: {avg_tps:.1f} tok/s across {len(tps_vals)} prompts",
+                type="success",
+                link="/models",
+                meta={"kind": "auto_bench",
+                      "model_name": model_name,
+                      "avg_tps": avg_tps,
+                      "dflash_eligible": dflash_draft is not None},
+            )
+        except Exception as e:
+            log.warning("Failed to push auto-bench notification: %s", e)
+
     # Fire webhook
     import webhooks as wh
     await wh.fire("benchmark.done", {
@@ -123,3 +166,24 @@ async def on_download_complete(job) -> None:
         "auto_bench": True,
         "dflash_eligible": dflash_draft is not None,
     })
+
+
+def _find_registry():
+    """Best-effort lookup of the app-scoped ModelRegistry without importing the
+    FastAPI app (which would create a circular import). We walk the process's
+    running event loop tasks — the FastAPI lifespan ctx keeps `app.state.registry`
+    reachable through stack frames during requests. If we can't find it, we
+    return None and the caller falls back to a local write."""
+    try:
+        import sys
+        from main import app  # safe: main already imported the registry module
+        return getattr(app.state, "registry", None)
+    except Exception:
+        try:
+            # Last-ditch fallback: build a registry off the default config.
+            # Expensive but only runs when the live app state isn't reachable.
+            from config import load_config
+            from registry import ModelRegistry
+            return ModelRegistry(load_config())
+        except Exception:
+            return None
