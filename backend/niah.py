@@ -86,7 +86,8 @@ class NIAHResult:
 @dataclass
 class NIAHJob:
     id: str
-    model_id: str
+    model_id: str       # display id (e.g. "mlx:Foo") — what the UI shows
+    omlx_name: str      # bare directory name — what oMLX's /v1 expects
     lengths: list[int]
     results: list[NIAHResult] = field(default_factory=list)
     status: str = "queued"
@@ -179,7 +180,7 @@ async def _run_job(job: NIAHJob, base_url: str, api_key: str, max_tokens: int,
             job.finished_at = time.time()
             _persist(job)
             return
-        result = await _run_one(base_url, api_key, job.model_id, target, max_tokens, seed)
+        result = await _run_one(base_url, api_key, job.omlx_name, target, max_tokens, seed)
         job.results.append(result)
         _persist(job)
     job.status = "done"
@@ -187,11 +188,12 @@ async def _run_job(job: NIAHJob, base_url: str, api_key: str, max_tokens: int,
     _persist(job)
 
 
-def start(model_id: str, lengths: list[int], base_url: str, api_key: str,
-          max_tokens: int = 128, seed: int = 1) -> NIAHJob:
+def start(model_id: str, omlx_name: str, lengths: list[int], base_url: str,
+          api_key: str, max_tokens: int = 128, seed: int = 1) -> NIAHJob:
     job = NIAHJob(
         id=uuid.uuid4().hex[:12],
         model_id=model_id,
+        omlx_name=omlx_name,
         lengths=sorted(set(lengths)),
     )
     _jobs[job.id] = job

@@ -1,4 +1,6 @@
 """HTTP endpoints for the NIAH (needle-in-haystack) context-length test."""
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -14,12 +16,20 @@ class NIAHStart(BaseModel):
     seed: int = 1
 
 
+def _omlx_name(model_id: str, registry) -> str:
+    m = registry.get(model_id) if registry else None
+    if m and getattr(m, "path", None):
+        return Path(m.path).name
+    return model_id.split(":", 1)[-1] if ":" in model_id else model_id
+
+
 @router.post("/niah/start")
 async def start(body: NIAHStart, request: Request) -> dict:
     cfg = request.app.state.config
     base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
     api_key = cfg.omlx_api_key
-    job = niah.start(body.model_id, body.lengths, base_url, api_key,
+    omlx_name = _omlx_name(body.model_id, request.app.state.registry)
+    job = niah.start(body.model_id, omlx_name, body.lengths, base_url, api_key,
                      max_tokens=body.max_tokens, seed=body.seed)
     return {"job_id": job.id}
 
