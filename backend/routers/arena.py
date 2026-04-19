@@ -42,15 +42,47 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
     messages = [{"role": "user", "content": body.prompt}]
 
     async def _stream_slot(model_name: str, slot: str):
-        """Generator that yields SSE events for one slot and records the
-        accumulated text on the battle state at the end."""
+        """Yield SSE events for one slot. Emits periodic heartbeats (every
+        HEARTBEAT_S) while the slot is cold-loading so client-side readers
+        don't time out during oMLX's warmup + weight-load window (can be
+        30-60s for large models)."""
+        HEARTBEAT_S = 5.0
         tokens: list[str] = []
+        first_token_seen = False
+
+        # Drive arena.stream_to_omlx as a queue consumer so we can interleave
+        # heartbeats during long silences.
+        chunk_queue: asyncio.Queue = asyncio.Queue()
+
+        async def _consume():
+            try:
+                async for chunk in arena.stream_to_omlx(
+                    model_name, messages, base_url, api_key,
+                    body.temperature, body.max_tokens,
+                ):
+                    await chunk_queue.put(chunk)
+            except Exception as e:
+                await chunk_queue.put({"_error": str(e)})
+            finally:
+                await chunk_queue.put(None)
+
+        consumer = asyncio.create_task(_consume())
+
         try:
             yield {"event": "slot_start", "slot": slot}
-            async for chunk in arena.stream_to_omlx(
-                model_name, messages, base_url, api_key,
-                body.temperature, body.max_tokens,
-            ):
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(chunk_queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    # Silent window — let the client know we're still alive.
+                    yield {"event": "heartbeat", "slot": slot,
+                           "phase": "generating" if first_token_seen else "loading"}
+                    continue
+                if chunk is None:
+                    break
+                if chunk.get("_error"):
+                    yield {"event": "error", "slot": slot, "message": chunk["_error"]}
+                    return
                 if chunk.get("done"):
                     yield {
                         "event": "done", "slot": slot,
@@ -62,14 +94,18 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
                     return
                 token = chunk.get("token", "")
                 if token:
+                    first_token_seen = True
                     tokens.append(token)
                     yield {"event": "token", "slot": slot, "token": token}
         except asyncio.CancelledError:
+            consumer.cancel()
             yield {"event": "cancelled", "slot": slot}
             raise
         except Exception as e:
             yield {"event": "error", "slot": slot, "message": str(e)}
         finally:
+            if not consumer.done():
+                consumer.cancel()
             text = "".join(tokens)
             if slot == "a":
                 battle.response_a = text
@@ -91,32 +127,33 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
             pass
 
     async def _sequential():
-        """Drive slots one after the other. We explicitly unload slot A before
-        starting slot B so oMLX doesn't end up with both models resident (which
-        it happily does with v0.10.0's engine pool). Aborts propagate through
-        CancelledError; we also unload on error / cancel to keep the server
-        tidy between battles."""
-        completed_slots: list[str] = []
+        """Drive slots one after the other. Unload slot A before starting
+        slot B so oMLX doesn't end up holding both resident. On error/cancel
+        we only unload models we actually touched — avoids noisy 400s on
+        models that were never loaded."""
+        touched: set[str] = set()
+        already_unloaded: set[str] = set()
         try:
+            touched.add(battle.model_a)
             async for evt in _stream_slot(battle.model_a, "a"):
                 yield f"data: {json.dumps(evt)}\n\n"
-            completed_slots.append(battle.model_a)
             await _unload(battle.model_a)
+            already_unloaded.add(battle.model_a)
+
+            touched.add(battle.model_b)
             async for evt in _stream_slot(battle.model_b, "b"):
                 yield f"data: {json.dumps(evt)}\n\n"
-            completed_slots.append(battle.model_b)
             yield f"data: {json.dumps({'event': 'complete'})}\n\n"
         except asyncio.CancelledError:
             yield f"data: {json.dumps({'event': 'complete', 'cancelled': True})}\n\n"
             raise
         finally:
-            # Don't leave the losing side (or a cancelled half-run) parked in
-            # memory either — unload everything we touched.
-            for name in (battle.model_a, battle.model_b):
-                if name not in completed_slots:
+            # Only unload what we actually started. If the stream died between
+            # slots (client disconnect, timeout), model B was never loaded and
+            # calling unload on it produces a misleading 400 in oMLX logs.
+            for name in touched:
+                if name in already_unloaded:
                     continue
-            # unload both unconditionally; the helper is idempotent + silent
-            for name in {battle.model_a, battle.model_b}:
                 try:
                     await _unload(name)
                 except Exception:

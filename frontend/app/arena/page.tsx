@@ -21,6 +21,10 @@ export default function ArenaPage() {
   const [responseB, setResponseB] = useState("");
   const [streamingA, setStreamingA] = useState(false);
   const [streamingB, setStreamingB] = useState(false);
+  // Track the per-slot phase so we can show 'loading weights…' during oMLX
+  // cold-load gaps between slots, rather than the misleading 'generating…'.
+  const [phaseA, setPhaseA] = useState<"idle" | "loading" | "generating" | "done">("idle");
+  const [phaseB, setPhaseB] = useState<"idle" | "loading" | "generating" | "done">("idle");
   const [statsA, setStatsA] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
   const [statsB, setStatsB] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
   const [voteResult, setVoteResult] = useState<ArenaVoteResult | null>(null);
@@ -69,6 +73,7 @@ export default function ArenaPage() {
     // Backend generates A fully before B (two MLX models share one oMLX slot).
     // Start with only A marked streaming; B flips to streaming when A's done.
     setPhase("streaming"); setStreamingA(true); setStreamingB(false);
+    setPhaseA("loading"); setPhaseB("idle");
     setResponseA(""); setResponseB("");
     setStatsA({ tps: null, ttft_ms: null }); setStatsB({ tps: null, ttft_ms: null });
     const controller = new AbortController();
@@ -83,23 +88,36 @@ export default function ArenaPage() {
         const slot = data.slot as string;
         const event = data.event as string;
         if (event === "slot_start") {
-          if (slot === "a") { setStreamingA(true); setStreamingB(false); }
-          else { setStreamingA(false); setStreamingB(true); }
+          // New slot starting — we don't know yet whether weights need to
+          // load; mark phase as 'loading' until the first token or heartbeat
+          // proves otherwise.
+          if (slot === "a") { setStreamingA(true); setStreamingB(false); setPhaseA("loading"); }
+          else { setStreamingA(false); setStreamingB(true); setPhaseB("loading"); }
+        } else if (event === "heartbeat") {
+          // Backend reports whether we're in the 'loading' or 'generating'
+          // phase so UI can show honest status during long silences.
+          const ph = (data.phase as string) === "generating" ? "generating" : "loading";
+          if (slot === "a") setPhaseA(ph);
+          else setPhaseB(ph);
         } else if (event === "token") {
           const token = data.token as string;
-          if (slot === "a") { setResponseA((p) => p + token); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
-          else { setResponseB((p) => p + token); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
+          if (slot === "a") { setResponseA((p) => p + token); setPhaseA("generating"); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
+          else { setResponseB((p) => p + token); setPhaseB("generating"); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
         } else if (event === "done") {
           const s = {
             tps: data.tps as number | null,
             ttft_ms: data.ttft_ms as number | null,
             load_ms: (data.load_ms as number | null) ?? null,
           };
-          if (slot === "a") { setStreamingA(false); setStatsA(s); }
-          else { setStreamingB(false); setStatsB(s); }
+          if (slot === "a") { setStreamingA(false); setPhaseA("done"); setStatsA(s); }
+          else { setStreamingB(false); setPhaseB("done"); setStatsB(s); }
         } else if (event === "cancelled") {
-          if (slot === "a") setStreamingA(false);
-          else setStreamingB(false);
+          if (slot === "a") { setStreamingA(false); setPhaseA("idle"); }
+          else { setStreamingB(false); setPhaseB("idle"); }
+        } else if (event === "error") {
+          if (slot === "a") { setStreamingA(false); setPhaseA("idle"); }
+          else { setStreamingB(false); setPhaseB("idle"); }
+          setError(`Model ${slot?.toUpperCase() ?? "?"}: ${(data.message as string) || "error"}`);
         } else if (event === "complete") setPhase("done");
       });
       setPhase("done"); setStreamingA(false); setStreamingB(false);
@@ -277,7 +295,14 @@ export default function ArenaPage() {
                         <span className="text-sm font-medium text-zinc-300">
                           {revealed && modelName ? modelName : `Model ${slot.toUpperCase()}`}
                         </span>
-                        {streaming && <span className="ml-2 text-[10px] text-indigo-400">generating…</span>}
+                        {streaming && (() => {
+                          const ph = slot === "a" ? phaseA : phaseB;
+                          const label =
+                            ph === "loading" ? "loading weights…"
+                            : ph === "generating" ? "generating…"
+                            : "starting…";
+                          return <span className="ml-2 text-[10px] text-indigo-400">{label}</span>;
+                        })()}
                         {phase === "streaming" && !streaming && !response && (
                           <span className="ml-2 text-[10px] text-zinc-500">waiting…</span>
                         )}
