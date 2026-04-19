@@ -276,7 +276,9 @@ async def run_batch(
             return
         name_a, name_b, disp_a, disp_b = pair
         prompt = random.choice(prompts) if prompts else random.choice(DEFAULT_PROMPTS)
-        job.last_message = f"{disp_a} vs {disp_b}"
+        # Anonymized — model names stay hidden until the user votes to preserve
+        # the blind A/B property of the review queue.
+        job.last_message = f"battle {job.completed + job.skipped + 1} of {job.target}"
         resp_a, resp_b, ok = await _run_one(
             base_url, api_key, name_a, name_b, disp_a, disp_b, prompt,
             max_tokens, max_wall_s,
@@ -292,7 +294,9 @@ async def run_batch(
                 verdict, reasoning = await judge_pair(
                     base_url, api_key, judge_model_id, prompt, resp_a, resp_b,
                 )
-                job.last_message = f"{disp_a} vs {disp_b}  judge={verdict}"
+                # Anonymized: include the verdict but not the model names so
+                # the review queue stays blind.
+                job.last_message = f"battle {job.completed + job.skipped + 1} · judge={verdict}"
             except Exception as e:
                 log.warning("autobattle judge failed: %s", e)
                 verdict = None
