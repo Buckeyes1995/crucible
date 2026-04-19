@@ -27,6 +27,7 @@ from routers import (
     chat_templates,
     cost,
     cron,
+    disk,
     dashboard,
     dflash,
     dflash_bench,
@@ -250,6 +251,7 @@ app.include_router(optimizer.router, prefix="/api")
 app.include_router(outputs.router, prefix="/api")
 app.include_router(mem_plan.router, prefix="/api")
 app.include_router(telemetry_router.router, prefix="/api")
+app.include_router(disk.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")

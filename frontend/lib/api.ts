@@ -405,6 +405,23 @@ export const api = {
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
+  disk: {
+    summary: () => get<{
+      now: string;
+      total_bytes_used_by_models: number;
+      by_kind: Record<string, number>;
+      volume: { path: string; total_bytes: number; used_bytes: number; free_bytes: number } | null;
+      models: {
+        id: string; name: string; kind: string; path: string;
+        size_bytes: number; last_loaded: string | null;
+        days_since_loaded: number | null; never_loaded: boolean;
+      }[];
+    }>("/disk/summary"),
+    reclaim: (model_ids: string[]) =>
+      post<{ results: { id: string; ok: boolean; reason?: string; bytes_freed?: number }[]; bytes_freed_total: number }>(
+        "/disk/reclaim", { model_ids },
+      ),
+  },
   memPlan: {
     plan: (model_ids: string[]) =>
       post<{
