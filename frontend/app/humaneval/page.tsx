@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useStatusStore } from "@/lib/stores/status";
 import { cn } from "@/lib/utils";
 import { Play, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { api } from "@/lib/api";
 
 const BASE = "/api";
 
@@ -49,8 +50,14 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function HumanEvalPage() {
   const { status } = useStatusStore();
-  const [temperature, setTemperature] = useState(0.0);
-  const [maxTokens, setMaxTokens] = useState(1024);
+  // Temperature defaults to the active model's param (merged global + model
+  // overrides) rather than a hardcoded 0.0 — the code-skill prefers 0.0 but
+  // plenty of other models want 0.2-0.7. Falls back to 0.2 if no default is
+  // set (a common conservative HumanEval default).
+  const [temperature, setTemperature] = useState<number>(0.2);
+  // 2048 is a safer HumanEval ceiling — 1024 occasionally truncated helper-
+  // function answers and silently scored them as fails.
+  const [maxTokens, setMaxTokens] = useState(2048);
   const [running, setRunning] = useState(false);
   const [liveResults, setLiveResults] = useState<LiveResult[]>([]);
   const [summary, setSummary] = useState<RunSummary | null>(null);
@@ -68,6 +75,23 @@ export default function HumanEvalPage() {
   }, []);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  // Pull merged (global + model-specific) temperature default so the UI starts
+  // at something sensible for whichever model is loaded instead of 0.0.
+  useEffect(() => {
+    const id = status?.active_model_id;
+    if (!id) return;
+    Promise.all([
+      api.params.getDefaults().catch(() => ({} as Record<string, unknown>)),
+      api.models.getParams(id).catch(() => ({} as Record<string, unknown>)),
+    ]).then(([defaults, modelParams]) => {
+      const merged = {
+        ...defaults,
+        ...Object.fromEntries(Object.entries(modelParams).filter(([, v]) => v != null)),
+      };
+      if (typeof merged.temperature === "number") setTemperature(merged.temperature);
+    });
+  }, [status?.active_model_id]);
 
   const runAll = async () => {
     setRunning(true);
