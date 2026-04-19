@@ -10,16 +10,26 @@ import { cn } from "@/lib/utils";
 // Tiny button that parses code fences out of a model's response and saves each
 // to disk under ~/.config/crucible/outputs/{source}/{runId}/. Designed to drop
 // into arena / diff / chat panels without extra plumbing.
+// Sanitize a free-form label (e.g. model name) into a filesystem-safe folder
+// segment. Backend enforces the same rules; this just makes the request
+// succeed on the first try.
+function sanitizeSegment(s: string): string {
+  return s.replace(/[^A-Za-z0-9._\- ]/g, "_").slice(0, 128).replace(/^\.+/, "");
+}
+
 export function SaveCodeButton({
   text,
   source,
   runId,
+  subdir,
   filenamePrefix,
   className,
 }: {
   text: string;
   source: "arena" | "diff" | "chat";
   runId: string;
+  /** Optional per-model folder label. Sanitized to a safe segment here. */
+  subdir?: string;
   filenamePrefix: string;
   className?: string;
 }) {
@@ -29,12 +39,20 @@ export function SaveCodeButton({
   const blocks: CodeBlock[] = extractCodeBlocks(text, filenamePrefix);
   if (blocks.length === 0) return null;
 
+  const cleanSubdir = subdir ? sanitizeSegment(subdir) : undefined;
+
   const onSave = async () => {
     setSaving(true);
     try {
       const results = await Promise.all(
         blocks.map((b) =>
-          api.output.save({ source, run_id: runId, filename: b.filename, content: b.content }),
+          api.output.save({
+            source,
+            run_id: runId,
+            subdir: cleanSubdir,
+            filename: b.filename,
+            content: b.content,
+          }),
         ),
       );
       const dir = results[0]?.path.split("/").slice(0, -1).join("/") ?? "";
@@ -52,6 +70,8 @@ export function SaveCodeButton({
 
   const onReveal = async () => {
     try {
+      // Reveal the RUN dir, not the per-model subdir — lets the user compare
+      // multiple models' output side-by-side in Finder.
       await api.output.reveal({ source, run_id: runId });
     } catch (e) {
       toast(`Reveal failed: ${(e as Error).message}`, "error");

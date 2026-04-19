@@ -283,7 +283,8 @@ export default function ArenaPage() {
                           text={response}
                           source="arena"
                           runId={battleId}
-                          filenamePrefix={`model-${slot}`}
+                          subdir={`model-${slot}`}
+                          filenamePrefix="code"
                         />
                       )}
                     </div>

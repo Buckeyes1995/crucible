@@ -476,7 +476,8 @@ export default function DiffPage() {
                       text={r.text}
                       source="diff"
                       runId={runId}
-                      filenamePrefix={`model-${i + 1}`}
+                      subdir={name}
+                      filenamePrefix="code"
                     />
                   )}
                   {r?.text && (

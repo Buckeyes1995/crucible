@@ -19,15 +19,22 @@ OUTPUT_ROOT = Path.home() / ".config" / "crucible" / "outputs"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\- ]+$")
 
 
-def _sandbox(source: str, run_id: str, filename: str) -> Path:
+def _validate_segment(name: str, label: str) -> None:
+    if not name or "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(400, f"invalid {label}")
+    if name.startswith("."):
+        raise HTTPException(400, f"{label} cannot start with .")
+
+
+def _sandbox(source: str, run_id: str, filename: str, subdir: str | None = None) -> Path:
     """Resolve + validate the final target path. Rejects traversal attempts."""
     source = source.strip().lower()
     if source not in {"arena", "diff", "chat"}:
         raise HTTPException(400, f"source must be arena/diff/chat, got {source!r}")
 
-    # run_id: hex / uuid / short slug only — no path separators or dots
-    if not run_id or "/" in run_id or "\\" in run_id or ".." in run_id:
-        raise HTTPException(400, "invalid run_id")
+    _validate_segment(run_id, "run_id")
+    if subdir:
+        _validate_segment(subdir, "subdir")
 
     if not filename or not _SAFE_NAME.match(filename):
         raise HTTPException(400, f"invalid filename {filename!r}")
@@ -35,6 +42,8 @@ def _sandbox(source: str, run_id: str, filename: str) -> Path:
         raise HTTPException(400, "filename cannot start with . or be . / ..")
 
     base = OUTPUT_ROOT / source / run_id
+    if subdir:
+        base = base / subdir
     target = (base / filename).resolve()
     base_resolved = base.resolve()
     # Final check that target stays under base even after resolve() normalization
@@ -46,13 +55,16 @@ def _sandbox(source: str, run_id: str, filename: str) -> Path:
 class SaveRequest(BaseModel):
     source: Literal["arena", "diff", "chat"]
     run_id: str = Field(min_length=1, max_length=64)
+    # Optional per-model folder. For diff, callers pass the (sanitized) model
+    # name so multi-model runs land in separate dirs.
+    subdir: str | None = Field(default=None, max_length=128)
     filename: str = Field(min_length=1, max_length=128)
     content: str
 
 
 @router.post("/output/save")
 async def save_output(body: SaveRequest) -> dict:
-    target = _sandbox(body.source, body.run_id, body.filename)
+    target = _sandbox(body.source, body.run_id, body.filename, body.subdir)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(body.content, encoding="utf-8")
     return {

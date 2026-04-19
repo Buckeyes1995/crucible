@@ -405,7 +405,7 @@ export const api = {
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
   output: {
-    save: (body: { source: "arena" | "diff" | "chat"; run_id: string; filename: string; content: string }) =>
+    save: (body: { source: "arena" | "diff" | "chat"; run_id: string; subdir?: string; filename: string; content: string }) =>
       post<{ status: string; path: string; bytes: number }>("/output/save", body),
     reveal: (body: { source: "arena" | "diff" | "chat"; run_id: string }) =>
       post<{ status: string; path: string }>("/output/reveal", body),
