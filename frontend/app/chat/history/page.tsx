@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, Download, MessageSquare, ArrowLeft } from "lucide-react";
+import { Search, Trash2, Download, MessageSquare, Play } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useChatStore } from "@/lib/stores/chat";
 
 const BASE = "/api";
 
@@ -18,6 +20,8 @@ export default function ChatHistoryPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const resumeSession = useChatStore((s) => s.resumeSession);
 
   const fetchSessions = (q?: string) => {
     const url = q ? `${BASE}/chat/sessions?q=${encodeURIComponent(q)}` : `${BASE}/chat/sessions`;
@@ -88,6 +92,15 @@ export default function ChatHistoryPage() {
                 {sessions.find((s) => s.id === selected)?.title}
               </span>
               <div className="flex gap-1">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={async () => { await resumeSession(selected); router.push("/chat"); }}
+                  title="Load this conversation into the chat view so you can continue it"
+                >
+                  <Play className="w-3.5 h-3.5" /> Resume
+                </Button>
                 <Button variant="ghost" className="px-2 text-xs" onClick={() => exportMarkdown(selected)} title="Copy as markdown">
                   <Download className="w-3.5 h-3.5" />
                 </Button>

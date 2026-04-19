@@ -24,6 +24,9 @@ type ChatState = {
   sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
   clearMessages: () => void;
   resetStreaming: () => void;
+  /** Load a previously-persisted conversation so the user can continue it. New
+   *  turns sent after this will append to the same DB session. */
+  resumeSession: (id: string) => Promise<void>;
 };
 
 // Fire-and-forget persistence helper. We POST to the chat-history router after
@@ -134,4 +137,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearMessages: () => set({ messages: [], stats: null, error: null, sessionId: null }),
 
   resetStreaming: () => set({ streaming: false, error: null }),
+
+  resumeSession: async (id: string) => {
+    try {
+      const resp = await fetch(`/api/chat/sessions/${id}`);
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const data = await resp.json();
+      const msgs: ChatMsg[] = (data.messages ?? [])
+        .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
+        .map((m: { role: string; content: string }) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      set({ messages: msgs, sessionId: id, stats: null, error: null, streaming: false });
+    } catch (e) {
+      set({ error: `Failed to load session: ${(e as Error).message}` });
+    }
+  },
 }));
