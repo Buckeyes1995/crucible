@@ -734,7 +734,7 @@ export default function Benchmark2Page() {
                         "rounded-xl border p-4 transition-all",
                         summary.done ? "border-white/10 bg-zinc-900/50"
                                      : isCurrent
-                                       ? "border-indigo-500/50 bg-indigo-950/20 glow-indigo"
+                                       ? "border-emerald-500/50 bg-emerald-950/20 glow-emerald"
                                        : "border-indigo-500/20 bg-indigo-950/10",
                       )}>
                         <div className="flex items-start justify-between gap-2 mb-3">
