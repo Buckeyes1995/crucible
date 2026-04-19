@@ -29,6 +29,7 @@ from routers import (
     cost,
     cron,
     disk,
+    ensemble,
     dashboard,
     dflash,
     dflash_bench,
@@ -264,6 +265,7 @@ app.include_router(outputs.router, prefix="/api")
 app.include_router(mem_plan.router, prefix="/api")
 app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
+app.include_router(ensemble.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
