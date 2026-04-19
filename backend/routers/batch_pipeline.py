@@ -75,6 +75,16 @@ def _persist(job: BatchJob) -> None:
         log.warning("batch persist failed: %s", e)
 
 
+def _resolve_omlx_name(model_id: str, registry) -> str:
+    """Strip the backend prefix and return the directory/name that oMLX's
+    /v1/chat/completions expects. Mirrors what arena does via Path(m.path).name."""
+    m = registry.get(model_id) if registry else None
+    if m and getattr(m, "path", None):
+        return Path(m.path).name
+    # Fallback: drop the first `prefix:` segment
+    return model_id.split(":", 1)[-1] if ":" in model_id else model_id
+
+
 async def _run_prompt(
     client: httpx.AsyncClient, base_url: str, api_key: str,
     model: str, prompt: str, temperature: float, max_tokens: int,
@@ -124,7 +134,7 @@ async def _run_prompt(
                         elapsed_s=round(time.monotonic() - t0, 2))
 
 
-async def _run_job(job: BatchJob, base_url: str, api_key: str) -> None:
+async def _run_job(job: BatchJob, base_url: str, api_key: str, omlx_name: str) -> None:
     job.status = "running"
     _persist(job)
     async with httpx.AsyncClient() as client:
@@ -136,7 +146,7 @@ async def _run_job(job: BatchJob, base_url: str, api_key: str) -> None:
                 return
             row_in = job.rows[job.cursor]
             result = await _run_prompt(
-                client, base_url, api_key, job.model_id,
+                client, base_url, api_key, omlx_name,
                 row_in.prompt, job.temperature, job.max_tokens,
             )
             result.idx = row_in.idx
@@ -162,6 +172,8 @@ async def start(body: StartRequest, request: Request) -> dict:
     cfg = request.app.state.config
     base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
     api_key = cfg.omlx_api_key
+    registry = request.app.state.registry
+    omlx_name = _resolve_omlx_name(body.model_id, registry)
     job = BatchJob(
         id=uuid.uuid4().hex[:12],
         model_id=body.model_id,
@@ -170,7 +182,7 @@ async def start(body: StartRequest, request: Request) -> dict:
         max_tokens=body.max_tokens,
     )
     _jobs[job.id] = job
-    asyncio.create_task(_run_job(job, base_url, api_key))
+    asyncio.create_task(_run_job(job, base_url, api_key, omlx_name))
     return {"job_id": job.id, "total": len(body.prompts)}
 
 
