@@ -93,11 +93,6 @@ export default function Benchmark2Page() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [currentActivity, setCurrentActivity] = useState<{ modelId: string; promptId?: string; rep?: number } | null>(null);
-  // Force-re-render tick counter. Everything time-dependent below reads
-  // Date.now() directly at render time — no chance of stale closures. The
-  // tick is only here to guarantee React re-runs the render function while
-  // a run is live.
-  const [tick, setTick] = useState(0);
 
   // History
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -108,14 +103,6 @@ export default function Benchmark2Page() {
   // Init
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  // Force re-render every 500ms while a run is in flight so elapsedMs
-  // (derived from Date.now() below) stays current. Gates on startedAt so it
-  // doesn't burn cycles when idle.
-  useEffect(() => {
-    if (!startedAt || finishedAt) return;
-    const id = setInterval(() => setTick(t => t + 1), 500);
-    return () => clearInterval(id);
-  }, [startedAt, finishedAt]);
   useEffect(() => {
     api.benchmark.prompts().then(setAllPrompts).catch(() => {});
     api.benchmark.presets().then(setPresets).catch(() => {});
@@ -200,7 +187,6 @@ export default function Benchmark2Page() {
     setStartedAt(Date.now());
     setFinishedAt(null);
     setCurrentActivity(null);
-    setTick(0);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -321,17 +307,8 @@ export default function Benchmark2Page() {
     setCurrentActivity(null);
   };
 
-  // Derived stats for the live dashboard. Cheap to recompute each render.
-  // Reads Date.now() fresh on every render — the tick state above guarantees
-  // re-renders while a run is live. Reference `tick` so React doesn't strip
-  // the subscription when optimizing.
-  void tick;
-  const elapsedMs = startedAt ? (finishedAt ?? Date.now()) - startedAt : 0;
-  const etaMs = (() => {
-    if (phase !== "running" || completedSteps === 0 || totalSteps === 0) return null;
-    const perStep = elapsedMs / completedSteps;
-    return Math.max(0, perStep * (totalSteps - completedSteps));
-  })();
+  // The live clock lives inside ElapsedClock / EtaClock so the interval-driven
+  // renders don't wait on the parent's heavy SSE update pipeline.
   const bestTps = useMemo(
     () => liveResults.reduce<number | null>((acc, r) => r.tps != null && (acc == null || r.tps > acc) ? r.tps : acc, null),
     [liveResults],
@@ -702,8 +679,8 @@ export default function Benchmark2Page() {
           <div className="flex flex-col min-h-0 flex-1">
             <LiveStatsBar
               phase={phase}
-              elapsedMs={elapsedMs}
-              etaMs={etaMs}
+              startedAt={startedAt}
+              finishedAt={finishedAt}
               completedSteps={completedSteps}
               totalSteps={totalSteps}
               bestTps={bestTps}
@@ -784,13 +761,39 @@ function formatDuration(ms: number): string {
   return m > 0 ? `${m}m ${r.toString().padStart(2, "0")}s` : `${r}s`;
 }
 
+// Owns its own setInterval and renders the formatted clock. Isolated so the
+// heavy SSE update loop on the parent doesn't starve the 500ms tick.
+function LiveClock({ startedAt, finishedAt, completedSteps, totalSteps, showEta, phase }: {
+  startedAt: number | null;
+  finishedAt: number | null;
+  completedSteps: number;
+  totalSteps: number;
+  showEta: boolean;
+  phase: "running" | "done" | "idle" | "loading-model";
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt || finishedAt) return;
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [startedAt, finishedAt]);
+
+  const elapsedMs = startedAt ? (finishedAt ?? now) - startedAt : 0;
+  if (!showEta) return <>{formatDuration(elapsedMs)}</>;
+  if (phase === "done") return <>—</>;
+  if (completedSteps === 0 || totalSteps === 0) return <>calc…</>;
+  const perStep = elapsedMs / completedSteps;
+  const eta = Math.max(0, perStep * (totalSteps - completedSteps));
+  return <>{formatDuration(eta)}</>;
+}
+
 function LiveStatsBar({
-  phase, elapsedMs, etaMs, completedSteps, totalSteps,
+  phase, startedAt, finishedAt, completedSteps, totalSteps,
   bestTps, avgTps, currentModelLabel, currentActivity,
 }: {
   phase: "running" | "done" | "idle" | "loading-model";
-  elapsedMs: number;
-  etaMs: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
   completedSteps: number;
   totalSteps: number;
   bestTps: number | null;
@@ -805,7 +808,7 @@ function LiveStatsBar({
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-6 py-3">
         <StatTile
           label={running ? "Elapsed" : "Total time"}
-          value={formatDuration(elapsedMs)}
+          value={<LiveClock startedAt={startedAt} finishedAt={finishedAt} completedSteps={completedSteps} totalSteps={totalSteps} showEta={false} phase={phase} />}
           icon={<Timer className="w-3.5 h-3.5" />}
           pulse={running}
         />
@@ -817,7 +820,7 @@ function LiveStatsBar({
         />
         <StatTile
           label="ETA"
-          value={etaMs != null ? formatDuration(etaMs) : phase === "done" ? "—" : "calc…"}
+          value={<LiveClock startedAt={startedAt} finishedAt={finishedAt} completedSteps={completedSteps} totalSteps={totalSteps} showEta phase={phase} />}
           icon={<Clock className="w-3.5 h-3.5" />}
         />
         <StatTile
@@ -868,7 +871,7 @@ function StatTile({
   label, value, icon, highlight, pulse,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   icon?: React.ReactNode;
   highlight?: boolean;
   pulse?: boolean;
