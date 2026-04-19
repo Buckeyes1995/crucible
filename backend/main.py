@@ -18,6 +18,7 @@ from routers import (
     backup,
     badges,
     batch_inference,
+    batch_pipeline,
     bench_presets,
     bench_scheduler,
     benchmark,
@@ -267,6 +268,7 @@ app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
 app.include_router(recommender_v2.router, prefix="/api")
+app.include_router(batch_pipeline.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
