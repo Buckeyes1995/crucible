@@ -12,21 +12,30 @@ import { toast } from "@/components/Toast";
 import { SaveCodeButton } from "@/components/SaveCodeButton";
 
 type Phase = "idle" | "ready" | "streaming" | "done" | "voted";
+type SlotPhase = "idle" | "loading" | "generating" | "done";
+type SlotStats = { tps: number | null; ttft_ms: number | null; load_ms?: number | null };
 
 export default function ArenaPage() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [battleId, setBattleId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [responseA, setResponseA] = useState("");
-  const [responseB, setResponseB] = useState("");
-  const [streamingA, setStreamingA] = useState(false);
-  const [streamingB, setStreamingB] = useState(false);
-  // Track the per-slot phase so we can show 'loading weights…' during oMLX
-  // cold-load gaps between slots, rather than the misleading 'generating…'.
-  const [phaseA, setPhaseA] = useState<"idle" | "loading" | "generating" | "done">("idle");
-  const [phaseB, setPhaseB] = useState<"idle" | "loading" | "generating" | "done">("idle");
-  const [statsA, setStatsA] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
-  const [statsB, setStatsB] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
+  const [slotCount, setSlotCount] = useState(2);
+  // slot ids (canonical from backend): "model_a", "model_b", "slot_2", "slot_3"
+  const [slotIds, setSlotIds] = useState<string[]>(["model_a", "model_b"]);
+  const [responses, setResponses] = useState<Record<string, string>>({});
+  const [stats, setStats] = useState<Record<string, SlotStats>>({});
+  const [slotPhases, setSlotPhases] = useState<Record<string, SlotPhase>>({});
+  const slotRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Back-compat aliases so nothing below has to be rewritten.
+  const responseA = responses["model_a"] ?? "";
+  const responseB = responses["model_b"] ?? "";
+  const statsA = stats["model_a"] ?? { tps: null, ttft_ms: null };
+  const statsB = stats["model_b"] ?? { tps: null, ttft_ms: null };
+  const phaseA = slotPhases["model_a"] ?? "idle";
+  const phaseB = slotPhases["model_b"] ?? "idle";
+  const streamingA = phaseA === "loading" || phaseA === "generating";
+  const streamingB = phaseB === "loading" || phaseB === "generating";
   const [voteResult, setVoteResult] = useState<ArenaVoteResult | null>(null);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -49,19 +58,32 @@ export default function ArenaPage() {
   const [error, setError] = useState<string | null>(null);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(4096);
-  const aRef = useRef<HTMLDivElement>(null);
-  const bRef = useRef<HTMLDivElement>(null);
+  // "uniform"  = fair: thinking disabled, baseline sampling on both slots
+  // "per_model" = each model runs with its own saved params (realistic)
+  const [normMode, setNormMode] = useState<"uniform" | "per_model">("uniform");
+  // Back-compat aliases for legacy refs used deeper in the file.
+  const aRef = { current: slotRefs.current["model_a"] ?? null } as React.MutableRefObject<HTMLDivElement | null>;
+  const bRef = { current: slotRefs.current["model_b"] ?? null } as React.MutableRefObject<HTMLDivElement | null>;
+  void aRef; void bRef;
   const abortRef = useRef<AbortController | null>(null);
 
+  function resetBattleState(ids: string[]) {
+    setSlotIds(ids);
+    setResponses(Object.fromEntries(ids.map(id => [id, ""])));
+    setStats(Object.fromEntries(ids.map(id => [id, { tps: null, ttft_ms: null, load_ms: null }])));
+    setSlotPhases(Object.fromEntries(ids.map(id => [id, "idle" as SlotPhase])));
+  }
+
   async function startBattle() {
-    setError(null); setResponseA(""); setResponseB("");
-    setStatsA({ tps: null, ttft_ms: null }); setStatsB({ tps: null, ttft_ms: null });
+    setError(null);
     setVoteResult(null); setPrompt("");
     try {
-      const result = await api.arena.startBattle();
+      const result = await api.arena.startBattle(slotCount);
       setBattleId(result.battle_id);
+      const ids = result.slots?.map(s => s.slot_id) ?? ["model_a", "model_b"];
+      resetBattleState(ids);
       setPhase("ready");
-      toast("Battle ready — two models are waiting", "info");
+      toast(`Battle ready — ${ids.length} models waiting`, "info");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start battle");
       toast("Failed to start battle", "error");
@@ -70,61 +92,54 @@ export default function ArenaPage() {
 
   async function sendPrompt() {
     if (!battleId || !prompt.trim()) return;
-    // Backend generates A fully before B (two MLX models share one oMLX slot).
-    // Start with only A marked streaming; B flips to streaming when A's done.
-    setPhase("streaming"); setStreamingA(true); setStreamingB(false);
-    setPhaseA("loading"); setPhaseB("idle");
-    setResponseA(""); setResponseB("");
-    setStatsA({ tps: null, ttft_ms: null }); setStatsB({ tps: null, ttft_ms: null });
+    setPhase("streaming");
+    // Reset response + stats for all slots; first slot starts "loading"
+    setResponses(Object.fromEntries(slotIds.map(id => [id, ""])));
+    setStats(Object.fromEntries(slotIds.map(id => [id, { tps: null, ttft_ms: null, load_ms: null }])));
+    setSlotPhases(Object.fromEntries(slotIds.map((id, i) => [id, i === 0 ? "loading" : "idle"])));
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const resp = await api.arena.chat(
         battleId,
-        { prompt: prompt.trim(), temperature, max_tokens: maxTokens },
+        { prompt: prompt.trim(), temperature, max_tokens: maxTokens, norm_mode: normMode },
         controller.signal,
       );
       await readSSE(resp, (data) => {
         const slot = data.slot as string;
         const event = data.event as string;
+        if (!slot && event !== "complete") return;
         if (event === "slot_start") {
-          // New slot starting — we don't know yet whether weights need to
-          // load; mark phase as 'loading' until the first token or heartbeat
-          // proves otherwise.
-          if (slot === "a") { setStreamingA(true); setStreamingB(false); setPhaseA("loading"); }
-          else { setStreamingA(false); setStreamingB(true); setPhaseB("loading"); }
+          setSlotPhases(prev => ({ ...prev, [slot]: "loading" }));
         } else if (event === "heartbeat") {
-          // Backend reports whether we're in the 'loading' or 'generating'
-          // phase so UI can show honest status during long silences.
-          const ph = (data.phase as string) === "generating" ? "generating" : "loading";
-          if (slot === "a") setPhaseA(ph);
-          else setPhaseB(ph);
+          const ph: SlotPhase = (data.phase as string) === "generating" ? "generating" : "loading";
+          setSlotPhases(prev => ({ ...prev, [slot]: ph }));
         } else if (event === "token") {
           const token = data.token as string;
-          if (slot === "a") { setResponseA((p) => p + token); setPhaseA("generating"); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
-          else { setResponseB((p) => p + token); setPhaseB("generating"); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
+          setResponses(prev => ({ ...prev, [slot]: (prev[slot] ?? "") + token }));
+          setSlotPhases(prev => ({ ...prev, [slot]: "generating" }));
+          const el = slotRefs.current[slot];
+          el?.scrollTo(0, el.scrollHeight);
         } else if (event === "done") {
-          const s = {
+          setStats(prev => ({ ...prev, [slot]: {
             tps: data.tps as number | null,
             ttft_ms: data.ttft_ms as number | null,
             load_ms: (data.load_ms as number | null) ?? null,
-          };
-          if (slot === "a") { setStreamingA(false); setPhaseA("done"); setStatsA(s); }
-          else { setStreamingB(false); setPhaseB("done"); setStatsB(s); }
+          }}));
+          setSlotPhases(prev => ({ ...prev, [slot]: "done" }));
         } else if (event === "cancelled") {
-          if (slot === "a") { setStreamingA(false); setPhaseA("idle"); }
-          else { setStreamingB(false); setPhaseB("idle"); }
+          setSlotPhases(prev => ({ ...prev, [slot]: "idle" }));
         } else if (event === "error") {
-          if (slot === "a") { setStreamingA(false); setPhaseA("idle"); }
-          else { setStreamingB(false); setPhaseB("idle"); }
-          setError(`Model ${slot?.toUpperCase() ?? "?"}: ${(data.message as string) || "error"}`);
-        } else if (event === "complete") setPhase("done");
+          setSlotPhases(prev => ({ ...prev, [slot]: "idle" }));
+          setError(`${slot}: ${(data.message as string) || "error"}`);
+        } else if (event === "complete") {
+          setPhase("done");
+        }
       });
-      setPhase("done"); setStreamingA(false); setStreamingB(false);
+      setPhase("done");
     } catch (e) {
       const err = e as Error;
       const aborted = err.name === "AbortError" || controller.signal.aborted;
-      setStreamingA(false); setStreamingB(false);
       if (aborted) {
         setPhase("ready");
         toast("Battle cancelled", "info");
@@ -147,14 +162,16 @@ export default function ArenaPage() {
       const result = await api.arena.vote(battleId, winner);
       setVoteResult(result);
       setPhase("voted");
-      const winnerName = winner === "model_a" ? result.model_a : winner === "model_b" ? result.model_b : "Tie";
-      const deltaA = Math.round((result.elo_after.a - result.elo_before.a) * 10) / 10;
-      const deltaB = Math.round((result.elo_after.b - result.elo_before.b) * 10) / 10;
-      toast(
-        winner === "tie" ? `Tie! Both models ${deltaA >= 0 ? "+" : ""}${deltaA} ELO` :
-        `${winnerName} wins! (${deltaA >= 0 ? "+" : ""}${deltaA} / ${deltaB >= 0 ? "+" : ""}${deltaB} ELO)`,
-        "success"
-      );
+      if (winner === "tie") {
+        toast("Tie — ELO held steady on all slots", "success");
+      } else {
+        const ws = result.slots?.find(s => s.slot_id === winner);
+        const name = ws?.display
+          ?? (winner === "model_a" ? result.model_a : winner === "model_b" ? result.model_b : winner);
+        const d = ws ? Math.round((ws.elo_after - ws.elo_before) * 10) / 10 : null;
+        const prefix = d != null ? ` (${d >= 0 ? "+" : ""}${d} ELO)` : "";
+        toast(`${name} wins!${prefix}`, "success");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Vote failed");
       toast("Vote failed", "error");
@@ -247,6 +264,27 @@ export default function ArenaPage() {
               <input type="number" min="128" max="32768" step="512"
                 className="w-20 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
                 value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value) || 4096)} />
+              <select
+                value={normMode}
+                onChange={(e) => setNormMode(e.target.value as "uniform" | "per_model")}
+                title="uniform: fair (thinking off, baseline sampling on both) · per_model: each uses its own params"
+                className="ml-2 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400"
+              >
+                <option value="uniform">fair</option>
+                <option value="per_model">per-model</option>
+              </select>
+              <span className="ml-2">Slots</span>
+              <select
+                value={slotCount}
+                onChange={(e) => setSlotCount(parseInt(e.target.value))}
+                disabled={phase === "streaming"}
+                title="Number of models per battle — takes effect on the next New Battle."
+                className="bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-50"
+              >
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4</option>
+              </select>
             </div>
             {phase === "streaming" ? (
               <Button onClick={stopPrompt} variant="destructive" className="gap-1.5 self-end">
@@ -259,26 +297,50 @@ export default function ArenaPage() {
             )}
           </div>
 
-          {/* Response panels */}
-          <div className="flex-1 flex gap-0 min-h-0">
-            {(["a", "b"] as const).map((slot) => {
-              const response = slot === "a" ? responseA : responseB;
-              const streaming = slot === "a" ? streamingA : streamingB;
-              const stats = slot === "a" ? statsA : statsB;
-              const ref = slot === "a" ? aRef : bRef;
-              const isWinner = voteResult?.winner === `model_${slot}`;
+          {/* Response panels — N-slot grid (2: side-by-side, 3: row, 4: 2x2) */}
+          <div className={cn(
+            "flex-1 grid gap-0 min-h-0",
+            slotIds.length === 2 ? "grid-cols-2" :
+            slotIds.length === 3 ? "grid-cols-3" :
+            "grid-cols-2 grid-rows-2",
+          )}>
+            {slotIds.map((slot, i) => {
+              const response = responses[slot] ?? "";
+              const phaseX = slotPhases[slot] ?? "idle";
+              const streaming = phaseX === "loading" || phaseX === "generating";
+              const stx = stats[slot] ?? { tps: null, ttft_ms: null };
+              const isWinner = voteResult?.winner === slot;
               const isTie = voteResult?.winner === "tie";
               const revealed = phase === "voted" && voteResult;
-              const modelName = revealed ? (slot === "a" ? voteResult.model_a : voteResult.model_b) : null;
-              const eloBefore = revealed ? (slot === "a" ? voteResult.elo_before.a : voteResult.elo_before.b) : null;
-              const eloAfter = revealed ? (slot === "a" ? voteResult.elo_after.a : voteResult.elo_after.b) : null;
+              const resultSlot = voteResult?.slots?.find(s => s.slot_id === slot);
+              const modelName = revealed ? (
+                resultSlot?.display ?? (
+                  slot === "model_a" ? voteResult.model_a :
+                  slot === "model_b" ? voteResult.model_b : null
+                )
+              ) : null;
+              const eloBefore = revealed ? (
+                resultSlot?.elo_before ?? (
+                  slot === "model_a" ? voteResult.elo_before.a :
+                  slot === "model_b" ? voteResult.elo_before.b : null
+                )
+              ) : null;
+              const eloAfter = revealed ? (
+                resultSlot?.elo_after ?? (
+                  slot === "model_a" ? voteResult.elo_after.a :
+                  slot === "model_b" ? voteResult.elo_after.b : null
+                )
+              ) : null;
+              // Visible label: A/B/C/D
+              const letter = String.fromCharCode(65 + i);
 
               return (
                 <div key={slot} className={cn(
-                  "flex-1 flex flex-col border-white/[0.04] transition-colors duration-500",
-                  slot === "a" ? "border-r" : "",
+                  "flex flex-col border-white/[0.04] transition-colors duration-500 min-h-0",
+                  // Grid lines between slots
+                  i < slotIds.length - 1 && "border-r",
                   isWinner && "bg-indigo-950/10",
-                  isTie && "bg-amber-950/5"
+                  isTie && "bg-amber-950/5",
                 )}>
                   {/* Panel header */}
                   <div className="px-5 py-3 border-b border-white/[0.04] flex items-center justify-between">
@@ -287,19 +349,18 @@ export default function ArenaPage() {
                         "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold",
                         isWinner ? "bg-indigo-500/20 text-indigo-300" :
                         isTie ? "bg-amber-500/10 text-amber-300" :
-                        "bg-zinc-800/50 text-zinc-500"
+                        "bg-zinc-800/50 text-zinc-500",
                       )}>
-                        {slot.toUpperCase()}
+                        {letter}
                       </span>
                       <div>
                         <span className="text-sm font-medium text-zinc-300">
-                          {revealed && modelName ? modelName : `Model ${slot.toUpperCase()}`}
+                          {revealed && modelName ? modelName : `Model ${letter}`}
                         </span>
                         {streaming && (() => {
-                          const ph = slot === "a" ? phaseA : phaseB;
                           const label =
-                            ph === "loading" ? "loading weights…"
-                            : ph === "generating" ? "generating…"
+                            phaseX === "loading" ? "loading weights…"
+                            : phaseX === "generating" ? "generating…"
                             : "starting…";
                           return <span className="ml-2 text-[10px] text-indigo-400">{label}</span>;
                         })()}
@@ -310,19 +371,19 @@ export default function ArenaPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs font-mono text-zinc-600">
-                      {stats.load_ms != null && stats.load_ms > 100 && (
+                      {stx.load_ms != null && stx.load_ms > 100 && (
                         <span title="Cold model load time before inference — excluded from TTFT below">
-                          Load <span className="text-zinc-400">{(stats.load_ms / 1000).toFixed(1)}s</span>
+                          Load <span className="text-zinc-400">{(stx.load_ms / 1000).toFixed(1)}s</span>
                         </span>
                       )}
-                      {stats.ttft_ms != null && <span>TTFT <span className="text-zinc-400">{stats.ttft_ms}ms</span></span>}
-                      {stats.tps != null && <span className="text-indigo-400">{stats.tps} tok/s</span>}
+                      {stx.ttft_ms != null && <span>TTFT <span className="text-zinc-400">{stx.ttft_ms}ms</span></span>}
+                      {stx.tps != null && <span className="text-indigo-400">{stx.tps} tok/s</span>}
                       {!streaming && response && battleId && (
                         <SaveCodeButton
                           text={response}
                           source="arena"
                           runId={battleId}
-                          subdir={`model-${slot}`}
+                          subdir={slot}
                           filenamePrefix="code"
                         />
                       )}
@@ -333,11 +394,11 @@ export default function ArenaPage() {
                   {revealed && eloBefore != null && eloAfter != null && (
                     <div className={cn(
                       "px-5 py-2 border-b border-white/[0.04] flex items-center justify-between animate-fade-in",
-                      eloAfter > eloBefore ? "bg-emerald-950/20" : eloAfter < eloBefore ? "bg-red-950/20" : "bg-zinc-900/20"
+                      eloAfter > eloBefore ? "bg-emerald-950/20" : eloAfter < eloBefore ? "bg-red-950/20" : "bg-zinc-900/20",
                     )}>
                       <span className="text-xs text-zinc-400">ELO</span>
                       <span className={cn("text-sm font-mono font-semibold",
-                        eloAfter > eloBefore ? "text-emerald-400" : eloAfter < eloBefore ? "text-red-400" : "text-zinc-400"
+                        eloAfter > eloBefore ? "text-emerald-400" : eloAfter < eloBefore ? "text-red-400" : "text-zinc-400",
                       )}>
                         {Math.round(eloBefore)} → {Math.round(eloAfter)}
                         <span className="ml-1.5 text-xs">({eloDelta(eloBefore, eloAfter)})</span>
@@ -346,7 +407,10 @@ export default function ArenaPage() {
                   )}
 
                   {/* Response body */}
-                  <div ref={ref} className="flex-1 overflow-y-auto px-5 py-4 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                  <div
+                    ref={(el) => { slotRefs.current[slot] = el; }}
+                    className="flex-1 overflow-y-auto px-5 py-4 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap"
+                  >
                     {response || (
                       <span className="text-zinc-700 italic">{phase === "ready" ? "Waiting for prompt…" : ""}</span>
                     )}
@@ -360,15 +424,25 @@ export default function ArenaPage() {
           {/* Vote bar */}
           {phase === "done" && (
             <div className="px-6 py-4 border-t border-white/[0.04] bg-zinc-950/80 backdrop-blur-sm animate-fade-in">
-              <div className="flex items-center justify-center gap-3">
-                <Button onClick={() => vote("model_a")} variant="secondary" size="lg" className="gap-2 min-w-[160px]">
-                  <ChevronLeft className="w-4 h-4" /> A is Better
-                </Button>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                {slotIds.map((slot, i) => {
+                  const letter = String.fromCharCode(65 + i);
+                  return (
+                    <Button
+                      key={slot}
+                      onClick={() => vote(slot)}
+                      variant="secondary"
+                      size="lg"
+                      className="gap-2 min-w-[140px]"
+                    >
+                      {i === 0 && <ChevronLeft className="w-4 h-4" />}
+                      {letter} is Better
+                      {i === slotIds.length - 1 && <ChevronRight className="w-4 h-4" />}
+                    </Button>
+                  );
+                })}
                 <Button onClick={() => vote("tie")} variant="ghost" size="lg" className="gap-2 min-w-[100px]">
                   <Minus className="w-4 h-4" /> Tie
-                </Button>
-                <Button onClick={() => vote("model_b")} variant="secondary" size="lg" className="gap-2 min-w-[160px]">
-                  B is Better <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
             </div>

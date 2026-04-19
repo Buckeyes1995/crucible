@@ -24,17 +24,42 @@ START_ELO = 1500.0
 
 
 @dataclass
+class BattleSlot:
+    """One contender in a battle. For N=2 the first two slots are aliased
+    to BattleState.model_a / model_b so existing 2-slot code keeps working;
+    slots[2..] are persisted separately via extra_slots_json."""
+    name: str            # oMLX model name (dir basename)
+    display: str         # human-readable name
+    response: str = ""
+
+
+@dataclass
 class BattleState:
     id: str
-    model_a: str  # oMLX model name (dir name)
-    model_b: str
-    model_a_display: str  # human-readable name
+    model_a: str  # oMLX model name (dir name) — mirror of slots[0].name
+    model_b: str                              # mirror of slots[1].name
+    model_a_display: str
     model_b_display: str
     prompt: str = ""
-    response_a: str = ""
-    response_b: str = ""
-    winner: Optional[str] = None
+    response_a: str = ""                      # mirror of slots[0].response
+    response_b: str = ""                      # mirror of slots[1].response
+    winner: Optional[str] = None              # "model_a" | "model_b" | "slot_2"... | "tie"
+    norm_mode: str = "uniform"                # "uniform" | "per_model"
+    # Third+ slots for N>2 battles. Slot ids are "model_a", "model_b",
+    # "slot_2", "slot_3", ... so vote payload can reference any slot uniformly.
+    extra_slots: list[BattleSlot] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+
+    @property
+    def all_slots(self) -> list[BattleSlot]:
+        """Unified view for streaming / ELO / UI. Mutations to the first two
+        slots' responses go through here and are mirrored back to
+        response_a/b at the end of the stream."""
+        return [
+            BattleSlot(self.model_a, self.model_a_display, self.response_a),
+            BattleSlot(self.model_b, self.model_b_display, self.response_b),
+            *self.extra_slots,
+        ]
 
 
 # In-memory active battles
@@ -51,6 +76,14 @@ def _sweep_stale():
 
 def pick_models(registry: ModelRegistry) -> tuple[str, str, str, str]:
     """Pick 2 random MLX models. Returns (name_a, name_b, display_a, display_b)."""
+    slots = pick_models_n(registry, 2)
+    return slots[0].name, slots[1].name, slots[0].display, slots[1].display
+
+
+def pick_models_n(registry: ModelRegistry, n: int) -> list[BattleSlot]:
+    """Pick N random MLX models for an N-slot battle."""
+    if n < 2 or n > 4:
+        raise ValueError(f"n must be 2-4, got {n}")
     eligible = [
         m for m in registry.all()
         if m.kind == "mlx"
@@ -58,26 +91,28 @@ def pick_models(registry: ModelRegistry) -> tuple[str, str, str, str]:
         and not m.hidden
         and not m.name.endswith("-DFlash")
     ]
-    if len(eligible) < 2:
-        raise ValueError(f"Need at least 2 eligible MLX models, found {len(eligible)}")
-    a, b = random.sample(eligible, 2)
-    return (
-        Path(a.path).name if a.path else a.name,
-        Path(b.path).name if b.path else b.name,
-        a.name,
-        b.name,
-    )
+    if len(eligible) < n:
+        raise ValueError(f"Need at least {n} eligible MLX models, found {len(eligible)}")
+    picked = random.sample(eligible, n)
+    return [
+        BattleSlot(
+            name=Path(m.path).name if m.path else m.name,
+            display=m.name,
+        )
+        for m in picked
+    ]
 
 
-def create_battle(registry: ModelRegistry) -> BattleState:
+def create_battle(registry: ModelRegistry, n: int = 2) -> BattleState:
     _sweep_stale()
-    name_a, name_b, disp_a, disp_b = pick_models(registry)
+    slots = pick_models_n(registry, n)
     battle = BattleState(
         id=str(uuid.uuid4()),
-        model_a=name_a,
-        model_b=name_b,
-        model_a_display=disp_a,
-        model_b_display=disp_b,
+        model_a=slots[0].name,
+        model_b=slots[1].name,
+        model_a_display=slots[0].display,
+        model_b_display=slots[1].display,
+        extra_slots=slots[2:],
     )
     _active_battles[battle.id] = battle
     return battle
@@ -203,74 +238,135 @@ def compute_elo(elo_a: float, elo_b: float, outcome: str) -> tuple[float, float]
     return round(new_a, 1), round(new_b, 1)
 
 
+def slot_id_at(i: int) -> str:
+    return {0: "model_a", 1: "model_b"}.get(i, f"slot_{i}")
+
+
+def slot_index_from_id(slot_id: str) -> Optional[int]:
+    if slot_id == "model_a":
+        return 0
+    if slot_id == "model_b":
+        return 1
+    if slot_id.startswith("slot_"):
+        try:
+            return int(slot_id.split("_", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
 async def persist_vote(battle: BattleState) -> dict:
-    """Save battle result and update ELO. Returns elo_before/after."""
+    """Save battle result and update ELO. For N-slot battles, ELO updates
+    run as pairwise matches: winner beats each other slot. Ties split all
+    pairs equally.
+
+    Keeps the 2-slot arena_battles schema intact; slots >=2 are persisted
+    as JSON in extra_slots_json and joined in at leaderboard/review read time.
+    """
     now = datetime.now(timezone.utc).isoformat()
+    slots = battle.all_slots
+    n = len(slots)
+    slot_ids = [slot_id_at(i) for i in range(n)]
+    winner = battle.winner or "tie"
+    winner_idx = slot_index_from_id(winner) if winner != "tie" else None
 
     async with aiosqlite.connect(DB_PATH) as db:
-        # Get current ELO for both models
-        elo_a, elo_b = START_ELO, START_ELO
-        for model_id in (battle.model_a, battle.model_b):
+        # Seed ELO rows for any new participants.
+        for s in slots:
             await db.execute(
                 "INSERT OR IGNORE INTO arena_elo (model_id, elo) VALUES (?, ?)",
-                (model_id, START_ELO),
+                (s.name, START_ELO),
             )
         await db.commit()
 
-        async with db.execute("SELECT elo FROM arena_elo WHERE model_id = ?", (battle.model_a,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                elo_a = row[0]
-        async with db.execute("SELECT elo FROM arena_elo WHERE model_id = ?", (battle.model_b,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                elo_b = row[0]
+        # Snapshot current ELO per slot.
+        elos: list[float] = []
+        for s in slots:
+            async with db.execute(
+                "SELECT elo FROM arena_elo WHERE model_id = ?", (s.name,),
+            ) as cur:
+                row = await cur.fetchone()
+                elos.append(row[0] if row else START_ELO)
 
-        new_a, new_b = compute_elo(elo_a, elo_b, battle.winner)
+        # Pairwise ELO: each slot's delta is the sum over all other slots of
+        # its (winner|loser|tie) update against that opponent. Using pairwise
+        # sums keeps the 2-slot case identical to the old single-match math.
+        deltas = [0.0] * n
+        wins = [0] * n
+        losses = [0] * n
+        ties = [0] * n
+        for i in range(n):
+            for j in range(i + 1, n):
+                if winner == "tie" or winner_idx is None:
+                    outcome_ij = "tie"
+                    ties[i] += 1
+                    ties[j] += 1
+                elif winner_idx == i:
+                    outcome_ij = "model_a"  # i beats j
+                    wins[i] += 1
+                    losses[j] += 1
+                elif winner_idx == j:
+                    outcome_ij = "model_b"  # j beats i
+                    wins[j] += 1
+                    losses[i] += 1
+                else:
+                    # Neither i nor j is the winner — treat as a tie between
+                    # these two (both lost to someone else equally).
+                    outcome_ij = "tie"
+                    ties[i] += 1
+                    ties[j] += 1
+                new_i, new_j = compute_elo(elos[i], elos[j], outcome_ij)
+                deltas[i] += new_i - elos[i]
+                deltas[j] += new_j - elos[j]
 
-        # Insert battle record
+        new_elos = [round(elos[i] + deltas[i], 1) for i in range(n)]
+
+        # Insert battle record — keep columns a/b populated from slots[0/1].
+        extra_json = None
+        if n > 2:
+            extra_json = json.dumps([
+                {"slot_id": slot_ids[i], "name": slots[i].name,
+                 "display": slots[i].display, "response": slots[i].response,
+                 "elo_before": elos[i], "elo_after": new_elos[i]}
+                for i in range(2, n)
+            ])
         await db.execute(
             """INSERT INTO arena_battles
                (id, model_a, model_b, prompt, response_a, response_b, winner,
-                elo_before_a, elo_before_b, elo_after_a, elo_after_b, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (battle.id, battle.model_a, battle.model_b, battle.prompt,
-             battle.response_a, battle.response_b, battle.winner,
-             elo_a, elo_b, new_a, new_b, now),
+                elo_before_a, elo_before_b, elo_after_a, elo_after_b, created_at,
+                norm_mode, extra_slots_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (battle.id, slots[0].name, slots[1].name, battle.prompt,
+             slots[0].response, slots[1].response, battle.winner,
+             elos[0], elos[1], new_elos[0], new_elos[1], now,
+             battle.norm_mode, extra_json),
         )
 
-        # Update ELO for model A
-        win_a = 1 if battle.winner == "model_a" else 0
-        loss_a = 1 if battle.winner == "model_b" else 0
-        tie_a = 1 if battle.winner == "tie" else 0
-        await db.execute(
-            """UPDATE arena_elo SET elo = ?, wins = wins + ?, losses = losses + ?,
-               ties = ties + ?, battles = battles + 1, last_battle_at = ?
-               WHERE model_id = ?""",
-            (new_a, win_a, loss_a, tie_a, now, battle.model_a),
-        )
-
-        # Update ELO for model B
-        win_b = 1 if battle.winner == "model_b" else 0
-        loss_b = 1 if battle.winner == "model_a" else 0
-        await db.execute(
-            """UPDATE arena_elo SET elo = ?, wins = wins + ?, losses = losses + ?,
-               ties = ties + ?, battles = battles + 1, last_battle_at = ?
-               WHERE model_id = ?""",
-            (new_b, win_b, loss_b, tie_a, now, battle.model_b),
-        )
+        # Apply ELO updates.
+        for i in range(n):
+            await db.execute(
+                """UPDATE arena_elo SET elo = ?, wins = wins + ?, losses = losses + ?,
+                   ties = ties + ?, battles = battles + 1, last_battle_at = ?
+                   WHERE model_id = ?""",
+                (new_elos[i], wins[i], losses[i], ties[i], now, slots[i].name),
+            )
 
         await db.commit()
 
-    # Remove from active battles
     _active_battles.pop(battle.id, None)
 
     return {
-        "model_a": battle.model_a_display,
-        "model_b": battle.model_b_display,
         "winner": battle.winner,
-        "elo_before": {"a": elo_a, "b": elo_b},
-        "elo_after": {"a": new_a, "b": new_b},
+        "slots": [
+            {"slot_id": slot_ids[i], "display": slots[i].display,
+             "elo_before": elos[i], "elo_after": new_elos[i]}
+            for i in range(n)
+        ],
+        # Back-compat keys for 2-slot UIs.
+        "model_a": slots[0].display,
+        "model_b": slots[1].display,
+        "elo_before": {"a": elos[0], "b": elos[1]},
+        "elo_after": {"a": new_elos[0], "b": new_elos[1]},
     }
 
 

@@ -102,12 +102,18 @@ async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
-        # Migrate: add response_text if this is an existing DB without it
-        try:
-            await db.execute("ALTER TABLE benchmark_results ADD COLUMN response_text TEXT")
-            await db.commit()
-        except Exception:
-            pass  # column already exists
+        # Lightweight migrations — each wrapped in try/except so
+        # repeated boots on an already-migrated DB are no-ops.
+        for stmt in (
+            "ALTER TABLE benchmark_results ADD COLUMN response_text TEXT",
+            "ALTER TABLE arena_battles ADD COLUMN norm_mode TEXT DEFAULT 'per_model'",
+            "ALTER TABLE arena_battles ADD COLUMN extra_slots_json TEXT",
+        ):
+            try:
+                await db.execute(stmt)
+                await db.commit()
+            except Exception:
+                pass  # column already exists
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
