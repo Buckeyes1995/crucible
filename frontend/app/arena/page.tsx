@@ -44,7 +44,7 @@ export default function ArenaPage() {
   }, [showTemplates]);
   const [error, setError] = useState<string | null>(null);
   const [temperature, setTemperature] = useState(0.7);
-  const [maxTokens, setMaxTokens] = useState(1024);
+  const [maxTokens, setMaxTokens] = useState(4096);
   const aRef = useRef<HTMLDivElement>(null);
   const bRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -225,6 +225,10 @@ export default function ArenaPage() {
               <input type="number" step="0.1" min="0" max="2"
                 className="w-14 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
                 value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value) || 0.7)} />
+              <span className="ml-2">Max</span>
+              <input type="number" min="128" max="32768" step="512"
+                className="w-20 bg-zinc-900 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-400 font-mono"
+                value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value) || 4096)} />
             </div>
             {phase === "streaming" ? (
               <Button onClick={stopPrompt} variant="destructive" className="gap-1.5 self-end">

@@ -24,7 +24,7 @@ async def start_battle(request: Request) -> dict:
 class ChatRequest(BaseModel):
     prompt: str
     temperature: float = 0.7
-    max_tokens: int = 1024
+    max_tokens: int = 4096
 
 
 @router.post("/arena/battle/{battle_id}/chat")
