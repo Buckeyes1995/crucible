@@ -1,87 +1,146 @@
 # Crucible
 
-A local LLM management and benchmarking web app for Apple Silicon. Discover, load, chat with, and benchmark models across multiple inference backends — all from a clean web UI.
+**Local LLM management, benchmarking, and research workbench for Apple Silicon.** Discover and load models across multiple inference engines, chat with them, run structured evals, play them against each other in a blind arena, fine-tune from curated chat history, and keep it all in one web UI.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20Apple%20Silicon-silver?logo=apple)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+![Crucible screenshot placeholder](docs/screenshot.png)
 
 ---
 
-## Features
+## Table of contents
 
-- **Model Registry** — auto-discovers MLX, GGUF, vLLM, and Ollama models from configured directories
-- **Multi-Backend Inference** — pluggable adapter system supporting oMLX, MLX-LM, vLLM (vllm-metal), llama.cpp, Ollama, and any external OpenAI-compatible server
-- **Preferred Engine per Model** — MLX models can run on oMLX or MLX-LM; pick a default per model and override per-load
-- **Live Metrics** — real-time WebSocket dashboard: generation tok/s, prompt eval tok/s, TTFT, memory pressure, thermal state
-- **Benchmarking** — multi-model, multi-prompt benchmarks with TTFT, throughput, p50/p90/p99 percentiles, memory and thermal tracking
-- **HumanEval** — 164-problem Python code generation benchmark with sandboxed execution and failure classification
-- **Chat** — streaming chat with the active model, with per-request TTFT and tok/s stats
-- **HuggingFace Downloads** — search and download MLX or GGUF models with live SSE progress tracking and resume support
-- **Scheduled Switching** — time-based rules to auto-load models (e.g., big model at night, fast model during the day)
-- **Per-Model Parameters** — temperature, max_tokens, top_k, top_p, min_p, repetition penalty, context window, TTL — saved per model
-- **Model Notes & Tags** — attach notes and tags to models for organization
-- **DFlash Speculative Decoding** — per-model toggle for block diffusion speculative decoding (oMLX 0.3.5+), 3-4x faster generation for eligible Qwen3/3.5 models
-- **z-lab DFlash Tracker** — watches the `z-lab` HuggingFace org for published draft models and surfaces a "Draft available" pill on matching base models; one-click download into your MLX dir
-- **HF Upstream Update Watcher** — tracks the HF origin repo for each local model, periodically compares against `lastModified`, and shows a "New version" pill + Notifications entry when an upstream update is available
-- **Webhooks** — fire-and-forget HTTP callbacks on `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`
-- **Remote Nodes** — connect multiple Crucible instances into a cluster; discover, load, chat, and benchmark models on remote machines
-- **OpenAI-Compatible Proxy** — `/v1/chat/completions` endpoint for external tool integration (opencode, aider, etc.)
-- **LAN Serving** — bind to `0.0.0.0` with optional API key auth for network access
-- **Model Arena** — blind A/B testing with ELO ratings — two anonymous models compete, user picks the winner
-- **Smart Router** — auto model selection based on prompt analysis (code/math/reasoning) behind the OpenAI proxy
-- **Inference Profiler** — per-request performance breakdown: prefill vs decode, tok/s history, memory pressure
-- **Model Recommender** — library analysis with redundancy detection, usage insights, and optimization suggestions
-- **macOS Menu Bar** — companion app showing active model, memory pressure, and quick model switching
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Inference backends](#inference-backends)
+- [Pages](#pages)
+- [API](#api)
+- [Data & paths](#data--paths)
+- [Remote access](#remote-access)
+- [Architecture](#architecture)
+- [Development](#development)
+- [License](#license)
 
 ---
 
-## Stack
+## What it does
 
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 16, TypeScript, Tailwind CSS v4, shadcn/ui, Recharts, Zustand |
-| Backend | Python 3.13, FastAPI, uvicorn, aiosqlite |
-| HTTP client | httpx (async), aiohttp (webhooks) |
-| System metrics | psutil, macOS IOKit (thermal) |
-| Model downloads | huggingface_hub |
-| Menu bar | Python, rumps |
+### Model management
+
+- **Multi-backend inference** — plug-in adapters for **oMLX**, **mlx_lm.server**, **vLLM (metal)**, **llama.cpp**, **Ollama**, and any external OpenAI-compatible server.
+- **Model discovery** — auto-scans configured directories for MLX weights, GGUF files, and vLLM-format safetensors. Also pulls Ollama's local library via its HTTP API.
+- **Preferred engine per model** — MLX models can run on either `omlx` or `mlx_lm`; pick a default per model and override per load with `?engine=`.
+- **Chip-based model cards** — parsed identifiers (family / params / variant / quant) replace the old long truncated names; full ID shown as small mono footer.
+- **Loaded model pinned** — the active model has its own "Loaded" section above the Library grid with an emerald glow.
+- **Notes, tags, favorites, aliases** — per-model metadata stored in `model_notes.json`.
+- **Memory planner** (`/planner`) — pick N models, see "Fits — 8 GB headroom" or "Over by 15 GB" before you try to load them.
+- **Disk reclaim** (`/disk`) — per-model last-loaded age, bulk-select candidates idle for >N days, one-click reclaim.
+- **Warmth analyzer** — per-model load count + recency scoring for future pre-warm automation.
+
+### Chat
+
+- **Streaming chat** (`/chat`) with live TTFT and tok/s.
+- **Chat history** (`/chat/history`) — every turn persisted to SQLite. Resume a past conversation with one click; new turns append to the same session.
+- **Templates** — saved prompt templates with one-click paste into chat, arena, diff, visualizer.
+- **RAG** — upload a text or file as session context, chunks are retrieved per turn.
+- **Visualizer** (`/visualizer`) — per-token timing waterfall to spot pauses, draft-acceptance patterns, cold-load cost.
+
+### Benchmarking
+
+- **Live dashboard** (`/benchmark2`) — sticky top stat strip (elapsed / progress / ETA / best tok/s / avg tok/s), per-model compact cards with inline sparkline, multi-series tok/s chart.
+- **HumanEval** (`/humaneval`) — 164-problem Python benchmark with sandboxed execution, failure classification (infra vs legitimate), per-category scoring.
+- **Structured eval suite** — deterministic multi-category scorers (code / reasoning / factual / instruction-following) with pass rates.
+- **NIAH context test** — needle-in-haystack at configurable context lengths to find where a model starts hallucinating.
+- **DFlash Bench** (`/dflash`) — A/B speculative decoding with/without DFlash, fair warmup + measurement.
+- **Auto-benchmark on download** — every new MLX download gets a tiny 3-prompt bench automatically, stamped onto the model card.
+
+### Blind A/B arena
+
+- **Live arena** (`/arena`) — pick a prompt, two anonymous models answer, you vote, ELO updates.
+- **Sequential generation** — one model loads, generates, unloads; next model loads. Prevents oMLX from doubling memory pressure mid-battle.
+- **Heartbeat protocol** — SSE keeps the client alive during the cold-load gap between slots; panel shows `loading weights…` then `generating…`.
+- **Review queue** (`/arena/review`) — autobattle generates N battles overnight with no human present, stashes them pending. Rapid-vote with arrow keys the next morning.
+- **LLM-as-judge** — optional: pass a judge model to autobattle; each battle auto-votes with bias mitigations (slot randomization, length-neutral prompt).
+- **Leaderboard** (`/arena/leaderboard`) — cumulative ELO + win/loss/tie across all battles.
+
+### Code workflow
+
+- **Model diff** (`/diff`) — run N models on the same prompt side-by-side, pipe-able into a copy-as-markdown report.
+- **Save generated code** — after an arena battle or diff run, click **Save** on each panel. Fenced code blocks land at `~/.config/crucible/outputs/<source>/<run_id>/<model_name>/`; **Reveal** opens the directory in Finder for direct execution.
+- **Training-data curator** — scan chat history, filter by turn count / recency / code-presence, export as ShareGPT JSONL for the fine-tune pipeline.
+- **Fine-tune pipeline** — curator export → LoRA training scaffold with provenance tracking.
+
+### Agents & automation
+
+- **Agents** (`/agents`) — register remote agent sidecars (e.g. a hermes-agent docker container running on another machine) and control them from the Crucible UI: chat with streaming response, list cron jobs, pause/resume/restart container, view logs, prune orphans.
+- **Hermes chat panel** — full conversational interface with the agent; multi-turn session persistence, Stop button, auto-scroll, Enter-to-send.
+- **Scheduled switching** — time-based rules to auto-load models (big model at night, small model during the day). Rules can be gated to off-peak hours.
+- **HF upstream watcher** — polls HuggingFace `lastModified` for every local model with a tracked origin repo, pushes a notification with Update & replace button when upstream changes.
+- **Workflows** — save a parameterized hermes chat as a reusable macro (`"Summarize my PRs from the last {days} days"`); replay on demand or schedule.
+
+### Multi-model synthesis
+
+- **Ensemble** — fan out one prompt to N models in parallel, combine via **longest** / **best-of-N (judge)** / **concat** strategies.
+- **Smart router** (`/router`) — classify prompt (code/math/reasoning/short/long), route to the best-fit model per user-configured rules.
+- **Smart router replay** — run your actual chat history through the router and report agreement rate vs actual usage.
+- **Recommender v2** — data-driven model picks combining arena ELO, benchmark avg, chat usage into a 0-1 score with actionable insights.
+
+### Observability
+
+- **Live metrics** (`/metrics`) — WebSocket dashboard: generation tok/s, prompt eval tok/s, TTFT, memory %, thermal state.
+- **Sidebar telemetry** — always-on 60-sample CPU sparkline + package watts (when `sudo powermetrics` is configured) + thermal dot in the sidebar footer.
+- **Crash recovery** — session state (active model, engine) persisted to disk with an fcntl file-lock guard. On backend restart after a dirty shutdown, an amber banner offers one-click Restore.
+- **Notifications** (`/notifications`) — model-update alerts, auto-benchmark completions, rich events with action buttons.
+
+### Integration
+
+- **OpenAI-compatible proxy** (`/v1/*`) — drop-in replacement for any OpenAI SDK pattern: non-streaming + streaming chat completions, tool calls, structured outputs, multi-turn context. Covered by a compat smoke test (`backend/tests/test_openai_compat.py`).
+- **Webhooks** — fire-and-forget HTTP callbacks on `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`.
+- **Remote nodes** — connect multiple Crucible instances; models from remotes are discoverable + usable with a transparent proxy adapter.
+- **PWA** — installable on iOS/Android home screen via Safari Share / Chrome install; standalone mode, themed status bar.
+- **Menu-bar companion** — macOS menu bar app (separate `menubar/` project) with active model, memory pressure, quick switch.
 
 ---
 
 ## Requirements
 
-- macOS (Apple Silicon recommended)
-- Python 3.13 — `brew install python@3.13`
-- Node.js + pnpm — `brew install node pnpm`
-- At least one supported inference backend (see below)
+- **macOS** (Apple Silicon recommended; tested on M2 Max, 96 GB)
+- **Python 3.13** — `brew install python@3.13`
+- **Node.js + pnpm** — `brew install node pnpm`
+- At least one backend installed locally (see [Inference backends](#inference-backends))
+- 16 GB RAM minimum; 64 GB+ recommended for real model work
 
 ---
 
-## Quick Start
+## Install
 
 ```bash
 git clone https://github.com/Buckeyes1995/crucible.git
 cd crucible
-bash run.sh          # production mode (recommended)
-bash run.sh --dev    # dev mode with hot reload (local only)
 ```
 
-Opens:
+**One-command startup** (creates venv, installs deps, builds frontend, starts everything):
+
+```bash
+bash run.sh           # production mode — use this for tunnels or LAN
+bash run.sh --dev     # dev mode — hot reload, localhost-only
+```
+
 - **Web UI** → http://localhost:3000
 - **API** → http://localhost:7777
 
-`run.sh` creates the Python venv, installs all dependencies, builds the frontend (production mode), and starts both servers. Ctrl+C to stop everything.
+Ctrl+C in the `run.sh` terminal stops both servers.
 
-> **Remote access:** Production mode is required when accessing Crucible through a reverse proxy or Cloudflare Tunnel — dev mode's WebSocket HMR breaks through tunnels/proxies.
+### Manual setup (if you prefer)
 
----
-
-## Manual Setup
-
-### Backend
-
+**Backend:**
 ```bash
 cd backend
 /opt/homebrew/bin/python3.13 -m venv .venv
@@ -90,218 +149,349 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 7777
 ```
 
-### Frontend
-
+**Frontend:**
 ```bash
 cd frontend
 pnpm install
-pnpm dev
+pnpm dev       # or: pnpm build && pnpm start  for production
 ```
 
-### Menu Bar Companion (optional)
-
+**Menu-bar companion** (optional):
 ```bash
 cd menubar
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python crucible_menubar.py
 ```
 
 ---
 
+## Quick start
+
+1. Start Crucible with `bash run.sh`.
+2. Open http://localhost:3000 → **Settings** — set `mlx_dir`, `gguf_dir`, and at least one backend binary path.
+3. Click **Models** — Crucible scans your directories. Click any card's **Load** button.
+4. **Chat** at `/chat` — talk to the active model with live stats.
+5. **Benchmark** at `/benchmark2` — pick a preset, click Run, watch the live dashboard.
+6. **Arena** at `/arena` — blind A/B your models, vote, build up ELO rankings over time.
+
+---
+
 ## Configuration
 
-Config is stored at `~/.config/crucible/config.json` and created with defaults on first run. Edit via **Settings** in the UI or directly:
+Config lives at `~/.config/crucible/config.json` (created with sensible defaults on first run). Edit via **Settings** in the UI or directly.
 
 ```json
 {
-  "mlx_dir": "/Volumes/DataNVME/models/mlx",
-  "gguf_dir": "/Volumes/DataNVME/models/gguf",
-  "llama_server": "~/.local/bin/llama-server",
-  "llama_port": 8080,
-  "mlx_port": 8010,
-  "mlx_python": "~/.venvs/mlx/bin/python",
-  "mlx_external_url": "",
-  "ollama_host": "http://localhost:11434",
-  "default_model": "",
-  "bind_host": "127.0.0.1",
-  "api_key": ""
+  "mlx_dir":             "/Volumes/DataNVME/models/mlx",
+  "gguf_dir":            "/Volumes/DataNVME/models/gguf",
+  "vllm_dir":            "/Volumes/DataNVME/models/vllm",
+  "vllm_bin":            "~/.venv-vllm-metal/bin/vllm",
+  "vllm_port":           8020,
+  "llama_server":        "~/.local/bin/llama-server",
+  "llama_port":          8080,
+  "mlx_port":            8010,
+  "mlx_python":          "~/.venvs/mlx/bin/python",
+  "mlx_external_url":    "http://localhost:8000",
+  "omlx_api_key":        "123456",
+  "ollama_host":         "http://localhost:11434",
+  "default_model":       "",
+  "bind_host":           "127.0.0.1",
+  "api_key":             "",
+  "nodes":               [],
+  "agents":              []
 }
 ```
 
-| Option | Description |
+| Key | Purpose |
 |---|---|
-| `mlx_dir` | Directory containing MLX model folders |
-| `gguf_dir` | Directory containing GGUF model files or folders |
-| `llama_server` | Path to `llama-server` binary |
-| `mlx_python` | Python executable for the MLX venv (must have `mlx_lm` installed) |
-| `mlx_external_url` | Use an already-running OpenAI-compatible server for MLX instead of spawning one |
-| `bind_host` | Set to `0.0.0.0` for LAN access |
-| `api_key` | If set, non-localhost requests must provide `Authorization: Bearer <key>` or `X-API-Key: <key>` |
-| `nodes` | Array of remote Crucible instances: `[{"name": "mac-mini", "url": "http://192.168.1.181:7777", "api_key": ""}]` |
-
-### Data Files
-
-| Path | Contents |
-|---|---|
-| `~/.config/crucible/config.json` | Main configuration |
-| `~/.config/crucible/model_params.json` | Per-model inference parameters |
-| `~/.config/crucible/model_stats.json` | Persisted avg tok/s per model |
-| `~/.config/crucible/model_notes.json` | Notes and tags per model |
-| `~/.config/crucible/schedules.json` | Scheduled switching rules |
-| `~/.config/crucible/webhooks.json` | Registered webhooks |
-| `~/.config/crucible/crucible.db` | SQLite benchmark history |
-| `~/.config/crucible/downloads.json` | Download job state (persists across restarts) |
+| `mlx_dir` / `gguf_dir` / `vllm_dir` | Where to scan for models of each kind |
+| `vllm_bin`, `mlx_python`, `llama_server` | Paths to backend binaries |
+| `mlx_external_url` | URL of an already-running oMLX (preferred) — Crucible won't spawn mlx_lm when this is set |
+| `omlx_api_key` | Bearer token for oMLX admin + inference requests |
+| `bind_host` | `0.0.0.0` for LAN access |
+| `api_key` | If set, non-localhost requests must include `Authorization: Bearer <key>` |
+| `nodes` | Remote Crucible instances: `[{name, url, api_key}]` |
+| `agents` | Remote agent sidecars: `[{name, url, api_key, kind}]` |
 
 ---
 
-## Inference Backends
+## Inference backends
 
-Crucible manages inference servers as subprocesses or connects to running daemons.
+| Backend | Kind | File format | Engine | How Crucible controls it | Default port |
+|---|---|---|---|---|---|
+| **oMLX** | `mlx` | MLX safetensors + config | `omlx` | External daemon (launchd) | 8000 |
+| **mlx_lm.server** | `mlx` | MLX safetensors + config | `mlx_lm` | Subprocess | 8010 |
+| **vLLM (metal fork)** | `vllm` | HF-format safetensors (NOT mlx-community dirs) | `vllm` | Subprocess | 8020 |
+| **llama.cpp** | `gguf` | `.gguf` | `llama_cpp` | Subprocess | 8080 |
+| **Ollama** | `ollama` | Ollama library | `ollama` | External daemon | 11434 |
+| **External** | any | OpenAI-compatible | — | HTTP proxy only | configurable |
+| **Remote Node** | any | proxied | — | HTTP proxy to remote Crucible | remote's |
 
-| Backend | Model format | How it's managed | Default port |
-|---|---|---|---|
-| **MLX-LM** | `.safetensors` + `config.json` | Spawned subprocess | 8010 |
-| **llama.cpp** | `.gguf` | Spawned subprocess | 8080 |
-| **Ollama** | Ollama library | External daemon | 11434 |
-| **External** | Any OpenAI-compatible | HTTP only (no subprocess) | configurable |
-| **Remote Node** | Any (proxied) | HTTP proxy to remote Crucible | remote's port |
+On load, Crucible kills any orphaned process on the target port, spawns the server (if subprocess), waits for `/v1/models` readiness, runs a warmup request, then marks the model as loaded. For oMLX, it issues admin API calls instead of spawning.
 
-On model load, Crucible kills any orphaned process on the target port, spawns the server, waits for it to be ready, runs a warmup request, then marks the model as loaded.
-
----
-
-## API
-
-Crucible exposes a REST API at `http://localhost:7777` and an OpenAI-compatible proxy at `/v1`.
-
-### Key Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/models` | List all discovered models |
-| `POST` | `/api/models/{id}/load` | Load a model (SSE stream of load stages) |
-| `POST` | `/api/models/stop` | Unload active model |
-| `POST` | `/api/models/refresh` | Re-scan model directories |
-| `GET` | `/api/status` | Active model, engine state, memory, thermal |
-| `GET` | `/api/nodes` | Remote node connectivity and status |
-| `POST` | `/api/chat` | Streaming chat (SSE) |
-| `POST` | `/api/benchmark/run` | Run benchmark (SSE) |
-| `GET` | `/api/benchmark/history` | List benchmark runs |
-| `GET` | `/api/benchmark/run/{id}` | Benchmark run detail |
-| `GET` | `/api/settings` | Get config |
-| `PUT` | `/api/settings` | Update config |
-| `GET/PUT/DELETE` | `/api/models/{id}/params` | Per-model inference params |
-| `POST` | `/api/hf/download` | Start HuggingFace download |
-| `GET` | `/api/hf/download/{id}/stream` | SSE download progress |
-| `POST` | `/api/hf/download/{id}/resume` | Resume failed/cancelled download |
-| `GET/PUT` | `/api/models/{id}/dflash` | DFlash eligibility and toggle |
-| `GET/POST/PUT/DELETE` | `/api/webhooks` | Webhook CRUD |
-| `WebSocket` | `/ws/metrics` | Live metrics stream (1s interval) |
-| `GET` | `/v1/models` | OpenAI-compatible model list |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions |
-
-### OpenAI Proxy
-
-The `/v1/chat/completions` endpoint proxies to the active model's inference server, rewrites the `model` field to the correct server-side ID, and captures performance metrics from the usage chunk. Compatible with any client that speaks the OpenAI API.
-
-```bash
-curl http://localhost:7777/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "any", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
-```
-
-### Webhooks
-
-Register HTTP callbacks for events:
-
-```bash
-curl -X POST http://localhost:7777/api/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://your-server/hook", "events": ["model.loaded", "benchmark.done"], "secret": "optional"}'
-```
-
-Supported events: `model.loaded`, `model.unloaded`, `benchmark.done`, `download.done`
+Between serial runs (arena, diff), Crucible explicitly unloads the previous model via the backend's admin unload endpoint so memory stays predictable.
 
 ---
 
 ## Pages
 
-| Page | Route | Description |
-|---|---|---|
-| Models | `/models` | Model grid with load/unload, params, notes, favorites |
-| Chat | `/chat` | Streaming chat with live TTFT and tok/s stats |
-| Benchmark | `/benchmark/new` | Configure and run benchmarks |
-| History | `/benchmark/history` | Past runs with trend and comparison views |
-| HumanEval | `/humaneval` | 164-problem Python coding benchmark |
-| Downloads | `/downloads` | HuggingFace model search and download queue |
-| Schedules | `/schedules` | Time-based model auto-switching rules |
-| Metrics | `/metrics` | Live WebSocket dashboard |
-| Settings | `/settings` | App configuration and webhooks |
+| Route | Purpose |
+|---|---|
+| `/` | Dashboard |
+| `/models` | Model grid — load, params, notes, favorites, chips, pinned loaded section |
+| `/chat` | Streaming chat, templates, RAG, resume-from-history |
+| `/chat/history` | Past conversations with search, export, resume |
+| `/chat/compare` | Side-by-side chat on two models |
+| `/diff` | N-model same-prompt diff with save-to-disk |
+| `/arena` | Live blind A/B with ELO |
+| `/arena/review` | Queue of autobattle-generated pending battles to vote on |
+| `/arena/leaderboard` | ELO rankings |
+| `/benchmark2` | Live-dashboard benchmark runner |
+| `/benchmark/history` | Past runs |
+| `/humaneval` | 164-problem Python coding benchmark |
+| `/dflash` | DFlash A/B speed bench |
+| `/visualizer` | Per-token timing waterfall |
+| `/downloads` | HF search + download with live progress + target path + ETA |
+| `/notifications` | Notifications + Update & replace buttons |
+| `/planner` | Memory pressure planner |
+| `/disk` | Disk usage + bulk reclaim |
+| `/agents` | Remote agent control (hermes etc.) |
+| `/schedules` | Time-based auto-switching rules |
+| `/metrics` | Live WebSocket metrics |
+| `/settings` | Config + webhooks + nodes + agents |
+| `/router` | Smart router configuration |
+| `/profiler` | Per-request performance breakdown |
+| `/recommender` | Static recommender with redundancy detection |
+| `/finetune` | LoRA fine-tuning jobs |
+| `/token-analytics` | Token usage analytics |
+| `/cost` | Cost attribution |
+| `/optimizer` | Parameter optimizer |
+| `/heatmap` | Cross-model prompt heatmap |
+| `/groups` | Model grouping |
+| `/backup` | Config backup/restore |
+| `/batch-inference` | Batch prompt pipeline UI |
 
 ---
 
-## Project Structure
+## API
+
+Full REST at `http://localhost:7777`, OpenAI-compatible proxy at `/v1`.
+
+### Core endpoints
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/models` | List all discovered models (with chips, kind, engine, size, ELO, DFlash state) |
+| `POST` | `/api/models/{id}/load` | Load (SSE progress stream) |
+| `POST` | `/api/models/stop` | Unload active model |
+| `POST` | `/api/models/refresh` | Re-scan directories |
+| `DELETE` | `/api/models/{id}/disk` | Delete from disk (safety-checked) |
+| `GET` | `/api/status` | Active model + engine state + memory + thermal |
+| `GET` | `/api/system/telemetry` | CPU %, mem %, thermal, package watts |
+| `POST` | `/api/chat` | Streaming chat (SSE) |
+| `GET/POST` | `/api/chat/sessions` | Chat history CRUD |
+
+### Benchmark & eval
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/benchmark/run` | Run benchmark (SSE) |
+| `GET` | `/api/benchmark/history` | List runs |
+| `GET` | `/api/benchmark/run/{id}` | Run detail |
+| `DELETE` | `/api/benchmark/history` | Delete all runs |
+| `POST` | `/api/humaneval/run` | HumanEval run |
+| `POST` | `/api/eval-suite/start` | Structured eval suite |
+| `POST` | `/api/niah/start` | Needle-in-haystack context test |
+| `POST` | `/api/dflash/benchmark` | DFlash A/B |
+
+### Arena
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/arena/battle` | Start a blind battle (picks two random MLX) |
+| `POST` | `/api/arena/battle/{id}/chat` | Stream both responses sequentially (SSE) |
+| `POST` | `/api/arena/battle/{id}/vote` | Vote winner + ELO update |
+| `GET` | `/api/arena/leaderboard` | ELO rankings |
+| `GET` | `/api/arena/history` | Past battles |
+| `POST` | `/api/arena/autobattle` | Queue N background battles (optionally with `judge_model_id`) |
+| `GET` | `/api/arena/pending` | Battles awaiting human vote |
+| `POST` | `/api/arena/pending/{id}/vote` | Vote on a pending battle |
+
+### Operations
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/mem-plan` | Will these models fit simultaneously? |
+| `GET` | `/api/disk/summary` | Per-model usage + kind rollup + free space |
+| `POST` | `/api/disk/reclaim` | Bulk delete |
+| `GET` | `/api/warmth` | Load counts + recency scores |
+| `GET` | `/api/recovery` | Dirty-shutdown snapshot for restore |
+| `POST` | `/api/recovery/dismiss` | Clear recovery state |
+
+### Downloads & HF
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/hf/search` | HF search |
+| `POST` | `/api/hf/download` | Start download |
+| `GET` | `/api/hf/downloads` | All jobs |
+| `GET` | `/api/hf/download/{id}/stream` | SSE progress |
+| `DELETE` | `/api/hf/downloads/history` | Clear finished jobs |
+| `GET` | `/api/hf-updates` | Upstream update state |
+| `POST` | `/api/hf-updates/refresh` | Re-check upstream |
+
+### Output + workflows
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/output/save` | Save generated code to sandboxed dir |
+| `POST` | `/api/output/reveal` | Open dir in Finder |
+| `POST` | `/api/curator/preview` | Filter chat history for training data |
+| `POST` | `/api/curator/export` | Export JSONL |
+| `POST` | `/api/finetune-pipeline/start` | Curator JSONL → LoRA job |
+| `POST` | `/api/workflows` | Save a hermes macro |
+| `POST` | `/api/workflows/{id}/run` | Replay with values |
+| `POST` | `/api/batch-pipeline/start` | Queue N one-off prompts |
+| `GET` | `/api/batch-pipeline/{id}/csv` | Download results |
+| `POST` | `/api/ensemble/run` | Multi-model fan-out with optional judge |
+
+### Smart router + recommender
+
+| Method | Path | |
+|---|---|---|
+| `GET/PUT` | `/api/smart-router/config` | Routing rules |
+| `POST` | `/api/smart-router/classify` | Classify a prompt |
+| `POST` | `/api/router-replay` | Replay chat history against router |
+| `GET` | `/api/recommender/v2` | Data-driven recommendations |
+
+### Agent control
+
+| Method | Path | |
+|---|---|---|
+| `GET/POST/DELETE` | `/api/agents` | Register / list / unregister |
+| `GET` | `/api/agents/{name}/status` | Aggregate status |
+| `POST` | `/api/agents/{name}/chat` | Stream a conversational turn |
+| `POST` | `/api/agents/{name}/pause` | Docker pause |
+| `POST` | `/api/agents/{name}/restart` | Docker restart |
+
+### OpenAI-compatible proxy
+
+```bash
+curl http://localhost:7777/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "any", "messages": [{"role": "user", "content": "Hi"}], "stream": true}'
+```
+
+Covered by a drop-in compat test:
+```bash
+cd backend && .venv/bin/python -m tests.test_openai_compat
+```
+
+Full per-endpoint reference: [`docs/API.md`](docs/API.md).
+
+---
+
+## Data & paths
+
+| Path | Contents |
+|---|---|
+| `~/.config/crucible/config.json` | Main configuration |
+| `~/.config/crucible/model_params.json` | Per-model + global default inference params |
+| `~/.config/crucible/model_stats.json` | Persisted avg tok/s per model |
+| `~/.config/crucible/model_notes.json` | Notes, tags, hidden, preferred_engine |
+| `~/.config/crucible/schedules.json` | Scheduled switching rules |
+| `~/.config/crucible/workflows.json` | Saved hermes macros |
+| `~/.config/crucible/notifications.json` | Notifications feed |
+| `~/.config/crucible/session.json` | Active-model persistence (for crash recovery) |
+| `~/.config/crucible/session.lock` | fcntl lockfile (do not edit) |
+| `~/.config/crucible/warmth_log.jsonl` | Model load event log |
+| `~/.config/crucible/auto_bench_results.json` | Auto-benchmark results |
+| `~/.config/crucible/hf_updates.json` | HF upstream watcher state |
+| `~/.config/crucible/zlab_drafts.json` | z-lab DFlash draft cache (6h TTL) |
+| `~/.config/crucible/crucible.db` | SQLite: benchmarks, chat, arena |
+| `~/.config/crucible/outputs/` | Saved generated code (per source / run / model) |
+| `~/.config/crucible/curator_exports/` | Training JSONL exports |
+| `~/.config/crucible/batch_results/` | Batch pipeline job state |
+| `~/.config/crucible/niah_jobs/` | NIAH test results |
+| `~/.config/crucible/eval_jobs/` | Eval suite results |
+| `~/.config/crucible/ensemble_jobs/` | Ensemble run state |
+| `~/.config/crucible/finetune_output/` | LoRA adapter outputs + provenance |
+
+---
+
+## Remote access
+
+Crucible is safe to expose over the LAN or via a tunnel if you set `bind_host: "0.0.0.0"` and either (a) set `api_key` or (b) put it behind Cloudflare Access or a reverse proxy's auth.
+
+**Cloudflare Tunnel example (two hostnames):**
+- `crucible.example.com` → `http://localhost:3000` (Next.js frontend)
+- `crucible-api.example.com` → `http://localhost:7777` (backend, needed for WebSocket metrics)
+
+When Cloudflare Access is the auth layer, leave `api_key` empty. Production mode (`bash run.sh`) is required through tunnels — dev mode's WebSocket HMR doesn't survive.
+
+---
+
+## Architecture
 
 ```
-crucible/
-├── backend/
-│   ├── main.py              # FastAPI app, lifespan, auth middleware
-│   ├── config.py            # CrucibleConfig (Pydantic)
-│   ├── registry.py          # Model discovery and scanning
-│   ├── scheduler.py         # Time-based model switching
-│   ├── webhooks.py          # Webhook registry and dispatcher
-│   ├── omlx_admin.py       # oMLX admin API client (DFlash toggle)
-│   ├── hf_downloader.py     # HuggingFace download manager
-│   ├── clients.py           # External tool config sync (opencode)
-│   ├── model_params.py      # Per-model parameter storage
-│   ├── model_notes.py       # Per-model notes and tags
-│   ├── adapters/
-│   │   ├── base.py          # BaseAdapter abstract class
-│   │   ├── omlx.py          # oMLX subprocess adapter
-│   │   ├── mlx_lm.py        # MLX-LM server adapter
-│   │   ├── llama_cpp.py     # llama.cpp server adapter
-│   │   ├── ollama.py        # Ollama adapter
-│   │   ├── external.py      # External OpenAI-compatible adapter
-│   │   ├── remote_node.py   # Remote Crucible node proxy adapter
-│   │   └── port_utils.py    # Port cleanup utilities
-│   ├── benchmark/
-│   │   ├── engine.py        # Benchmark runner
-│   │   ├── metrics.py       # Memory pressure, thermal state
-│   │   ├── prompts.py       # Built-in benchmark prompts
-│   │   └── humaneval.py     # HumanEval runner
-│   ├── routers/
-│   │   ├── models.py        # Model management endpoints
-│   │   ├── chat.py          # Chat endpoint
-│   │   ├── benchmark.py     # Benchmark endpoints
-│   │   ├── proxy.py         # OpenAI-compatible proxy
-│   │   ├── metrics_ws.py    # WebSocket metrics
-│   │   ├── downloads.py     # HuggingFace download endpoints
-│   │   ├── settings.py      # Config endpoints
-│   │   ├── params.py        # Model params endpoints
-│   │   ├── notes.py         # Model notes endpoints
-│   │   ├── schedules.py     # Schedule endpoints
-│   │   ├── webhooks.py      # Webhook endpoints
-│   │   ├── dflash.py        # DFlash speculative decoding endpoints
-│   │   ├── humaneval.py     # HumanEval endpoints
-│   │   └── status.py        # Status endpoint
-│   └── db/
-│       └── database.py      # SQLite schema and helpers
-├── frontend/
-│   ├── app/                 # Next.js App Router pages
-│   ├── components/          # Sidebar, TopBar, shadcn/ui
-│   └── lib/
-│       ├── api.ts           # Typed API client
-│       └── stores/          # Zustand state stores
-├── menubar/
-│   └── crucible_menubar.py  # macOS menu bar companion
-├── run.sh                   # One-command startup script
-└── SPEC.md                  # Full feature specification
+┌─────────────────────────────────────────────────────────────┐
+│ Browser / PWA  ─────►  Next.js 16 (port 3000)               │
+│                         │ rewrites /api/*, /v1/*, /ws/*     │
+│                         ▼                                    │
+│                        FastAPI (port 7777)                   │
+│                         │ dispatches to routers              │
+│              ┌──────────┼──────────┬────────────┐            │
+│              ▼          ▼          ▼            ▼            │
+│          Adapters  Benchmarks   Arena       Agents           │
+│              │          │          │            │            │
+│              ▼          ▼          ▼            ▼            │
+│          oMLX :8000  SQLite    arena_*       hermes-ctrl     │
+│          mlx_lm :8010 params   outputs/      :7879           │
+│          vllm :8020   webhooks leaderboard                   │
+│          llama.cpp :8080                                     │
+│          ollama :11434                                       │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+- **Backend is async throughout** — asyncio, aiosqlite, httpx.AsyncClient, aiofiles. No blocking calls on the event loop.
+- **Adapter pattern** — each backend implements `load / generate / stop / is_loaded`. The active adapter lives in `app.state.active_adapter`.
+- **SSE everywhere** — long-running operations (load, benchmark, chat, arena, download) stream progress as `data: <json>\n\n`. Heartbeat padding defeats proxy buffering.
+- **Registry caches model discovery** — refreshed on startup, on-demand via `POST /api/models/refresh`, and after deletes.
+- **Config + persistence files** are all JSON under `~/.config/crucible/` except the benchmark/chat/arena DB (SQLite).
+- **Frontend** is a Next.js App Router SPA — Zustand stores per domain, shadcn/ui primitives, Recharts for charts.
+
+More: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Development
+
+```bash
+cd frontend && pnpm build         # production build
+cd frontend && npx tsx lib/model-parse.test.ts   # parser unit tests
+cd backend && .venv/bin/python -m tests.test_openai_compat   # OpenAI SDK compat
+```
+
+Key conventions:
+- Python 3.13, async/await, Pydantic for request bodies, no ORM (raw SQL via `aiosqlite`).
+- Frontend API calls go through `lib/api.ts` using relative paths; never hardcode `localhost:7777`.
+- Zustand stores in `lib/stores/` — one per domain.
+- Per-backend state lives in adapters, not in routers.
+
+---
+
+## Further reading
+
+- [`SPEC.md`](SPEC.md) — detailed feature spec and rationale
+- [`docs/API.md`](docs/API.md) — full endpoint reference
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
+- [`docs/HERMES_INTEGRATION.md`](docs/HERMES_INTEGRATION.md) — hermes-agent setup via hermes-control sidecar
+- [`docs/OVERNIGHT_TEST_PLAN.md`](docs/OVERNIGHT_TEST_PLAN.md) — walkthrough of every feature
+- [`docs/MLX_STUDIO_INTEGRATION.md`](docs/MLX_STUDIO_INTEGRATION.md) — MLX Studio integration notes
 
 ---
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).
