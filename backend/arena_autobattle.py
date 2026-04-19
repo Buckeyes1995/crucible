@@ -27,22 +27,65 @@ log = logging.getLogger(__name__)
 
 
 JUDGE_INSTRUCTIONS = (
-    "You are evaluating two answers to the same question. Decide which is "
-    "better based on correctness, clarity, and completeness. Do NOT prefer "
-    "longer answers — prefer clearer ones. Respond with ONLY one of "
-    "'A', 'B', or 'TIE' on the first line, then one short sentence of "
-    "reasoning on the second line."
+    "You are evaluating two answers to the same question. Pick the better one "
+    "based on correctness, clarity, and completeness. Do NOT prefer longer "
+    "answers — prefer clearer ones. When both are roughly equal, prefer TIE "
+    "only if there is no meaningful difference; slight differences should "
+    "still produce a winner."
 )
+
+
+def _parse_verdict(out: str, swap: bool) -> tuple[Optional[str], str]:
+    """Extract the judge's verdict from free-form output. Handles thinking-mode
+    models that emit preamble before the actual answer: we scan for a
+    'VERDICT: A' (or 'Winner: B', 'Answer: TIE') line anywhere in the output,
+    falling back to the LAST standalone A/B/TIE line if needed.
+
+    Returns (verdict, reasoning) where verdict is 'model_a' | 'model_b' | 'tie'
+    or None when unparseable. Reasoning is a short human-readable string.
+    """
+    import re
+
+    # 1) Look for labelled verdicts first — most reliable across thinking vs
+    #    non-thinking models.
+    labelled = re.search(
+        r"(?:verdict|winner|answer|final|choice)\s*[:\-]\s*(A|B|TIE)\b",
+        out, flags=re.IGNORECASE,
+    )
+    if labelled:
+        token = labelled.group(1).upper()
+    else:
+        # 2) Fallback: scan the LAST non-empty line for a standalone letter,
+        #    since a thinking model typically concludes with the answer.
+        lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
+        token = ""
+        for ln in reversed(lines):
+            m = re.match(r"^(A|B|TIE)\b", ln, flags=re.IGNORECASE)
+            if m:
+                token = m.group(1).upper()
+                break
+    if not token:
+        return None, ""
+    if token == "TIE":
+        return "tie", ""
+    # Un-swap: if we presented slots flipped, invert the verdict.
+    if token == "A":
+        return ("model_a" if not swap else "model_b"), ""
+    if token == "B":
+        return ("model_b" if not swap else "model_a"), ""
+    return None, ""
 
 
 async def judge_pair(base_url: str, api_key: str, judge_model: str,
                      prompt: str, response_a: str, response_b: str) -> tuple[str, str]:
     """Ask a judge model to pick a winner. Returns (winner, reasoning) where
     winner is 'model_a' | 'model_b' | 'tie'. Randomizes slot presentation to
-    mitigate first-position bias — A/B in the judge prompt is shuffled
-    relative to our model_a/model_b slots.
+    mitigate first-position bias.
 
-    Falls back to 'tie' on parse failure so ELO isn't biased by misreads.
+    Handles thinking-mode judges: (a) requests the answer via a labelled
+    "VERDICT:" line so reasoning preamble doesn't confuse parsing,
+    (b) budgets 2048 tokens so reasoning + verdict both fit, (c) disables
+    thinking entirely where the chat_template supports it.
     """
     import random as _random
     swap = _random.random() < 0.5
@@ -52,13 +95,16 @@ async def judge_pair(base_url: str, api_key: str, judge_model: str,
         f"QUESTION:\n{prompt}\n\n"
         f"--- ANSWER A ---\n{left_resp[:4000]}\n\n"
         f"--- ANSWER B ---\n{right_resp[:4000]}\n\n"
-        f"Winner (A / B / TIE):"
+        f"Respond with exactly this format (reasoning optional):\n"
+        f"VERDICT: A   (or B, or TIE)\n"
+        f"REASON: <one short sentence>"
     )
     out = ""
     try:
         async for chunk in arena.stream_to_omlx(
             judge_model, [{"role": "user", "content": judge_prompt}],
-            base_url, api_key, temperature=0.0, max_tokens=128, warmup=False,
+            base_url, api_key, temperature=0.0, max_tokens=2048, warmup=False,
+            extra_params={"chat_template_kwargs": {"enable_thinking": False}},
         ):
             if chunk.get("done"):
                 break
@@ -67,19 +113,35 @@ async def judge_pair(base_url: str, api_key: str, judge_model: str,
                 out += tok
     except Exception as e:
         return "tie", f"judge error: {e}"
-    lines = [line.strip() for line in out.strip().splitlines() if line.strip()]
-    first = (lines[0] if lines else "").upper()
-    # Un-swap: if we presented them swapped, flip the answer.
-    if first.startswith("A"):
-        verdict = "model_a" if not swap else "model_b"
-    elif first.startswith("B"):
-        verdict = "model_b" if not swap else "model_a"
-    elif "TIE" in first:
-        verdict = "tie"
-    else:
-        return "tie", f"judge didn't pick a side: {first[:60]}"
-    reasoning = (lines[1] if len(lines) > 1 else "")[:500]
-    return verdict, reasoning
+
+    verdict, _ = _parse_verdict(out, swap)
+    if verdict is None:
+        # One retry without the chat_template kwarg (some oMLX configs reject
+        # unknown kwargs); if still nothing parseable, fall back to tie.
+        out2 = ""
+        try:
+            async for chunk in arena.stream_to_omlx(
+                judge_model, [{"role": "user", "content": judge_prompt}],
+                base_url, api_key, temperature=0.0, max_tokens=2048, warmup=False,
+            ):
+                if chunk.get("done"):
+                    break
+                tok = chunk.get("token", "")
+                if tok:
+                    out2 += tok
+        except Exception:
+            pass
+        verdict, _ = _parse_verdict(out2, swap)
+        if verdict is None:
+            tail = (out or out2)[-200:].replace("\n", " ")
+            return "tie", f"judge unparseable: …{tail}"
+        out = out2
+
+    # Pull the REASON: line if present, else first non-empty line after verdict
+    import re
+    m = re.search(r"reason\s*[:\-]\s*(.+?)(?:\n|$)", out, flags=re.IGNORECASE)
+    reasoning = (m.group(1).strip() if m else out.strip().splitlines()[-1] if out.strip() else "")
+    return verdict, reasoning[:500]
 
 
 DEFAULT_PROMPTS = [
