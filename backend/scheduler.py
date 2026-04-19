@@ -28,7 +28,7 @@ def save_schedules(schedules: list[dict]) -> None:
 
 def _matches_now(rule: dict) -> bool:
     """
-    Check if rule matches current time.
+    Check if rule matches current time AND any power-aware constraints.
     rule = {
         "id": str,
         "model_id": str,
@@ -36,6 +36,13 @@ def _matches_now(rule: dict) -> bool:
         "hour": int (0-23),
         "minute": int (0-59),
         "enabled": bool,
+        # Optional: restrict firing to an off-peak window even when the
+        # primary time matches. Useful for power-aware scheduling of heavy
+        # jobs (benchmark sweeps, fine-tuning) you want to run only when
+        # electricity is cheap.
+        "offpeak_only": bool,
+        "offpeak_start_hour": int (0-23, inclusive),
+        "offpeak_end_hour":   int (0-23, inclusive, wraps past midnight),
     }
     """
     if not rule.get("enabled", True):
@@ -44,7 +51,19 @@ def _matches_now(rule: dict) -> bool:
     days = rule.get("days", [])
     if days and now.weekday() not in days:
         return False
+    if rule.get("offpeak_only") and not _in_offpeak_window(
+        now.hour, rule.get("offpeak_start_hour", 22), rule.get("offpeak_end_hour", 6),
+    ):
+        return False
     return now.hour == rule.get("hour", 0) and now.minute == rule.get("minute", 0)
+
+
+def _in_offpeak_window(hour: int, start: int, end: int) -> bool:
+    """Return True if `hour` falls within [start, end]. Handles wrap-around
+    across midnight (e.g. start=22, end=6 matches 22,23,0..6)."""
+    if start <= end:
+        return start <= hour <= end
+    return hour >= start or hour <= end
 
 
 async def run_scheduler(app) -> None:
