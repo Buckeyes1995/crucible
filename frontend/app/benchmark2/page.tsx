@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useModelsStore } from "@/lib/stores/models";
 import { api, readSSE, type BenchmarkPrompt, type ModelEntry } from "@/lib/api";
 import { cn, formatBytes, formatTps, formatMs } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Play, Square, ChevronDown, ChevronUp, Plus, X, Clock, Zap, AlertTriangle, ExternalLink } from "lucide-react";
+import { Play, Square, ChevronDown, ChevronUp, Plus, X, Clock, Zap, AlertTriangle, ExternalLink, Activity, Timer, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid } from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,10 @@ export default function Benchmark2Page() {
   const [totalSteps, setTotalSteps] = useState(0);
   const [finishedRunId, setFinishedRunId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
+  const [currentActivity, setCurrentActivity] = useState<{ modelId: string; promptId?: string; rep?: number } | null>(null);
+  const [now, setNow] = useState<number>(Date.now());
 
   // History
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -98,6 +103,13 @@ export default function Benchmark2Page() {
 
   // Init
   useEffect(() => { fetchModels(); }, [fetchModels]);
+
+  // Live clock tick while a run is active — powers elapsed + ETA in LiveStatsBar.
+  useEffect(() => {
+    if (phase !== "running" && phase !== "loading-model") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
   useEffect(() => {
     api.benchmark.prompts().then(setAllPrompts).catch(() => {});
     api.benchmark.presets().then(setPresets).catch(() => {});
@@ -179,6 +191,10 @@ export default function Benchmark2Page() {
     setFinishedRunId(null);
     setRunError(null);
     setLoadingMsg("Starting…");
+    setStartedAt(Date.now());
+    setFinishedAt(null);
+    setCurrentActivity(null);
+    setNow(Date.now());
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -224,6 +240,11 @@ export default function Benchmark2Page() {
           setPhase("loading-model");
         } else if (event === "progress" && data.status === "running") {
           setPhase("running");
+          setCurrentActivity({
+            modelId: (data.model_id as string) ?? "",
+            promptId: data.prompt_id as string | undefined,
+            rep: data.rep as number | undefined,
+          });
         } else if (event === "result") {
           const m = data.metrics as Record<string, number | null> ?? {};
           const modelId = data.model_id as string;
@@ -251,6 +272,8 @@ export default function Benchmark2Page() {
         } else if (event === "done") {
           setFinishedRunId(data.run_id as string ?? null);
           setPhase("done");
+          setFinishedAt(Date.now());
+          setCurrentActivity(null);
           setModelSummaries(prev => {
             const next = new Map(prev);
             for (const [k, v] of next) next.set(k, { ...v, done: true });
@@ -287,7 +310,31 @@ export default function Benchmark2Page() {
     setCompletedSteps(0);
     setTotalSteps(0);
     setRunName("");
+    setStartedAt(null);
+    setFinishedAt(null);
+    setCurrentActivity(null);
   };
+
+  // Derived stats for the live dashboard. Cheap to recompute each render.
+  const elapsedMs = startedAt ? (finishedAt ?? now) - startedAt : 0;
+  const etaMs = (() => {
+    if (phase !== "running" || completedSteps === 0 || totalSteps === 0) return null;
+    const perStep = elapsedMs / completedSteps;
+    return Math.max(0, perStep * (totalSteps - completedSteps));
+  })();
+  const bestTps = useMemo(
+    () => liveResults.reduce<number | null>((acc, r) => r.tps != null && (acc == null || r.tps > acc) ? r.tps : acc, null),
+    [liveResults],
+  );
+  const avgTps = useMemo(() => {
+    const vals = liveResults.map(r => r.tps).filter((v): v is number => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }, [liveResults]);
+  const currentModelLabel = useMemo(() => {
+    const mid = currentActivity?.modelId ?? "";
+    if (!mid) return null;
+    return models.find(m => m.id === mid)?.name ?? mid.split(":").pop() ?? mid;
+  }, [currentActivity, models]);
 
   const addCustomPrompt = () => {
     const t = customInput.trim();
@@ -640,99 +687,76 @@ export default function Benchmark2Page() {
           </div>
         )}
 
-        {/* ── Running / Done ─────────────────────────────────────────────── */}
+        {/* ── Running / Done — live dashboard ───────────────────────────────── */}
         {(phase === "running" || phase === "done") && (
-          <div className="p-6 space-y-5">
-
-            {/* Progress bar */}
-            {phase === "running" && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-400 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse inline-block" />
-                    Running…
-                  </span>
-                  <span className="text-zinc-500 font-mono">{completedSteps} / {totalSteps}</span>
-                </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.round(progress * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {phase === "done" && (
-              <div className="flex items-center gap-2 text-sm text-green-400">
-                <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
-                Complete
-              </div>
-            )}
-
-            {/* Per-model summary cards */}
-            {modelSummaries.size > 0 && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {[...modelSummaries.values()].map(summary => {
-                  const avgTps = summary.tpsList.length
-                    ? summary.tpsList.reduce((a, b) => a + b, 0) / summary.tpsList.length
-                    : null;
-                  const avgTtft = summary.ttftList.length
-                    ? summary.ttftList.reduce((a, b) => a + b, 0) / summary.ttftList.length
-                    : null;
-                  const maxTps = summary.tpsList.length ? Math.max(...summary.tpsList) : null;
-                  const completed = summary.tpsList.length;
-                  const expected = promptCount * reps;
-                  return (
-                    <div key={summary.modelId} className={cn(
-                      "rounded-xl border p-4 space-y-3 transition-all",
-                      summary.done
-                        ? "border-white/10 bg-zinc-900/50"
-                        : "border-indigo-500/20 bg-indigo-950/10"
-                    )}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-zinc-100 truncate">{summary.modelName}</p>
-                          <p className="text-[10px] text-zinc-500 mt-0.5">
-                            {completed} / {expected} inference{expected !== 1 ? "s" : ""}
-                            {!summary.done && <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />}
-                          </p>
+          <div className="flex flex-col min-h-0 flex-1">
+            <LiveStatsBar
+              phase={phase}
+              elapsedMs={elapsedMs}
+              etaMs={etaMs}
+              completedSteps={completedSteps}
+              totalSteps={totalSteps}
+              bestTps={bestTps}
+              avgTps={avgTps}
+              currentModelLabel={currentModelLabel}
+              currentActivity={currentActivity}
+            />
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+              {/* Per-model compact cards with inline sparkline */}
+              {modelSummaries.size > 0 ? (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {[...modelSummaries.values()].map(summary => {
+                    const tps = summary.tpsList;
+                    const avg = tps.length ? tps.reduce((a, b) => a + b, 0) / tps.length : null;
+                    const best = tps.length ? Math.max(...tps) : null;
+                    const avgTtftLocal = summary.ttftList.length
+                      ? summary.ttftList.reduce((a, b) => a + b, 0) / summary.ttftList.length
+                      : null;
+                    const completed = tps.length;
+                    const expected = promptCount * reps;
+                    const isCurrent = currentActivity?.modelId === summary.modelId;
+                    return (
+                      <div key={summary.modelId} className={cn(
+                        "rounded-xl border p-4 transition-all",
+                        summary.done ? "border-white/10 bg-zinc-900/50"
+                                     : isCurrent
+                                       ? "border-indigo-500/50 bg-indigo-950/20 glow-indigo"
+                                       : "border-indigo-500/20 bg-indigo-950/10",
+                      )}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-zinc-100 truncate">{summary.modelName}</p>
+                            <p className="text-[10px] text-zinc-500 mt-0.5">
+                              {completed} / {expected} inference{expected !== 1 ? "s" : ""}
+                              {isCurrent && !summary.done && (
+                                <span className="ml-1.5 text-indigo-400">· running {currentActivity?.promptId ? `"${currentActivity.promptId}"` : ""}{currentActivity?.rep ? ` · rep ${currentActivity.rep}` : ""}</span>
+                              )}
+                            </p>
+                          </div>
+                          {summary.done && <span className="text-xs text-green-400 shrink-0">✓</span>}
                         </div>
-                        {summary.done && <span className="text-xs text-green-400 shrink-0">✓ done</span>}
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2">
-                        <Stat label="Avg tok/s" value={avgTps != null ? avgTps.toFixed(1) : "—"} highlight />
-                        <Stat label="Best tok/s" value={maxTps != null ? maxTps.toFixed(1) : "—"} />
-                        <Stat label="Avg TTFT" value={avgTtft != null ? `${avgTtft.toFixed(0)}ms` : "—"} />
-                      </div>
-
-                      {/* Mini result list */}
-                      {liveResults.filter(r => r.modelId === summary.modelId).length > 0 && (
-                        <div className="space-y-1 pt-1 border-t border-white/5">
-                          {liveResults.filter(r => r.modelId === summary.modelId).map((r, i) => (
-                            <div key={i} className="flex items-center justify-between text-[10px]">
-                              <span className="text-zinc-500 truncate max-w-[140px]">{r.promptId}</span>
-                              <span className="font-mono text-indigo-300 shrink-0">
-                                {r.tps != null ? `${r.tps.toFixed(1)} tok/s` : "—"}
-                              </span>
-                            </div>
-                          ))}
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          <Stat label="Avg tok/s"  value={avg != null ? avg.toFixed(1) : "—"} highlight />
+                          <Stat label="Best tok/s" value={best != null ? best.toFixed(1) : "—"} />
+                          <Stat label="Avg TTFT"   value={avgTtftLocal != null ? `${avgTtftLocal.toFixed(0)}ms` : "—"} />
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                        {tps.length > 1 && <MiniSparkline values={tps} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : phase === "running" ? (
+                <div className="flex items-center gap-3 text-sm text-zinc-500 animate-pulse">
+                  <Clock className="w-4 h-4" />
+                  Waiting for first result…
+                </div>
+              ) : null}
 
-            {/* While running and no results yet */}
-            {phase === "running" && modelSummaries.size === 0 && (
-              <div className="flex items-center gap-3 text-sm text-zinc-500 animate-pulse">
-                <Clock className="w-4 h-4" />
-                Waiting for first result…
-              </div>
-            )}
+              {/* Multi-series tok/s over time */}
+              {liveResults.length >= 2 && (
+                <TpsTrend results={liveResults} summaries={[...modelSummaries.values()]} />
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -741,6 +765,209 @@ export default function Benchmark2Page() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}m ${r.toString().padStart(2, "0")}s` : `${r}s`;
+}
+
+function LiveStatsBar({
+  phase, elapsedMs, etaMs, completedSteps, totalSteps,
+  bestTps, avgTps, currentModelLabel, currentActivity,
+}: {
+  phase: "running" | "done" | "idle" | "loading-model";
+  elapsedMs: number;
+  etaMs: number | null;
+  completedSteps: number;
+  totalSteps: number;
+  bestTps: number | null;
+  avgTps: number | null;
+  currentModelLabel: string | null;
+  currentActivity: { modelId: string; promptId?: string; rep?: number } | null;
+}) {
+  const progress = totalSteps > 0 ? completedSteps / totalSteps : 0;
+  const running = phase === "running";
+  return (
+    <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-zinc-950/80 backdrop-blur-md">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-6 py-3">
+        <StatTile
+          label={running ? "Elapsed" : "Total time"}
+          value={formatDuration(elapsedMs)}
+          icon={<Timer className="w-3.5 h-3.5" />}
+          pulse={running}
+        />
+        <StatTile
+          label="Progress"
+          value={`${completedSteps} / ${totalSteps}`}
+          icon={<Activity className="w-3.5 h-3.5" />}
+          pulse={running}
+        />
+        <StatTile
+          label="ETA"
+          value={etaMs != null ? formatDuration(etaMs) : phase === "done" ? "—" : "calc…"}
+          icon={<Clock className="w-3.5 h-3.5" />}
+        />
+        <StatTile
+          label="Best tok/s"
+          value={bestTps != null ? bestTps.toFixed(1) : "—"}
+          icon={<TrendingUp className="w-3.5 h-3.5" />}
+          highlight
+        />
+        <StatTile
+          label="Avg tok/s"
+          value={avgTps != null ? avgTps.toFixed(1) : "—"}
+          icon={<Zap className="w-3.5 h-3.5" />}
+        />
+      </div>
+      <div className="h-1 bg-zinc-900 overflow-hidden">
+        <div
+          className={cn(
+            "h-full transition-all duration-500",
+            phase === "done" ? "bg-emerald-500" : "bg-indigo-500",
+          )}
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
+      </div>
+      {running && currentModelLabel && (
+        <div className="px-6 py-2 text-[11px] text-zinc-500 border-t border-white/[0.03] flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+          <span>Now running</span>
+          <span className="text-zinc-300 font-medium truncate">{currentModelLabel}</span>
+          {currentActivity?.promptId && (
+            <>
+              <span className="text-zinc-700">·</span>
+              <span className="truncate">prompt <span className="text-zinc-400 font-mono">{currentActivity.promptId}</span></span>
+            </>
+          )}
+          {currentActivity?.rep != null && (
+            <>
+              <span className="text-zinc-700">·</span>
+              <span>rep {currentActivity.rep}</span>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatTile({
+  label, value, icon, highlight, pulse,
+}: {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+  highlight?: boolean;
+  pulse?: boolean;
+}) {
+  return (
+    <div className={cn(
+      "rounded-lg border px-3 py-2 flex flex-col gap-0.5",
+      highlight
+        ? "border-indigo-500/30 bg-indigo-950/20"
+        : "border-white/[0.06] bg-zinc-900/40",
+    )}>
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500">
+        {icon}
+        <span>{label}</span>
+        {pulse && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />}
+      </div>
+      <div className={cn(
+        "text-lg font-mono font-semibold",
+        highlight ? "text-indigo-300" : "text-zinc-100",
+      )}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function MiniSparkline({ values }: { values: number[] }) {
+  const data = values.map((v, i) => ({ i, v }));
+  return (
+    <div className="h-10 -mx-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 2, right: 4, bottom: 2, left: 4 }}>
+          <Line
+            type="monotone"
+            dataKey="v"
+            stroke="#818cf8"
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+const SERIES_COLORS = ["#818cf8", "#34d399", "#fbbf24", "#f472b6", "#60a5fa", "#a78bfa", "#fb923c"];
+
+function TpsTrend({
+  results, summaries,
+}: {
+  results: LiveResult[];
+  summaries: ModelSummary[];
+}) {
+  // Each point = one completed inference; x = global step index within the run,
+  // y = tok/s for that inference, series = model. Points belonging to a model
+  // are kept sparse (i.e. null for other models) so Recharts draws disjoint lines.
+  type Row = { step: number } & Record<string, number | null>;
+  const rows: Row[] = results
+    .filter(r => r.tps != null)
+    .map((r, i) => {
+      const row: Row = { step: i + 1 };
+      for (const s of summaries) row[s.modelName] = null;
+      row[r.modelName] = r.tps as number;
+      return row;
+    });
+  if (rows.length < 2) return null;
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">tok/s over run</span>
+        <span className="text-[10px] text-zinc-600">{rows.length} data points</span>
+      </div>
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={rows}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+            <XAxis dataKey="step" stroke="#52525b" tick={{ fontSize: 10 }} />
+            <YAxis stroke="#52525b" tick={{ fontSize: 10 }} />
+            <RTooltip
+              contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: "#a1a1aa" }}
+            />
+            {summaries.map((s, i) => (
+              <Line
+                key={s.modelId}
+                type="monotone"
+                dataKey={s.modelName}
+                stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-wrap gap-3 mt-2">
+        {summaries.map((s, i) => (
+          <div key={s.modelId} className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+            <span className="w-3 h-0.5 rounded" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }} />
+            <span className="truncate max-w-[160px]">{s.modelName}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
