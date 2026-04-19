@@ -104,12 +104,13 @@ export default function Benchmark2Page() {
   // Init
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  // Live clock tick while a run is active — powers elapsed + ETA in LiveStatsBar.
+  // Always-on clock tick — powers elapsed + ETA in LiveStatsBar. Cheap
+  // (a single state update per second), and keeps the value fresh regardless
+  // of phase transitions so a just-finished run still shows its final time.
   useEffect(() => {
-    if (phase !== "running" && phase !== "loading-model") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
-  }, [phase]);
+  }, []);
   useEffect(() => {
     api.benchmark.prompts().then(setAllPrompts).catch(() => {});
     api.benchmark.presets().then(setPresets).catch(() => {});
