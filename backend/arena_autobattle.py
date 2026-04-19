@@ -26,6 +26,62 @@ import arena
 log = logging.getLogger(__name__)
 
 
+JUDGE_INSTRUCTIONS = (
+    "You are evaluating two answers to the same question. Decide which is "
+    "better based on correctness, clarity, and completeness. Do NOT prefer "
+    "longer answers — prefer clearer ones. Respond with ONLY one of "
+    "'A', 'B', or 'TIE' on the first line, then one short sentence of "
+    "reasoning on the second line."
+)
+
+
+async def judge_pair(base_url: str, api_key: str, judge_model: str,
+                     prompt: str, response_a: str, response_b: str) -> tuple[str, str]:
+    """Ask a judge model to pick a winner. Returns (winner, reasoning) where
+    winner is 'model_a' | 'model_b' | 'tie'. Randomizes slot presentation to
+    mitigate first-position bias — A/B in the judge prompt is shuffled
+    relative to our model_a/model_b slots.
+
+    Falls back to 'tie' on parse failure so ELO isn't biased by misreads.
+    """
+    import random as _random
+    swap = _random.random() < 0.5
+    left_resp, right_resp = (response_b, response_a) if swap else (response_a, response_b)
+    judge_prompt = (
+        f"{JUDGE_INSTRUCTIONS}\n\n"
+        f"QUESTION:\n{prompt}\n\n"
+        f"--- ANSWER A ---\n{left_resp[:4000]}\n\n"
+        f"--- ANSWER B ---\n{right_resp[:4000]}\n\n"
+        f"Winner (A / B / TIE):"
+    )
+    out = ""
+    try:
+        async for chunk in arena.stream_to_omlx(
+            judge_model, [{"role": "user", "content": judge_prompt}],
+            base_url, api_key, temperature=0.0, max_tokens=128, warmup=False,
+        ):
+            if chunk.get("done"):
+                break
+            tok = chunk.get("token", "")
+            if tok:
+                out += tok
+    except Exception as e:
+        return "tie", f"judge error: {e}"
+    lines = [line.strip() for line in out.strip().splitlines() if line.strip()]
+    first = (lines[0] if lines else "").upper()
+    # Un-swap: if we presented them swapped, flip the answer.
+    if first.startswith("A"):
+        verdict = "model_a" if not swap else "model_b"
+    elif first.startswith("B"):
+        verdict = "model_b" if not swap else "model_a"
+    elif "TIE" in first:
+        verdict = "tie"
+    else:
+        return "tie", f"judge didn't pick a side: {first[:60]}"
+    reasoning = (lines[1] if len(lines) > 1 else "")[:500]
+    return verdict, reasoning
+
+
 DEFAULT_PROMPTS = [
     "Write a haiku about a local LLM running on a laptop.",
     "Explain recursion using a real-world example. Keep it under 150 words.",
@@ -196,6 +252,7 @@ async def run_batch(
     prompts: list[str],
     max_tokens: int,
     max_wall_s: int,
+    judge_model_id: str | None = None,
 ) -> None:
     cancel_flag = _cancel_flags[job.id]
     eligible = _pick_eligible(registry)
@@ -228,20 +285,42 @@ async def run_batch(
             job.skipped += 1
             job.errors += 1
             continue
-        # Persist with winner=NULL (pending vote)
+        # Optional judge verdict before persisting
+        verdict = None
+        if judge_model_id:
+            try:
+                verdict, reasoning = await judge_pair(
+                    base_url, api_key, judge_model_id, prompt, resp_a, resp_b,
+                )
+                job.last_message = f"{disp_a} vs {disp_b}  judge={verdict}"
+            except Exception as e:
+                log.warning("autobattle judge failed: %s", e)
+                verdict = None
+
         battle_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         try:
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    """INSERT INTO arena_battles
-                       (id, model_a, model_b, prompt, response_a, response_b,
-                        winner, elo_before_a, elo_before_b, elo_after_a,
-                        elo_after_b, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)""",
-                    (battle_id, name_a, name_b, prompt, resp_a, resp_b, now),
+            if verdict:
+                # Judge voted — run the normal persist/ELO path so this battle
+                # lands on the leaderboard alongside human-voted battles.
+                battle = arena.BattleState(
+                    id=battle_id, model_a=name_a, model_b=name_b,
+                    model_a_display=disp_a, model_b_display=disp_b,
+                    prompt=prompt, response_a=resp_a, response_b=resp_b,
+                    winner=verdict,
                 )
-                await db.commit()
+                await arena.persist_vote(battle)
+            else:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        """INSERT INTO arena_battles
+                           (id, model_a, model_b, prompt, response_a, response_b,
+                            winner, elo_before_a, elo_before_b, elo_after_a,
+                            elo_after_b, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)""",
+                        (battle_id, name_a, name_b, prompt, resp_a, resp_b, now),
+                    )
+                    await db.commit()
             job.completed += 1
         except Exception as e:
             log.warning("autobattle: DB persist failed: %s", e)
@@ -256,6 +335,7 @@ def start_batch(
     target: int, registry, base_url: str, api_key: str,
     prompts: list[str] | None, max_tokens: int = 512,
     max_wall_s: int = 240,
+    judge_model_id: str | None = None,
 ) -> AutobattleJob:
     job_id = uuid.uuid4().hex[:12]
     job = AutobattleJob(id=job_id, target=max(1, target))
@@ -263,6 +343,7 @@ def start_batch(
     _cancel_flags[job_id] = asyncio.Event()
     asyncio.create_task(run_batch(
         job, registry, base_url, api_key, prompts or [], max_tokens, max_wall_s,
+        judge_model_id=judge_model_id,
     ))
     return job
 

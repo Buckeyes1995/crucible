@@ -163,6 +163,7 @@ class AutobattleRequest(BaseModel):
     prompts: list[str] | None = None   # if None, use built-in defaults
     max_tokens: int = 512
     max_wall_s_per_battle: int = 240   # per-slot timeout
+    judge_model_id: str | None = None  # when set, judge auto-votes each battle
 
 
 @router.post("/arena/autobattle")
@@ -178,8 +179,9 @@ async def start_autobattle(body: AutobattleRequest, request: Request) -> dict:
         body.prompts,
         body.max_tokens,
         body.max_wall_s_per_battle,
+        judge_model_id=body.judge_model_id,
     )
-    return {"job_id": job.id, "target": job.target}
+    return {"job_id": job.id, "target": job.target, "judge_model_id": body.judge_model_id}
 
 
 @router.get("/arena/autobattle")
