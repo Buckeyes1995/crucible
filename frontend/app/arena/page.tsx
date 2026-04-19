@@ -21,8 +21,8 @@ export default function ArenaPage() {
   const [responseB, setResponseB] = useState("");
   const [streamingA, setStreamingA] = useState(false);
   const [streamingB, setStreamingB] = useState(false);
-  const [statsA, setStatsA] = useState<{ tps: number | null; ttft_ms: number | null }>({ tps: null, ttft_ms: null });
-  const [statsB, setStatsB] = useState<{ tps: number | null; ttft_ms: number | null }>({ tps: null, ttft_ms: null });
+  const [statsA, setStatsA] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
+  const [statsB, setStatsB] = useState<{ tps: number | null; ttft_ms: number | null; load_ms?: number | null }>({ tps: null, ttft_ms: null });
   const [voteResult, setVoteResult] = useState<ArenaVoteResult | null>(null);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -90,8 +90,13 @@ export default function ArenaPage() {
           if (slot === "a") { setResponseA((p) => p + token); aRef.current?.scrollTo(0, aRef.current.scrollHeight); }
           else { setResponseB((p) => p + token); bRef.current?.scrollTo(0, bRef.current.scrollHeight); }
         } else if (event === "done") {
-          if (slot === "a") { setStreamingA(false); setStatsA({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
-          else { setStreamingB(false); setStatsB({ tps: data.tps as number | null, ttft_ms: data.ttft_ms as number | null }); }
+          const s = {
+            tps: data.tps as number | null,
+            ttft_ms: data.ttft_ms as number | null,
+            load_ms: (data.load_ms as number | null) ?? null,
+          };
+          if (slot === "a") { setStreamingA(false); setStatsA(s); }
+          else { setStreamingB(false); setStatsB(s); }
         } else if (event === "cancelled") {
           if (slot === "a") setStreamingA(false);
           else setStreamingB(false);
@@ -276,6 +281,11 @@ export default function ArenaPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs font-mono text-zinc-600">
+                      {stats.load_ms != null && stats.load_ms > 100 && (
+                        <span title="Cold model load time before inference — excluded from TTFT below">
+                          Load <span className="text-zinc-400">{(stats.load_ms / 1000).toFixed(1)}s</span>
+                        </span>
+                      )}
                       {stats.ttft_ms != null && <span>TTFT <span className="text-zinc-400">{stats.ttft_ms}ms</span></span>}
                       {stats.tps != null && <span className="text-indigo-400">{stats.tps} tok/s</span>}
                       {!streaming && response && battleId && (

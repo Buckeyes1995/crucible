@@ -87,6 +87,30 @@ def get_battle(battle_id: str) -> Optional[BattleState]:
     return _active_battles.get(battle_id)
 
 
+async def _warmup(model_name: str, base_url: str, api_key: str,
+                  client: httpx.AsyncClient) -> float:
+    """Send a throwaway 1-token request to force model-load before we start the
+    real TTFT clock. Returns the wall-clock seconds it took (useful for telemetry
+    if the caller cares). Best-effort — on failure we just swallow and let the
+    real request do the loading, accepting the inflated TTFT rather than crash."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "hi"}],
+        "temperature": 0.0,
+        "max_tokens": 1,
+        "stream": False,
+    }
+    t0 = time.monotonic()
+    try:
+        r = await client.post(f"{base_url}/v1/chat/completions",
+                              json=payload, headers=headers, timeout=300.0)
+        r.raise_for_status()
+    except Exception:
+        pass
+    return time.monotonic() - t0
+
+
 async def stream_to_omlx(
     model_name: str,
     messages: list[dict],
@@ -95,11 +119,17 @@ async def stream_to_omlx(
     temperature: float = 0.7,
     max_tokens: int = 1024,
     extra_params: dict | None = None,
+    warmup: bool = True,
 ) -> AsyncGenerator[dict, None]:
     """Stream chat completion from oMLX for a specific model.
 
     `extra_params` is merged into the request body verbatim — used by diff/arena
     to forward per-model Crucible params (top_k, top_p, chat_template_kwargs, etc).
+
+    `warmup` — when true (default), fires a throwaway 1-token request first so
+    the reported TTFT reflects actual first-token latency rather than cold model-
+    load time. We emit the warmup duration as `load_ms` on the final done chunk
+    so callers can still see it if they want.
     """
     payload = {
         "model": model_name,
@@ -113,11 +143,16 @@ async def stream_to_omlx(
             if v is not None:
                 payload[k] = v
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    t0 = time.monotonic()
-    first_token_time = None
-    total_tokens = 0
 
+    load_ms: float | None = None
     async with httpx.AsyncClient(timeout=300.0) as client:
+        if warmup:
+            load_ms = round((await _warmup(model_name, base_url, api_key, client)) * 1000, 2)
+
+        t0 = time.monotonic()
+        first_token_time = None
+        total_tokens = 0
+
         async with client.stream(
             "POST",
             f"{base_url}/v1/chat/completions",
@@ -147,7 +182,8 @@ async def stream_to_omlx(
     gen_time = (t1 - first_token_time) if first_token_time else (t1 - t0)
     tps = round(total_tokens / gen_time, 2) if gen_time > 0 and total_tokens > 0 else None
 
-    yield {"token": "", "done": True, "tps": tps, "ttft_ms": ttft_ms, "output_tokens": total_tokens}
+    yield {"token": "", "done": True, "tps": tps, "ttft_ms": ttft_ms,
+           "output_tokens": total_tokens, "load_ms": load_ms}
 
 
 def compute_elo(elo_a: float, elo_b: float, outcome: str) -> tuple[float, float]:

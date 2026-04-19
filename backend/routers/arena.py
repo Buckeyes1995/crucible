@@ -56,6 +56,7 @@ async def battle_chat(battle_id: str, body: ChatRequest, request: Request) -> St
                         "event": "done", "slot": slot,
                         "tps": chunk.get("tps"),
                         "ttft_ms": chunk.get("ttft_ms"),
+                        "load_ms": chunk.get("load_ms"),
                         "output_tokens": chunk.get("output_tokens"),
                     }
                     return
