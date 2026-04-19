@@ -42,6 +42,21 @@ def check(label: str, cond: bool, extra: str = ""):
 
 
 def _ensure_model() -> str:
+    """Prefer the currently-loaded active model — talking to a different one
+    via the OpenAI SDK would force an oMLX cold-load of that model, which is
+    (a) slow and (b) can fail if the model isn't fully on disk (e.g. an
+    in-progress download)."""
+    import urllib.request
+    import json as _json
+    try:
+        with urllib.request.urlopen(BASE.replace("/v1", "/api/status"), timeout=5) as r:
+            status = _json.load(r)
+        active = status.get("active_model_id")
+        if active:
+            # Strip provider prefix (e.g. "mlx:") to match what /v1/models exposes
+            return active.split(":", 1)[-1] if ":" in active else active
+    except Exception:
+        pass
     models = client.models.list()
     if not models.data:
         print("No models available — load one in Crucible first.", file=sys.stderr)
