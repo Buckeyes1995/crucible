@@ -5,8 +5,10 @@ never write outside that root regardless of what the model or a bug emits.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -14,6 +16,20 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+# Extensions we know how to execute. Each maps to an argv prefix; the sandboxed
+# file path is appended. Intentionally limited — executing arbitrary model
+# output is already dangerous, and we only opt in to interpreters that (a) are
+# likely on the user's PATH and (b) don't need a build step to run a single
+# file.
+_RUNNERS: dict[str, list[str]] = {
+    ".py": ["/usr/bin/env", "python3"],
+    ".js": ["/usr/bin/env", "node"],
+    ".sh": ["/usr/bin/env", "bash"],
+    ".rb": ["/usr/bin/env", "ruby"],
+}
+_RUN_TIMEOUT_S = 30.0
+_MAX_OUTPUT_BYTES = 64 * 1024
 
 OUTPUT_ROOT = Path.home() / ".config" / "crucible" / "outputs"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\- ]+$")
@@ -90,6 +106,73 @@ async def reveal_output(body: RevealRequest) -> dict:
     except FileNotFoundError:
         raise HTTPException(500, "`open` command not available (non-macOS?)")
     return {"status": "ok", "path": str(base)}
+
+
+class RunRequest(BaseModel):
+    source: Literal["arena", "diff", "chat"]
+    run_id: str = Field(min_length=1, max_length=64)
+    subdir: str | None = Field(default=None, max_length=128)
+    filename: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/output/run")
+async def run_output(body: RunRequest) -> dict:
+    """Execute a previously-saved file and return captured output. Only files
+    with known extensions (.py / .js / .sh / .rb) run; everything else is
+    rejected rather than silently no-op'd. 30s wall-clock cap; output is
+    truncated at 64KB each side to keep the browser responsive."""
+    target = _sandbox(body.source, body.run_id, body.filename, body.subdir)
+    if not target.exists():
+        raise HTTPException(404, f"file not found: {target.name}")
+
+    ext = target.suffix.lower()
+    runner = _RUNNERS.get(ext)
+    if not runner:
+        raise HTTPException(400,
+            f"can't run {ext} files (supported: {', '.join(sorted(_RUNNERS))})")
+
+    # Run with cwd = file's own directory so the script can open sibling files
+    # (its own test fixtures etc). Stays inside the sandbox either way.
+    cwd = target.parent
+    t0 = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *runner, str(target),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd),
+        )
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(), timeout=_RUN_TIMEOUT_S,
+            )
+            timed_out = False
+        except asyncio.TimeoutError:
+            proc.kill()
+            try:
+                stdout_b, stderr_b = await proc.communicate()
+            except Exception:
+                stdout_b, stderr_b = b"", b""
+            timed_out = True
+    except FileNotFoundError as e:
+        raise HTTPException(500, f"runner missing: {e}")
+    elapsed = time.monotonic() - t0
+
+    def _clip(b: bytes) -> str:
+        if len(b) > _MAX_OUTPUT_BYTES:
+            return b[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace") + \
+                   f"\n… [truncated {len(b) - _MAX_OUTPUT_BYTES} more bytes]"
+        return b.decode("utf-8", errors="replace")
+
+    return {
+        "status": "ok",
+        "exit_code": proc.returncode,
+        "timed_out": timed_out,
+        "elapsed_s": round(elapsed, 2),
+        "stdout": _clip(stdout_b),
+        "stderr": _clip(stderr_b),
+        "runner": " ".join(runner),
+    }
 
 
 @router.get("/output/list")
