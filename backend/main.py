@@ -150,6 +150,9 @@ async def lifespan(app: FastAPI):
         log.info("Auto-resumed %d interrupted download(s)", resumed)
     app.state.registry = ModelRegistry(app.state.config)
     await app.state.registry.refresh()
+    # Expose the registry to download_manager so replacement swaps can
+    # refresh the model list without requiring an HTTP round-trip.
+    download_manager._registry = app.state.registry
 
     # Seed origin_repo from completed hf_downloader jobs, then kick off a
     # non-blocking upstream check for all tracked models.

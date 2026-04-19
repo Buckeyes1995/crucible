@@ -46,14 +46,14 @@ export default function NotificationsPage() {
     const { model_id, model_kind, repo_id } = n.meta ?? {};
     if (!model_id || !repo_id) return;
     if (!confirm(
-      `Download ${repo_id} and delete the existing ${model_id} once the download completes?\n\n` +
-      `The old version stays on disk until the new one finishes successfully. Keep this page open to let the swap happen automatically; if you navigate away, the download still runs, but the old version will remain on disk.`,
+      `Download ${repo_id} and replace the existing ${model_id}?\n\n` +
+      `The new version is staged into a sibling directory; the existing model is kept untouched until the download completes successfully, then atomically swapped in. A failed download leaves the old model in place.`,
     )) return;
 
     try {
-      const job = await api.hf.startDownload(repo_id, model_kind || "mlx");
+      const job = await api.hf.startDownload(repo_id, model_kind || "mlx", undefined, model_id);
       setPendingJobs((m) => ({ ...m, [n.id]: { jobId: job.job_id, modelId: model_id, repo: repo_id } }));
-      toast(`Downloading ${repo_id} — old version will be removed when it finishes`, "success");
+      toast(`Downloading ${repo_id} — old version stays until swap succeeds`, "success");
       await fetch(`/api/notifications/${n.id}/read`, { method: "POST" });
       load();
     } catch (e) {
@@ -76,12 +76,10 @@ export default function NotificationsPage() {
         const j = jobs.find((x) => x.job_id === info.jobId);
         if (!j) continue;
         if (j.status === "done") {
-          try {
-            await api.models.deleteFromDisk(info.modelId);
-            toast(`Replaced ${info.modelId} with ${info.repo}`, "success");
-          } catch (e) {
-            toast(`Replace: download succeeded but delete failed — ${(e as Error).message}`, "error");
-          }
+          // Backend owns the atomic swap when replace_model_id was set on
+          // the download. No separate deleteFromDisk call needed (and doing
+          // it would be harmful — it would delete the freshly-swapped model).
+          toast(`Replaced ${info.modelId} with ${info.repo}`, "success");
           delete updates[notifId];
           changed = true;
         } else if (j.status === "error" || j.status === "cancelled") {

@@ -500,8 +500,8 @@ export const api = {
   },
   hf: {
     search: (q: string, limit = 20) => get<HFSearchResult[]>(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-    startDownload: (repo_id: string, kind: string, dest_dir?: string) =>
-      post<{ job_id: string; status: string }>("/hf/download", { repo_id, kind, dest_dir }),
+    startDownload: (repo_id: string, kind: string, dest_dir?: string, replace_model_id?: string) =>
+      post<{ job_id: string; status: string }>("/hf/download", { repo_id, kind, dest_dir, replace_model_id }),
     listDownloads: () => get<DownloadJob[]>("/hf/downloads"),
     clearHistory: () => del<{ status: string; removed: number }>("/hf/downloads/history"),
     getDownload: (id: string) => get<DownloadJob>(`/hf/download/${id}`),

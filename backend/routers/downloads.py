@@ -42,6 +42,10 @@ class StartDownloadRequest(BaseModel):
     repo_id: str
     kind: str = "mlx"  # "mlx" | "gguf"
     dest_dir: str | None = None  # defaults from config
+    # When set, this download replaces an existing local model. The downloader
+    # stages into a sibling dir and atomically swaps on success so a partial
+    # or no-op replace cannot clobber the existing copy.
+    replace_model_id: str | None = None
 
 
 def _model_to_dict(m) -> dict:
@@ -133,6 +137,7 @@ async def start_download(body: StartDownloadRequest, request: Request) -> dict:
         repo_id=body.repo_id,
         dest_dir=dest,
         kind=body.kind,
+        replace_model_id=body.replace_model_id,
     )
     return {"job_id": job_id, "status": "queued"}
 

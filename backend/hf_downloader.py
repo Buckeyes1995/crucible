@@ -28,6 +28,14 @@ class DownloadJob:
     total_bytes: int = 0
     downloaded_bytes: int = 0
     local_dir: str = ""
+    # When set, this download is replacing an existing model. To avoid the
+    # data-loss race (downloader claims "done" in seconds because existing
+    # files match hashes → frontend deletes what it thinks is the old copy
+    # but is actually the in-place model), replacements stage into a
+    # sibling .staging-<id> dir and atomically swap on success. The old
+    # directory is only removed after the swap lands, so a failed download
+    # leaves the existing model untouched.
+    replace_model_id: Optional[str] = None
 
 
 class DownloadManager:
@@ -64,6 +72,7 @@ class DownloadManager:
                     total_bytes=d.get("total_bytes", 0),
                     downloaded_bytes=d.get("downloaded_bytes", 0),
                     local_dir=d.get("local_dir", ""),
+                    replace_model_id=d.get("replace_model_id"),
                 )
                 # Any unfinished job is re-queued so resume_interrupted() can
                 # respawn it. This includes "error" state because most errors on
@@ -115,6 +124,7 @@ class DownloadManager:
                     "total_bytes": job.total_bytes,
                     "downloaded_bytes": job.downloaded_bytes,
                     "local_dir": job.local_dir,
+                    "replace_model_id": job.replace_model_id,
                 })
             JOBS_FILE.write_text(json.dumps(data, indent=2))
         except Exception as e:
@@ -156,11 +166,18 @@ class DownloadManager:
             "elapsed_s": round(max(elapsed, 0), 1),
             "total_bytes": job.total_bytes,
             "downloaded_bytes": job.downloaded_bytes,
+            "replace_model_id": job.replace_model_id,
         }
 
-    def start_download(self, repo_id: str, dest_dir: str, kind: str) -> str:
+    def start_download(
+        self, repo_id: str, dest_dir: str, kind: str,
+        replace_model_id: Optional[str] = None,
+    ) -> str:
         job_id = str(uuid.uuid4())[:8]
-        job = DownloadJob(job_id=job_id, repo_id=repo_id, dest_dir=dest_dir, kind=kind)
+        job = DownloadJob(
+            job_id=job_id, repo_id=repo_id, dest_dir=dest_dir, kind=kind,
+            replace_model_id=replace_model_id,
+        )
         self._jobs[job_id] = job
         self._persist()
         task = asyncio.create_task(self._run(job))
@@ -265,17 +282,31 @@ class DownloadManager:
 
     async def _download_repo(self, job: DownloadJob) -> None:
         """Run huggingface_hub snapshot_download in a thread with progress tracking."""
+        import shutil
         from huggingface_hub import snapshot_download, list_repo_tree
 
         dest = Path(job.dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
-        local_dir = dest / Path(job.repo_id).name
-        job.local_dir = str(local_dir)
+        final_dir = dest / Path(job.repo_id).name
+        # Replacement downloads stage into a sibling to avoid the data-loss
+        # race where snapshot_download reports "done" in seconds because
+        # all files already exist on disk — the frontend then deletes what
+        # it thinks is the old copy but is actually the live one.
+        if job.replace_model_id:
+            download_dir = dest / f"{Path(job.repo_id).name}.staging-{job.job_id}"
+            # Ensure staging is fresh — an aborted prior attempt shouldn't
+            # leak bytes into the "downloaded" count.
+            if download_dir.exists():
+                shutil.rmtree(download_dir, ignore_errors=True)
+        else:
+            download_dir = final_dir
+        job.local_dir = str(download_dir)
 
-        # Measure already-downloaded bytes (resume case)
+        # Measure already-downloaded bytes (resume case). Replacement jobs
+        # always start from empty because the staging dir was just cleared.
         existing_bytes = 0
-        if local_dir.exists():
-            existing_bytes = sum(f.stat().st_size for f in local_dir.rglob("*") if f.is_file())
+        if download_dir.exists():
+            existing_bytes = sum(f.stat().st_size for f in download_dir.rglob("*") if f.is_file())
             if existing_bytes > 0:
                 job.message = f"Resuming — {_fmt_bytes(existing_bytes)} already on disk…"
 
@@ -308,7 +339,7 @@ class DownloadManager:
         def _do_download():
             return snapshot_download(
                 repo_id=job.repo_id,
-                local_dir=str(local_dir),
+                local_dir=str(download_dir),
                 ignore_patterns=ignore,
                 local_files_only=False,
             )
@@ -324,8 +355,8 @@ class DownloadManager:
             await asyncio.sleep(2.0)
             try:
                 downloaded = sum(
-                    f.stat().st_size for f in local_dir.rglob("*") if f.is_file()
-                ) if local_dir.exists() else existing_bytes
+                    f.stat().st_size for f in download_dir.rglob("*") if f.is_file()
+                ) if download_dir.exists() else existing_bytes
                 job.downloaded_bytes = downloaded
                 if job.total_bytes > 0:
                     job.progress = min(downloaded / job.total_bytes, 0.99)
@@ -342,6 +373,30 @@ class DownloadManager:
                 pass
 
         await download_fut
+
+        # Atomic swap for replacement downloads. os.rename within the same
+        # filesystem is atomic on POSIX, so there's no window where the model
+        # is partially visible. Failures up to this point left the existing
+        # model untouched; failures here are rare (rename on same fs) but if
+        # they occur, the staging dir is left in place so nothing is lost.
+        if job.replace_model_id:
+            try:
+                backup_dir: Optional[Path] = None
+                if final_dir.exists():
+                    backup_dir = dest / f"{Path(job.repo_id).name}.old-{job.job_id}"
+                    final_dir.rename(backup_dir)
+                download_dir.rename(final_dir)
+                job.local_dir = str(final_dir)
+                if backup_dir and backup_dir.exists():
+                    shutil.rmtree(backup_dir, ignore_errors=True)
+                # Refresh registry so the replaced model picks up the new
+                # mtime / size without a manual /api/models/refresh.
+                registry = getattr(self, "_registry", None)
+                if registry is not None:
+                    asyncio.create_task(registry.refresh())
+            except Exception as e:
+                job.error = f"swap failed: {e}"
+                raise
 
     async def stream_job(self, job_id: str) -> AsyncGenerator[dict, None]:
         while True:
