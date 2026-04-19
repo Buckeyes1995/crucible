@@ -33,8 +33,11 @@ export default function VisualizerPage() {
 
   const activeModel = models.find((m) => m.id === models.find(() => true)?.id);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function send() {
     if (!prompt.trim() || streaming) return;
+    setError(null);
     setStreaming(true);
     setTokens([]);
     setTtft(null);
@@ -44,29 +47,44 @@ export default function VisualizerPage() {
     let prevTime = t0;
     const collected: TokenData[] = [];
 
-    const resp = await api.chat({
-      messages: [{ role: "user", content: prompt.trim() }],
-      temperature: 0.7,
-      max_tokens: 2048,
-    });
-
-    await readSSE(resp, (data) => {
-      const event = data.event as string;
-      if (event === "token") {
-        const now = performance.now();
-        const delta = now - prevTime;
-        prevTime = now;
-        const td: TokenData = { token: data.token as string, timestamp: now - t0, delta_ms: delta };
-        collected.push(td);
-        setTokens([...collected]);
-        containerRef.current?.scrollTo(0, containerRef.current.scrollHeight);
-      } else if (event === "done") {
-        setTtft(data.ttft_ms as number | null);
-        setTps(data.tps as number | null);
+    try {
+      const resp = await api.chat({
+        messages: [{ role: "user", content: prompt.trim() }],
+        temperature: 0.7,
+        max_tokens: 2048,
+      });
+      if (!resp.ok) {
+        const body = await resp.text();
+        let msg = body;
+        try { msg = (JSON.parse(body).detail || body).toString(); } catch {}
+        setError(`${resp.status}: ${msg}`);
         setStreaming(false);
+        return;
       }
-    });
-    setStreaming(false);
+
+      await readSSE(resp, (data) => {
+        const event = data.event as string;
+        if (event === "token") {
+          const now = performance.now();
+          const delta = now - prevTime;
+          prevTime = now;
+          const td: TokenData = { token: data.token as string, timestamp: now - t0, delta_ms: delta };
+          collected.push(td);
+          setTokens([...collected]);
+          containerRef.current?.scrollTo(0, containerRef.current.scrollHeight);
+        } else if (event === "done") {
+          setTtft(data.ttft_ms as number | null);
+          setTps(data.tps as number | null);
+          setStreaming(false);
+        } else if (event === "error") {
+          setError((data.message as string) || "Stream error");
+        }
+      });
+    } catch (e) {
+      setError((e as Error).message || "Request failed");
+    } finally {
+      setStreaming(false);
+    }
   }
 
   const maxDelta = Math.max(...tokens.map((t) => t.delta_ms), 1);
@@ -141,6 +159,15 @@ export default function VisualizerPage() {
           {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send
         </Button>
       </div>
+
+      {error && (
+        <div className="px-6 py-2 border-b border-red-500/20 bg-red-950/30 text-sm text-red-300">
+          {error}
+          {error.toLowerCase().includes("no model loaded") && (
+            <span className="text-red-400/70"> — load one on <a href="/models" className="underline">/models</a> first.</span>
+          )}
+        </div>
+      )}
 
       {/* Token waterfall */}
       <div ref={containerRef} className="flex-1 overflow-y-auto p-6">
