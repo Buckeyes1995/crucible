@@ -21,6 +21,47 @@ async def list_updates() -> dict:
     }
 
 
+def _backfill_update_meta(registry) -> int:
+    """Stamp the new meta payload onto pre-existing 'Model update available'
+    notifications that were pushed before we started including structured
+    metadata. Matches by parsing the message text and looking the model up in
+    the registry by display name. Returns the count updated."""
+    state = hf_updates.all_state()
+    notifs = notif._load()
+    by_name = {m.name: m for m in registry.all() if m.node == "local"}
+    updated = 0
+    for n in notifs:
+        if n.get("title") != "Model update available":
+            continue
+        if n.get("meta"):
+            continue
+        msg = n.get("message", "")
+        # Expected format: "<name> has a new version on <origin_repo>"
+        marker = " has a new version on "
+        if marker not in msg:
+            continue
+        name, origin_repo = msg.split(marker, 1)
+        name = name.strip()
+        origin_repo = origin_repo.strip()
+        m = by_name.get(name)
+        if not m:
+            continue
+        # Only attach meta if the model is still flagged — stale notifications
+        # for models the user already updated get left alone.
+        if not state.get(m.id, {}).get("update_available"):
+            continue
+        n["meta"] = {
+            "kind": "model_update",
+            "model_id": m.id,
+            "model_kind": m.kind,
+            "repo_id": origin_repo,
+        }
+        updated += 1
+    if updated:
+        notif._save(notifs)
+    return updated
+
+
 @router.post("/hf-updates/refresh")
 async def refresh_updates(request: Request) -> dict:
     registry = request.app.state.registry
@@ -39,8 +80,10 @@ async def refresh_updates(request: Request) -> dict:
                   "model_kind": (m.kind if m else "mlx"),
                   "repo_id": info["origin_repo"]},
         )
+    backfilled = _backfill_update_meta(registry)
     return {
         "newly_flagged": list(newly.keys()),
+        "backfilled": backfilled,
         "state": hf_updates.all_state(),
     }
 

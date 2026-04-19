@@ -142,6 +142,17 @@ async def lifespan(app: FastAPI):
     hf_updates.seed_from_downloads(download_manager.list_jobs())
     async def _initial_update_check():
         try:
+            # One-shot backfill for "Model update available" notifs that pre-
+            # date the structured meta field — so the Update button renders
+            # on entries pushed before today's refactor.
+            from routers.hf_updates import _backfill_update_meta
+            try:
+                filled = _backfill_update_meta(app.state.registry)
+                if filled:
+                    log.info("backfilled %d legacy update notifications with meta", filled)
+            except Exception as e:
+                log.warning("update meta backfill failed: %s", e)
+
             ids = [m.id for m in app.state.registry.all() if m.node == "local"]
             newly = await hf_updates.check_models(ids)
             if newly:
