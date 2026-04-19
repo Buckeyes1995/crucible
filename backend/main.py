@@ -64,6 +64,7 @@ from routers import (
     smart_router_api,
     status,
     structured_output,
+    telemetry as telemetry_router,
     system_prompts,
     templates,
     token_analytics,
@@ -248,6 +249,7 @@ app.include_router(heatmap.router, prefix="/api")
 app.include_router(optimizer.router, prefix="/api")
 app.include_router(outputs.router, prefix="/api")
 app.include_router(mem_plan.router, prefix="/api")
+app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")

@@ -129,15 +129,41 @@ function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: strin
   );
 }
 
+type Telemetry = {
+  cpu_percent: number;
+  mem_percent: number;
+  thermal_state: string;
+  package_watts: number | null;
+};
+
 export function Sidebar() {
   const pathname = usePathname();
   const { status, fetch } = useStatusStore();
+  const [telHistory, setTelHistory] = useState<Telemetry[]>([]);
 
   useEffect(() => {
     fetch();
     const id = setInterval(fetch, 10_000);
     return () => clearInterval(id);
   }, [fetch]);
+
+  // Lightweight live telemetry poll — 5s cadence, 60-sample rolling buffer.
+  useEffect(() => {
+    let stop = false;
+    const pull = async () => {
+      try {
+        const r = await window.fetch("/api/system/telemetry");
+        if (!r.ok) return;
+        const t = (await r.json()) as Telemetry;
+        if (stop) return;
+        setTelHistory((prev) => [...prev.slice(-59), t]);
+      } catch { /* ignore */ }
+    };
+    pull();
+    const id = setInterval(pull, 5000);
+    return () => { stop = true; clearInterval(id); };
+  }, []);
+  const latestTel = telHistory[telHistory.length - 1];
 
   const memPct = status?.memory_pressure != null ? Math.round(status.memory_pressure * 100) : null;
   const thermalColor = {
@@ -189,9 +215,64 @@ export function Sidebar() {
           <div className={cn("flex items-center gap-1.5 text-[10px]", thermalColor)}>
             <span className="w-1.5 h-1.5 rounded-full bg-current" />
             <span className="capitalize">{status.thermal_state}</span>
+            {latestTel?.package_watts != null && (
+              <span className="ml-auto font-mono text-zinc-500">
+                {latestTel.package_watts.toFixed(1)}W
+              </span>
+            )}
           </div>
+        )}
+        {latestTel && (
+          <CpuSpark history={telHistory} />
         )}
       </div>
     </aside>
+  );
+}
+
+// Compact 60-sample CPU-% sparkline rendered inline as SVG polyline so we
+// don't drag a chart library into the sidebar hot path. x: sample index,
+// y: cpu_percent inverted (y=0 is top of the box).
+function CpuSpark({ history }: { history: Telemetry[] }) {
+  if (history.length < 2) {
+    const latest = history[0];
+    return (
+      <div className="flex items-center justify-between text-[10px] text-zinc-500">
+        <span>CPU</span>
+        <span className="font-mono">{latest ? `${latest.cpu_percent.toFixed(0)}%` : "—"}</span>
+      </div>
+    );
+  }
+  const w = 160;
+  const h = 24;
+  const maxSamples = 60;
+  const slice = history.slice(-maxSamples);
+  const n = slice.length;
+  const pts = slice
+    .map((t, i) => {
+      const x = (i / (maxSamples - 1)) * w;
+      const y = h - Math.min(100, Math.max(0, t.cpu_percent)) / 100 * h;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const latest = slice[n - 1];
+  const color = latest.cpu_percent > 80 ? "#f87171" : latest.cpu_percent > 50 ? "#fbbf24" : "#818cf8";
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] text-zinc-500 mb-0.5">
+        <span>CPU</span>
+        <span className="font-mono" style={{ color }}>{latest.cpu_percent.toFixed(0)}%</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-6" preserveAspectRatio="none">
+        <polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.25"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
   );
 }
