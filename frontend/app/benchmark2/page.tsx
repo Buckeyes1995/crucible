@@ -93,7 +93,12 @@ export default function Benchmark2Page() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [currentActivity, setCurrentActivity] = useState<{ modelId: string; promptId?: string; rep?: number } | null>(null);
-  const [now, setNow] = useState<number>(Date.now());
+  // elapsedMs is owned by the interval below rather than derived from a
+  // ticking `now`. Writing directly to elapsedMs guarantees the render sees
+  // a new value on each tick — no chance of useState batching or derived-
+  // state staleness. ETA is still computed in render because it also depends
+  // on completedSteps.
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   // History
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -104,13 +109,22 @@ export default function Benchmark2Page() {
   // Init
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  // Always-on clock tick — powers elapsed + ETA in LiveStatsBar. Cheap
-  // (a single state update per second), and keeps the value fresh regardless
-  // of phase transitions so a just-finished run still shows its final time.
+  // Elapsed clock — writes directly to elapsedMs state so React is guaranteed
+  // to re-render with the new value each tick. Freezes once finishedAt is set.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 500);
+    if (!startedAt) {
+      setElapsedMs(0);
+      return;
+    }
+    // Immediate update so the first tile value doesn't look stale between
+    // run-start and the first interval fire.
+    setElapsedMs((finishedAt ?? Date.now()) - startedAt);
+    if (finishedAt) return; // don't tick once the run is done
+    const id = setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 500);
     return () => clearInterval(id);
-  }, []);
+  }, [startedAt, finishedAt]);
   useEffect(() => {
     api.benchmark.prompts().then(setAllPrompts).catch(() => {});
     api.benchmark.presets().then(setPresets).catch(() => {});
@@ -195,7 +209,7 @@ export default function Benchmark2Page() {
     setStartedAt(Date.now());
     setFinishedAt(null);
     setCurrentActivity(null);
-    setNow(Date.now());
+    setElapsedMs(0);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -317,7 +331,6 @@ export default function Benchmark2Page() {
   };
 
   // Derived stats for the live dashboard. Cheap to recompute each render.
-  const elapsedMs = startedAt ? (finishedAt ?? now) - startedAt : 0;
   const etaMs = (() => {
     if (phase !== "running" || completedSteps === 0 || totalSteps === 0) return null;
     const perStep = elapsedMs / completedSteps;
