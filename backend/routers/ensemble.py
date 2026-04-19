@@ -76,14 +76,23 @@ def _persist(job: EnsembleJob) -> None:
         log.warning("ensemble persist failed: %s", e)
 
 
+def _omlx_name(model_id: str, registry) -> str:
+    """Resolve the prefixed id (e.g. "mlx:Foo") to oMLX's expected name
+    (the model directory name) via the registry."""
+    m = registry.get(model_id) if registry else None
+    if m and getattr(m, "path", None):
+        return Path(m.path).name
+    return model_id.split(":", 1)[-1] if ":" in model_id else model_id
+
+
 async def _gen_one(base_url: str, api_key: str, model_id: str, prompt: str,
-                   max_tokens: int) -> EnsembleResult:
+                   max_tokens: int, omlx_name: str) -> EnsembleResult:
     parts: list[str] = []
     tps = ttft_ms = tokens = None
     err = ""
     try:
         async for chunk in arena_mod.stream_to_omlx(
-            model_id, [{"role": "user", "content": prompt}],
+            omlx_name, [{"role": "user", "content": prompt}],
             base_url, api_key, temperature=0.7, max_tokens=max_tokens,
             warmup=False,
         ):
@@ -101,16 +110,16 @@ async def _gen_one(base_url: str, api_key: str, model_id: str, prompt: str,
                           tps=tps, ttft_ms=ttft_ms, tokens=tokens, error=err)
 
 
-async def _unload(base_url: str, api_key: str, model_id: str) -> None:
+async def _unload(base_url: str, api_key: str, omlx_name: str) -> None:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(f"{base_url}/v1/models/{model_id}/unload", headers=headers)
+            await client.post(f"{base_url}/v1/models/{omlx_name}/unload", headers=headers)
     except Exception:
         pass
 
 
-async def _judge(base_url: str, api_key: str, judge_model: str, prompt: str,
+async def _judge(base_url: str, api_key: str, judge_omlx_name: str, prompt: str,
                  candidates: list[EnsembleResult]) -> tuple[Optional[str], str]:
     """Ask a judge model to pick the best of N. Returns (winner_model_id, reasoning)."""
     # Construct a compact judge prompt. Use simple letter labels A, B, C... so
@@ -135,7 +144,7 @@ async def _judge(base_url: str, api_key: str, judge_model: str, prompt: str,
     out = ""
     try:
         async for chunk in arena_mod.stream_to_omlx(
-            judge_model, [{"role": "user", "content": judge_prompt}],
+            judge_omlx_name, [{"role": "user", "content": judge_prompt}],
             base_url, api_key, temperature=0.0, max_tokens=256,
             warmup=False,
         ):
@@ -161,14 +170,15 @@ async def _judge(base_url: str, api_key: str, judge_model: str, prompt: str,
 
 
 async def _run_job(job: EnsembleJob, base_url: str, api_key: str,
-                   max_tokens: int) -> None:
+                   max_tokens: int, omlx_names: dict[str, str]) -> None:
     job.status = "running"
     _persist(job)
     for mid in job.model_ids:
-        result = await _gen_one(base_url, api_key, mid, job.prompt, max_tokens)
+        name = omlx_names.get(mid, mid)
+        result = await _gen_one(base_url, api_key, mid, job.prompt, max_tokens, name)
         job.results.append(result)
         _persist(job)
-        await _unload(base_url, api_key, mid)
+        await _unload(base_url, api_key, name)
 
     # Filter successful results only
     candidates = [r for r in job.results if r.response and not r.error]
@@ -184,10 +194,11 @@ async def _run_job(job: EnsembleJob, base_url: str, api_key: str,
         job.winner_model_id = winner.model_id
         job.final_response = winner.response
     elif job.strategy == "best_of_n" and job.judge_model_id:
+        judge_name = omlx_names.get(job.judge_model_id, job.judge_model_id)
         winner_id, reasoning = await _judge(
-            base_url, api_key, job.judge_model_id, job.prompt, candidates,
+            base_url, api_key, judge_name, job.prompt, candidates,
         )
-        await _unload(base_url, api_key, job.judge_model_id)
+        await _unload(base_url, api_key, judge_name)
         if winner_id:
             job.winner_model_id = winner_id
             winner = next(r for r in candidates if r.model_id == winner_id)
@@ -228,6 +239,11 @@ async def run_ensemble(body: EnsembleRequest, request: Request) -> dict:
     cfg = request.app.state.config
     base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
     api_key = cfg.omlx_api_key
+    registry = request.app.state.registry
+
+    omlx_names: dict[str, str] = {mid: _omlx_name(mid, registry) for mid in body.model_ids}
+    if body.judge_model_id:
+        omlx_names[body.judge_model_id] = _omlx_name(body.judge_model_id, registry)
 
     job = EnsembleJob(
         id=uuid.uuid4().hex[:12],
@@ -237,7 +253,7 @@ async def run_ensemble(body: EnsembleRequest, request: Request) -> dict:
         judge_model_id=body.judge_model_id,
     )
     _jobs[job.id] = job
-    asyncio.create_task(_run_job(job, base_url, api_key, body.max_tokens))
+    asyncio.create_task(_run_job(job, base_url, api_key, body.max_tokens, omlx_names))
     return {"job_id": job.id}
 
 
