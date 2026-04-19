@@ -28,6 +28,7 @@ from routers import (
     chat_templates,
     cost,
     cron,
+    curator,
     disk,
     ensemble,
     dashboard,
@@ -266,6 +267,7 @@ app.include_router(mem_plan.router, prefix="/api")
 app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
 app.include_router(ensemble.router, prefix="/api")
+app.include_router(curator.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
