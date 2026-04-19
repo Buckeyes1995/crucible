@@ -58,6 +58,7 @@ from routers import (
     proxy,
     rag,
     recommender_api,
+    recommender_v2,
     recovery,
     router_replay,
     response_cache,
@@ -265,6 +266,7 @@ app.include_router(disk.router, prefix="/api")
 app.include_router(recovery.router, prefix="/api")
 app.include_router(warmth.router, prefix="/api")
 app.include_router(router_replay.router, prefix="/api")
+app.include_router(recommender_v2.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
