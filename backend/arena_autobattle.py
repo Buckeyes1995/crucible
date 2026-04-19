@@ -337,7 +337,7 @@ async def run_batch(
 
 def start_batch(
     target: int, registry, base_url: str, api_key: str,
-    prompts: list[str] | None, max_tokens: int = 512,
+    prompts: list[str] | None, max_tokens: int = 1536,
     max_wall_s: int = 240,
     judge_model_id: str | None = None,
 ) -> AutobattleJob:

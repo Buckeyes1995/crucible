@@ -161,7 +161,7 @@ async def history(limit: int = 50) -> list[dict]:
 class AutobattleRequest(BaseModel):
     count: int = 20
     prompts: list[str] | None = None   # if None, use built-in defaults
-    max_tokens: int = 512
+    max_tokens: int = 1536
     max_wall_s_per_battle: int = 240   # per-slot timeout
     judge_model_id: str | None = None  # when set, judge auto-votes each battle
 
