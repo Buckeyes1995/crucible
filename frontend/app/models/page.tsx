@@ -105,14 +105,13 @@ export default function ModelsPage() {
       return true;
     })
     .sort((a, b) => {
-      // Active model always first
+      // Active model always first (it gets pinned into its own 'Loaded'
+      // section above the Library grid so the rest of the sort is strict).
       const aActive = a.id === activeModelId ? 0 : 1;
       const bActive = b.id === activeModelId ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
-      // Then favorites
-      const aFav = isFavorite(a.id) ? 0 : 1;
-      const bFav = isFavorite(b.id) ? 0 : 1;
-      if (aFav !== bFav) return aFav - bFav;
+      // Favorites are visually distinct (amber border) but NOT position-pinned
+      // so an explicit sort choice is honored strictly.
       const mul = sortDir === "asc" ? 1 : -1;
       if (sortKey === "size") return mul * ((a.size_bytes ?? 0) - (b.size_bytes ?? 0));
       if (sortKey === "tps")  return mul * ((a.avg_tps ?? 0) - (b.avg_tps ?? 0));
