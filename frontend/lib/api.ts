@@ -404,6 +404,24 @@ export const api = {
       post<ArenaVoteResult>(`/arena/battle/${battleId}/vote`, { winner }),
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
+    autobattle: {
+      start: (body: { count?: number; prompts?: string[] | null; max_tokens?: number; max_wall_s_per_battle?: number }) =>
+        post<{ job_id: string; target: number }>("/arena/autobattle", body),
+      listJobs: () => get<{
+        id: string; target: number; completed: number; skipped: number;
+        errors: number; status: string; started_at: number;
+        finished_at: number | null; last_message: string;
+      }[]>("/arena/autobattle"),
+      status: (id: string) => get<{
+        id: string; target: number; completed: number; skipped: number;
+        errors: number; status: string; started_at: number;
+        finished_at: number | null; last_message: string;
+      }>(`/arena/autobattle/${id}`),
+      cancel: (id: string) => del<{ status: string }>(`/arena/autobattle/${id}`),
+    },
+    pending: () => get<{ id: string; model_a: string; model_b: string; prompt: string; response_a: string; response_b: string; created_at: string }[]>("/arena/pending"),
+    votePending: (battleId: string, winner: string) =>
+      post<ArenaVoteResult>(`/arena/pending/${battleId}/vote`, { winner }),
   },
   recovery: {
     check: () => get<{ available: boolean; snapshot: { model_id: string; engine: string | null; loaded_at: number; started_at?: number } | null }>("/recovery"),

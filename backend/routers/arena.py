@@ -154,3 +154,106 @@ async def leaderboard() -> list[dict]:
 @router.get("/arena/history")
 async def history(limit: int = 50) -> list[dict]:
     return await arena.get_history(limit)
+
+
+# ─── Autobattle: queue N overnight battles for later review ──────────────────
+
+class AutobattleRequest(BaseModel):
+    count: int = 20
+    prompts: list[str] | None = None   # if None, use built-in defaults
+    max_tokens: int = 512
+    max_wall_s_per_battle: int = 240   # per-slot timeout
+
+
+@router.post("/arena/autobattle")
+async def start_autobattle(body: AutobattleRequest, request: Request) -> dict:
+    import arena_autobattle as ab
+    cfg = request.app.state.config
+    base_url = cfg.mlx_external_url or "http://127.0.0.1:8000"
+    api_key = cfg.omlx_api_key
+    job = ab.start_batch(
+        body.count,
+        request.app.state.registry,
+        base_url, api_key,
+        body.prompts,
+        body.max_tokens,
+        body.max_wall_s_per_battle,
+    )
+    return {"job_id": job.id, "target": job.target}
+
+
+@router.get("/arena/autobattle")
+async def list_autobattle_jobs() -> list[dict]:
+    import arena_autobattle as ab
+    return ab.list_jobs()
+
+
+@router.get("/arena/autobattle/{job_id}")
+async def autobattle_status(job_id: str) -> dict:
+    import arena_autobattle as ab
+    j = ab.get_job(job_id)
+    if not j:
+        raise HTTPException(404, f"Autobattle job not found: {job_id}")
+    return {
+        "id": j.id, "target": j.target, "completed": j.completed,
+        "skipped": j.skipped, "errors": j.errors, "status": j.status,
+        "started_at": j.started_at, "finished_at": j.finished_at,
+        "last_message": j.last_message,
+    }
+
+
+@router.delete("/arena/autobattle/{job_id}")
+async def cancel_autobattle(job_id: str) -> dict:
+    import arena_autobattle as ab
+    ok = ab.cancel(job_id)
+    if not ok:
+        raise HTTPException(404, f"Autobattle job not found or already finished: {job_id}")
+    return {"status": "cancelling"}
+
+
+@router.get("/arena/pending")
+async def pending() -> list[dict]:
+    """Battles waiting for a human vote. Fed into the /arena/review UI."""
+    import arena_autobattle as ab
+    return await ab.list_pending()
+
+
+class PendingVoteRequest(BaseModel):
+    winner: str  # "model_a" | "model_b" | "tie"
+
+
+@router.post("/arena/pending/{battle_id}/vote")
+async def vote_pending(battle_id: str, body: PendingVoteRequest, request: Request) -> dict:
+    """Apply a vote to a pending (autobattle-generated) battle. Fetches the
+    stored responses, hydrates a BattleState, then runs the regular ELO/persist
+    path so the result lands on the leaderboard the same way a live battle
+    would."""
+    if body.winner not in ("model_a", "model_b", "tie"):
+        raise HTTPException(400, "winner must be 'model_a', 'model_b', or 'tie'")
+    import aiosqlite
+    from db.database import DB_PATH
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM arena_battles WHERE id = ? AND winner IS NULL", (battle_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Pending battle not found or already voted")
+        # Remove the skeleton row; persist_vote will re-INSERT with full data.
+        await db.execute("DELETE FROM arena_battles WHERE id = ?", (battle_id,))
+        await db.commit()
+    # Build a BattleState and run the normal persist/ELO path
+    battle = arena.BattleState(
+        id=row["id"],
+        model_a=row["model_a"],
+        model_b=row["model_b"],
+        model_a_display=row["model_a"],
+        model_b_display=row["model_b"],
+        prompt=row["prompt"] or "",
+        response_a=row["response_a"] or "",
+        response_b=row["response_b"] or "",
+        winner=body.winner,
+    )
+    result = await arena.persist_vote(battle)
+    return result
