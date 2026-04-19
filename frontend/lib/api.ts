@@ -405,6 +405,10 @@ export const api = {
     leaderboard: () => get<ArenaLeaderboardEntry[]>("/arena/leaderboard"),
     history: (limit?: number) => get<ArenaBattleHistory[]>(`/arena/history?limit=${limit ?? 50}`),
   },
+  recovery: {
+    check: () => get<{ available: boolean; snapshot: { model_id: string; engine: string | null; loaded_at: number; started_at?: number } | null }>("/recovery"),
+    dismiss: () => post<{ status: string }>("/recovery/dismiss"),
+  },
   disk: {
     summary: () => get<{
       now: string;

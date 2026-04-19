@@ -58,6 +58,7 @@ from routers import (
     proxy,
     rag,
     recommender_api,
+    recovery,
     response_cache,
     rss,
     schedules,
@@ -181,6 +182,12 @@ async def lifespan(app: FastAPI):
     app.state.compare_adapter = None
     app.state.record_activity = record_activity
 
+    # Crash recovery — stamp 'running' on boot so a crash (without the shutdown
+    # hook firing) leaves a dirty marker the UI can detect on next load.
+    import session_persist
+    session_persist.mark_running()
+    app.state.session_persist = session_persist
+
     ttl_task = asyncio.create_task(_ttl_watcher(app))
     scheduler_task = asyncio.create_task(run_scheduler(app))
     yield
@@ -191,6 +198,7 @@ async def lifespan(app: FastAPI):
         await app.state.active_adapter.stop()
     if app.state.compare_adapter:
         await app.state.compare_adapter.stop()
+    session_persist.mark_clean_shutdown()
 
 
 app = FastAPI(title="Crucible", version="0.2.0", lifespan=lifespan)
@@ -252,6 +260,7 @@ app.include_router(outputs.router, prefix="/api")
 app.include_router(mem_plan.router, prefix="/api")
 app.include_router(telemetry_router.router, prefix="/api")
 app.include_router(disk.router, prefix="/api")
+app.include_router(recovery.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(webhook_templates.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")

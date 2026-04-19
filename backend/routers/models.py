@@ -193,6 +193,11 @@ async def stop_model(request: Request) -> dict:
         request.app.state.active_adapter = None
         sync_all_clients(None)
         asyncio.create_task(wh.fire("model.unloaded", {"model_id": model_id}))
+        try:
+            import session_persist
+            session_persist.record_load(None)
+        except Exception:
+            pass
     return {"status": "stopped"}
 
 
@@ -241,6 +246,11 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
                     "model_name": model.name,
                     "elapsed_ms": data.get("elapsed_ms", 0),
                 }))
+                try:
+                    import session_persist
+                    session_persist.record_load(model.id, engine)
+                except Exception:
+                    pass
             elif event_type == "error":
                 return
 

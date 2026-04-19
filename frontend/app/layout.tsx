@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { ToastContainer } from "@/components/Toast";
+import { RecoveryBanner } from "@/components/RecoveryBanner";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Sidebar />
         <div className="flex flex-col flex-1 min-h-0">
           <TopBar />
+          <RecoveryBanner />
           <main className="flex-1 overflow-auto">{children}</main>
         </div>
         <ToastContainer />
