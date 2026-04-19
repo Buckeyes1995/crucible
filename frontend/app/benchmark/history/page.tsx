@@ -74,7 +74,7 @@ export default function HistoryPage() {
               <Trash className="w-3.5 h-3.5" /> {wiping ? "Deleting…" : "Delete all"}
             </Button>
           )}
-          <Link href="/benchmark/new">
+          <Link href="/benchmark2">
             <Button variant="primary" size="sm">+ New Run</Button>
           </Link>
         </div>
@@ -88,7 +88,7 @@ export default function HistoryPage() {
         </div>
       ) : runs.length === 0 ? (
         <div className="text-center text-zinc-500 py-20">
-          No benchmark runs yet. <Link href="/benchmark/new" className="text-indigo-400 hover:underline">Run one now →</Link>
+          No benchmark runs yet. <Link href="/benchmark2" className="text-indigo-400 hover:underline">Run one now →</Link>
         </div>
       ) : (
         <div className="space-y-2">

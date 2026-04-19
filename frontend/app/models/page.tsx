@@ -616,7 +616,7 @@ function ModelCard({
         {/* Action buttons */}
         {isActive && (
           <div className="grid grid-cols-2 gap-2 mt-1">
-            <Link href={`/benchmark/new?model=${encodeURIComponent(model.id)}`} onClick={(e) => e.stopPropagation()}>
+            <Link href={`/benchmark2?models=${encodeURIComponent(model.id)}`} onClick={(e) => e.stopPropagation()}>
               <Button variant="secondary" size="sm" className="w-full">
                 <BarChart2 className="w-3 h-3" />
                 Benchmark
