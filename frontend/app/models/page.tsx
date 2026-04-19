@@ -29,8 +29,23 @@ export default function ModelsPage() {
 
   const [search, setSearch] = useState("");
   const [filterKind, setFilterKind] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // Persist sort choice in localStorage so it sticks across reloads.
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    if (typeof window === "undefined") return "name";
+    const v = window.localStorage.getItem("crucible.models.sortKey");
+    return v === "size" || v === "tps" ? v : "name";
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    if (typeof window === "undefined") return "asc";
+    const v = window.localStorage.getItem("crucible.models.sortDir");
+    return v === "desc" ? "desc" : "asc";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("crucible.models.sortKey", sortKey);
+  }, [sortKey]);
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("crucible.models.sortDir", sortDir);
+  }, [sortDir]);
   const [paramsModelId, setParamsModelId] = useState<string | null>(null);
   const [notesModelId, setNotesModelId] = useState<string | null>(null);
   const [showGlobalParams, setShowGlobalParams] = useState(false);
