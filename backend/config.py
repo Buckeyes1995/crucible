@@ -43,6 +43,9 @@ class CrucibleConfig(BaseModel):
     mlx_studio_url: str = ""       # e.g. "http://localhost:8090" — leave blank to disable
     nodes: list[NodeConfig] = []   # remote Crucible peers
     agents: list[AgentConfig] = [] # remote agents (hermes-control, etc.)
+    # Default engine picker for MLX models when the user hasn't set a per-model
+    # preference. If empty, falls back to the first entry in ENGINES_BY_KIND[kind].
+    default_mlx_engine: str = ""
 
 
 def load_config() -> CrucibleConfig:

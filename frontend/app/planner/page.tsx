@@ -90,18 +90,18 @@ export default function PlannerPage() {
           ) : (
             <div className="space-y-3">
               <div className={cn(
-                "rounded-lg border px-3 py-3 flex items-start gap-2",
+                "rounded-lg border px-4 py-4 flex items-start gap-3",
                 plan.fits ? "border-emerald-500/30 bg-emerald-900/20 text-emerald-200"
                           : "border-red-500/40 bg-red-950/30 text-red-200",
               )}>
-                {plan.fits ? <Check className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+                {plan.fits ? <Check className="w-6 h-6 mt-0.5 shrink-0" /> : <AlertTriangle className="w-6 h-6 mt-0.5 shrink-0" />}
                 <div>
-                  <div className="text-sm font-semibold">
+                  <div className="text-xl font-bold leading-tight">
                     {plan.fits
                       ? `Fits — ${formatBytes(Math.max(0, plan.headroom_bytes))} headroom`
                       : `Over by ${formatBytes(Math.abs(plan.headroom_bytes))}`}
                   </div>
-                  <div className="text-[11px] mt-0.5 opacity-80">
+                  <div className="text-[12px] mt-1 opacity-80">
                     {formatBytes(plan.required_bytes)} needed · {formatBytes(plan.budget_bytes)} budget
                   </div>
                 </div>
@@ -115,9 +115,13 @@ export default function PlannerPage() {
                 <div className="flex justify-between"><span>Per-model overhead</span><span>{formatBytes(plan.overhead_per_model_bytes)}</span></div>
               </div>
 
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5 mt-3">Selection</h3>
-                <ul className="text-[11px] text-zinc-400 space-y-1">
+              <details className="group">
+                <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300 select-none flex items-center justify-between">
+                  <span>Selection ({plan.models.length})</span>
+                  <span className="text-zinc-600 group-open:hidden">show</span>
+                  <span className="text-zinc-600 hidden group-open:inline">hide</span>
+                </summary>
+                <ul className="text-[10px] text-zinc-400 space-y-0.5 mt-1.5">
                   {plan.models.map((m) => (
                     <li key={m.id} className="flex justify-between gap-2">
                       <span className="truncate">{m.name}</span>
@@ -125,11 +129,11 @@ export default function PlannerPage() {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
 
               <p className="text-[10px] text-zinc-600 leading-relaxed pt-2 border-t border-white/[0.04]">
                 Per-model overhead is a rough KV-cache + activations estimate. Actual resident size
-                can be slightly lower if weights page-in lazily; don't trust the headroom below ~1 GB.
+                can be slightly lower if weights page-in lazily; don&apos;t trust the headroom below ~1 GB.
               </p>
             </div>
           )}

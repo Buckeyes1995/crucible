@@ -68,6 +68,19 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <Field label="Python path (must have mlx_lm installed)" value={draft.mlx_python} onChange={(v) => set("mlx_python", v)} />
           <Field label="Port" value={String(draft.mlx_port)} onChange={(v) => set("mlx_port", parseInt(v) || 8010)} type="number" />
+          <div className="space-y-1">
+            <label className="block text-xs text-zinc-400">Default engine for MLX models</label>
+            <select
+              value={draft.default_mlx_engine ?? ""}
+              onChange={(e) => set("default_mlx_engine", e.target.value)}
+              className="w-full bg-zinc-900 border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-100"
+            >
+              <option value="">Auto (omlx if available)</option>
+              <option value="omlx">oMLX</option>
+              <option value="mlx_lm">mlx_lm.server</option>
+            </select>
+            <p className="text-[11px] text-zinc-500">Used when a model doesn&apos;t have its own preferred engine set. Per-model overrides always win.</p>
+          </div>
         </CardContent>
       </Card>
 

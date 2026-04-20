@@ -14,6 +14,7 @@ from routers import (
     admin,
     agents,
     api_keys,
+    auto_bench as auto_bench_router,
     arena,
     backup,
     badges,
@@ -66,6 +67,7 @@ from routers import (
     recommender_api,
     recommender_v2,
     recovery,
+    reddit as reddit_router,
     router_replay,
     response_cache,
     rss,
@@ -256,6 +258,8 @@ app.include_router(agents.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
 app.include_router(store_router.router, prefix="/api")
 app.include_router(snippets_router.router, prefix="/api")
+app.include_router(auto_bench_router.router, prefix="/api")
+app.include_router(reddit_router.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(models.router, prefix="/api")

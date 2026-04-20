@@ -102,14 +102,19 @@ async def refresh_models(request: Request) -> list[ModelEntry]:
     return _annotate_hidden(request.app.state.registry.all())
 
 
-def _resolve_engine(model: ModelEntry, override: str | None) -> str:
-    """Pick which engine to use. Override wins; else preferred_engine; else first available."""
+def _resolve_engine(model: ModelEntry, override: str | None, config=None) -> str:
+    """Pick which engine to use. Priority: override > per-model preference >
+    global default (from config for mlx kind) > first available."""
     available = ENGINES_BY_KIND.get(model.kind, [])
     if override and override in available:
         return override
     pref = model_notes.get_note(model.id).get("preferred_engine")
     if pref and pref in available:
         return pref
+    if config is not None and model.kind == "mlx":
+        global_default = getattr(config, "default_mlx_engine", "") or ""
+        if global_default and global_default in available:
+            return global_default
     return available[0] if available else model.kind
 
 
@@ -227,7 +232,7 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
         raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
 
     engine_override = request.query_params.get("engine")
-    engine = _resolve_engine(model, engine_override)
+    engine = _resolve_engine(model, engine_override, request.app.state.config)
 
     async def _stream():
         # Stop any currently running adapter
@@ -284,7 +289,7 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
         raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
 
     engine_override = request.query_params.get("engine")
-    engine = _resolve_engine(model, engine_override)
+    engine = _resolve_engine(model, engine_override, request.app.state.config)
 
     async def _stream():
         # Stop any currently running compare adapter

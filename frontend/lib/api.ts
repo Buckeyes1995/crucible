@@ -217,6 +217,7 @@ export type CrucibleConfig = {
   bind_host: string;
   api_key: string;
   nodes: NodeConfig[];
+  default_mlx_engine?: string;  // "" | "omlx" | "mlx_lm"
 };
 
 export type HFSearchResult = {
@@ -532,6 +533,7 @@ export const api = {
   recovery: {
     check: () => get<{ available: boolean; snapshot: { model_id: string; engine: string | null; loaded_at: number; started_at?: number } | null }>("/recovery"),
     dismiss: () => post<{ status: string }>("/recovery/dismiss"),
+    cleanRestore: () => post<{ status: string; downloads_cleared: number }>("/recovery/clean-restore"),
   },
   disk: {
     summary: () => get<{

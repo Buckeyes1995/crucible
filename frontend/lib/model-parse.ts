@@ -32,15 +32,17 @@ const VARIANT_KEYWORDS = [
 
 // Param size: "30B", "7B", "4b", "20b", "122B", and MoE "A3B" / "A10B"
 const PARAMS_RE = /\b(\d+\.?\d*)([BMbm])(?:-A(\d+\.?\d*)([BMbm]))?\b/;
-// Quant forms: "4bit", "6bit", "Q8_0", "Q4_K_M", "MXFP4", "mxfp8", "FP8"
-// Ordered: weight-quant styles first (bit, MXFP, FP), then GGUF cache-quant
-// suffix (Q\d) last — for "MXFP4-Q8" the weight quant MXFP4 is what users care
-// about, not the Q8 KV cache.
+// Quant forms: "4bit", "6bit", "Q8_0", "Q4_K_M", "MXFP4", "mxfp8", "FP8",
+// "int4". Ordered: weight-quant styles first (bit, MXFP, FP, int), then
+// GGUF cache-quant suffix (Q\d) last — for "MXFP4-Q8" the weight quant
+// MXFP4 is what users care about, not the Q8 KV cache.
 const QUANT_RES = [
   /\b(\d+)\s*bit\b/i,
   /\b(MXFP\d+)\b/i,
   /\b(FP\d+)\b/i,
-  /\b(Q\d+(?:_[0-9A-Z]+)?)\b/,
+  /\b(int\d+)\b/i,
+  // Allow multiple _SUFFIX chunks so "Q4_K_M" and similar match in full.
+  /\b(Q\d+(?:_[0-9A-Z]+){0,3})\b/,
 ];
 
 function titleCase(s: string): string {
@@ -97,7 +99,15 @@ export function parseModelName(name: string, fallbackQuant?: string | null): Par
     for (const re of QUANT_RES) {
       const m = cleaned.match(re);
       if (m) {
-        quant = m[0].toLowerCase().includes("bit") ? `${m[1]}bit` : m[1];
+        const raw = m[1];
+        // Normalize casing per scheme so chips read consistently regardless
+        // of whether the directory used UPPER, lower, or MiXeD conventions.
+        if (/^mxfp/i.test(raw)) quant = raw.toUpperCase();
+        else if (/^fp/i.test(raw) && !/^fpga/i.test(raw)) quant = raw.toUpperCase();
+        else if (/^int/i.test(raw)) quant = raw.toLowerCase();
+        else if (/^q\d/i.test(raw)) quant = raw.toUpperCase();
+        else if (/bit$/i.test(m[0])) quant = `${raw}bit`;
+        else quant = raw;
         break;
       }
     }

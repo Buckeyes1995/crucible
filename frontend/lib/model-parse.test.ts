@@ -46,6 +46,59 @@ const CASES: Case[] = [
   // Odd-ball — no canonical family prefix
   { name: "MiniMax-M2.7-JANG_2L",
     expect: { family: "MiniMax-M2.7", params: null, variant: null, quant: null } },
+
+  // ── Expanded coverage: more Qwen3 / Qwen3.5 / Qwen3.6 variants ───────────
+  { name: "Qwen3.6-35B-A3B-mlx-mxfp8",
+    expect: { family: "Qwen3.6", params: "35B·A3B", quant: "MXFP8" } },
+  { name: "Qwen3.6-35B-A3B-MLX-8bit",
+    expect: { family: "Qwen3.6", params: "35B·A3B", quant: "8bit" } },
+  { name: "Qwen3.6-35B-A3B-4bit",
+    expect: { family: "Qwen3.6", params: "35B·A3B", quant: "4bit" } },
+  { name: "Qwen3.5-27B-4bit",
+    expect: { family: "Qwen3.5", params: "27B", quant: "4bit" } },
+  { name: "Qwen3.5-VL-4B-8bit-MLX-CRACK",
+    expect: { family: "Qwen3.5", params: "4B", variant: "VL", quant: "8bit" } },
+  { name: "Qwen3-Coder-Next-MLX-4bit",
+    expect: { family: "Qwen3", variant: "Coder", quant: "4bit" } },
+  { name: "Qwen3-Coder-30B-A3B-DFlash",
+    // A3B suffix sticks to params; DFlash tagged as variant — it's a draft model.
+    expect: { family: "Qwen3", params: "30B·A3B", variant: "Coder" } },
+  { name: "Qwen3.5-35B-A3B-DFlash",
+    expect: { family: "Qwen3.5", params: "35B·A3B" } },
+
+  // Llama / Mistral / Phi — common public model families that people drop
+  // into the MLX dir. Parser should identify the family + params + quant.
+  { name: "Llama-3.2-8B-Instruct-MLX-4bit",
+    expect: { family: "Llama-3.2", params: "8B", variant: "Instruct", quant: "4bit" } },
+  { name: "Llama-3.3-70B-Instruct-MLX-4bit",
+    expect: { family: "Llama-3.3", params: "70B", variant: "Instruct", quant: "4bit" } },
+  { name: "Mistral-7B-Instruct-v0.3-MLX-4bit",
+    expect: { family: "Mistral", params: "7B", variant: "Instruct", quant: "4bit" } },
+  { name: "Phi-3.5-mini-Instruct-MLX-4bit",
+    expect: { family: "Phi-3.5", variant: "Instruct", quant: "4bit" } },
+
+  // GGUF — naming tends to be lowercase with underscores, different quant tag.
+  { name: "Qwen3.5-9B-Q6_K",
+    expect: { family: "Qwen3.5", params: "9B", quant: "Q6_K" } },
+  { name: "Qwen2.5-Coder-7B-Instruct-Q4_K_M",
+    expect: { family: "Qwen2.5", params: "7B", variant: "Coder", quant: "Q4_K_M" } },
+  // Parser normalizes family to title-case on first letter — lowercase input
+  // comes through as "Llama-3.2".
+  { name: "llama-3.2-3b-instruct-Q8_0",
+    expect: { family: "Llama-3.2", params: "3B", variant: "Instruct", quant: "Q8_0" } },
+
+  // int-prefix quant — rare but showed up on older MLX releases.
+  { name: "SomeModel-8B-int4",
+    expect: { family: "SomeModel", params: "8B", quant: "int4" } },
+
+  // Multi-quant ambiguity — prefer the most specific. MXFP-style wins over
+  // generic bit-count because it encodes the underlying scheme.
+  { name: "gpt-oss-20b-MXFP4",
+    expect: { family: "gpt-oss", params: "20B", quant: "MXFP4" } },
+
+  // Family with a version dot but no micro — e.g. `Qwen2` without minor.
+  { name: "Qwen2-7B-Instruct-Q4_K_M",
+    expect: { family: "Qwen2", params: "7B", variant: "Instruct", quant: "Q4_K_M" } },
 ];
 
 // fallbackQuant path — parser should prefer the passed-in quant over any

@@ -15,6 +15,7 @@ export function RecoveryBanner() {
   const [snap, setSnap] = useState<Snap | null>(null);
   const [dismissing, setDismissing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
   const loadModel = useModelsStore((s) => s.loadModel);
 
   useEffect(() => {
@@ -66,6 +67,26 @@ export function RecoveryBanner() {
         className="px-2.5 py-1 rounded bg-amber-500/30 hover:bg-amber-500/40 text-amber-50 text-xs font-medium transition-colors"
       >
         {restoring ? "Restoring…" : "Restore"}
+      </button>
+      <button
+        onClick={async () => {
+          if (!confirm("Clean start? Clears the recovery snapshot and wipes finished-download history. Chat history and benchmark data are kept.")) return;
+          setCleaning(true);
+          try {
+            const r = await api.recovery.cleanRestore();
+            toast(`Clean start — ${r.downloads_cleared} download${r.downloads_cleared === 1 ? "" : "s"} removed from history`, "success");
+            setSnap(null);
+          } catch (e) {
+            toast(`Clean start failed: ${(e as Error).message}`, "error");
+          } finally {
+            setCleaning(false);
+          }
+        }}
+        disabled={cleaning}
+        className="px-2.5 py-1 rounded border border-amber-400/40 text-amber-100 hover:bg-amber-500/20 text-xs font-medium transition-colors"
+        title="Forget previous session entirely — keeps chat + benchmarks, wipes download history"
+      >
+        {cleaning ? "Wiping…" : "Clean start"}
       </button>
       <button
         onClick={dismiss}
