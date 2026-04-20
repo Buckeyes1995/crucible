@@ -30,6 +30,53 @@ export const CAPABILITY_TAXONOMY = [
 ] as const;
 export type Capability = typeof CAPABILITY_TAXONOMY[number];
 
+// ── Store catalog ──────────────────────────────────────────────────────────
+
+export type StoreModel = {
+  id: string; name: string; repo_id: string; kind: string;
+  size_gb?: number; description?: string; tags?: string[]; featured?: boolean;
+};
+export type StorePrompt = {
+  id: string; name: string; description?: string; content: string;
+  tags?: string[]; featured?: boolean;
+};
+export type StoreWorkflow = {
+  id: string; name: string; description?: string; agent: string;
+  template: string; skills?: string[]; max_turns?: number;
+  tags?: string[]; featured?: boolean;
+};
+export type StoreSystemPrompt = {
+  id: string; name: string; description?: string; content: string;
+  category?: string; tags?: string[]; featured?: boolean;
+};
+export type StoreMcpParam = {
+  name: string; description?: string; required?: boolean;
+  default?: string; secret?: boolean;
+};
+export type StoreMcp = {
+  id: string; name: string; description?: string;
+  runtime?: string; command: string; args: string[];
+  env: Record<string, string>;
+  config_params?: StoreMcpParam[];
+  repo?: string; tags?: string[]; featured?: boolean;
+};
+export type StoreCatalog = {
+  version?: number; updated_at?: string;
+  models: StoreModel[];
+  prompts: StorePrompt[];
+  workflows: StoreWorkflow[];
+  system_prompts: StoreSystemPrompt[];
+  mcps: StoreMcp[];
+};
+export type StoreInstalled = {
+  models: string[]; prompts: string[]; workflows: string[];
+  system_prompts: string[]; mcps: string[];
+};
+export type InstalledMcp = {
+  id: string; name: string; command: string; args: string[];
+  env: Record<string, string>; source: string; installed_at: number;
+};
+
 export type ChatMessage = { role: string; content: string };
 
 export type BenchmarkPrompt = {
@@ -481,6 +528,23 @@ export const api = {
         status: string; exit_code: number | null; timed_out: boolean;
         elapsed_s: number; stdout: string; stderr: string; runner: string;
       }>("/output/run", body),
+  },
+  store: {
+    catalog: () => get<StoreCatalog>("/store/catalog"),
+    refresh: () => post<StoreCatalog>("/store/refresh"),
+    installed: () => get<StoreInstalled>("/store/installed"),
+    installPrompt: (id: string) =>
+      post<{ status: string }>("/store/install/prompt", { id }),
+    installWorkflow: (id: string) =>
+      post<{ status: string }>("/store/install/workflow", { id }),
+    installSystemPrompt: (id: string) =>
+      post<{ status: string }>("/store/install/system-prompt", { id }),
+    installMcp: (id: string, values: Record<string, string>) =>
+      post<{ status: string; mcp: InstalledMcp }>("/store/install/mcp", { id, values }),
+    uninstallMcp: (id: string) =>
+      del<{ status: string }>(`/store/install/mcp/${encodeURIComponent(id)}`),
+    installModel: (id: string) =>
+      post<{ status: string; job_id: string; repo_id: string }>("/store/install/model", { id }),
   },
   dflash: {
     get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),

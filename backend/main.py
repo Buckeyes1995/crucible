@@ -73,6 +73,7 @@ from routers import (
     settings,
     smart_router_api,
     status,
+    store as store_router,
     structured_output,
     telemetry as telemetry_router,
     system_prompts,
@@ -247,6 +248,7 @@ app.include_router(proxy.router)  # OpenAI-compatible proxy at /v1/*
 app.include_router(admin.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
+app.include_router(store_router.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(models.router, prefix="/api")

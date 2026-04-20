@@ -71,7 +71,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/agents", label: "Agents", icon: <Bot className="w-4 h-4" /> },
       { href: "/groups", label: "Groups", icon: <FolderOpen className="w-4 h-4" /> },
-      { href: "/downloads", label: "Downloads", icon: <Download className="w-4 h-4" /> },
+      { href: "/store", label: "Store", icon: <Download className="w-4 h-4" /> },
       { href: "/schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },
       { href: "/finetune", label: "Fine-tune", icon: <Wrench className="w-4 h-4" /> },
       { href: "/recommender", label: "Recommender", icon: <Sparkles className="w-4 h-4" /> },
