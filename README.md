@@ -487,7 +487,12 @@ Key conventions:
 - [`docs/API.md`](docs/API.md) — full endpoint reference
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
 - [`docs/HERMES_INTEGRATION.md`](docs/HERMES_INTEGRATION.md) — hermes-agent setup via hermes-control sidecar
-- [`docs/OVERNIGHT_TEST_PLAN.md`](docs/OVERNIGHT_TEST_PLAN.md) — walkthrough of every feature
+- [`docs/OVERNIGHT_TEST_PLAN.md`](docs/OVERNIGHT_TEST_PLAN.md) — earlier walkthrough
+- [`docs/TEST_PLAN_2026_04_20.md`](docs/TEST_PLAN_2026_04_20.md) — latest test plan (2026-04-19 untested + 2026-04-20 additions)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — first 50-item roadmap (most shipped)
+- [`docs/ROADMAP_V2.md`](docs/ROADMAP_V2.md) — next 50 ideas
+- [`docs/DEFERRED.md`](docs/DEFERRED.md) — scoping notes for larger deferred features
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
 - [`docs/MLX_STUDIO_INTEGRATION.md`](docs/MLX_STUDIO_INTEGRATION.md) — MLX Studio integration notes
 
 ---

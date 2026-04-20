@@ -69,15 +69,58 @@ theme so it's easier to pick a cohesive bundle.
 
 ---
 
-## Top 10 shipping tonight
+## Top 10 shipped on 2026-04-19
 
-1. Chat slash commands
-2. Regenerate from here
-3. Chat export (Markdown / JSON)
-4. System prompt quick-switch above chat input
-5. Inline JSON / CSV / table rendering
-6. Snippet library (pin + `/snippets` page)
-7. Multi-file tree preview before saving code
-8. Model family grouping
-9. Deprecation flags with replacement hint
-10. Token budget meter
+1. ✅ Chat slash commands
+2. ✅ Regenerate from here
+3. ✅ Chat export (Markdown / JSON)
+4. ✅ System prompt quick-switch above chat input
+5. ✅ Inline JSON / CSV / table rendering
+6. ✅ Snippet library (pin + `/snippets` page)
+7. ✅ Multi-file tree preview before saving code
+8. ✅ Model family grouping
+9. ✅ Deprecation flags with replacement hint
+10. ✅ Token budget meter
+
+## Shipped 2026-04-20 (backend + minimal UI where noted)
+
+7. ✅ Message edit + branch — chat store + inline editor.
+9. ✅ Conversation search — `/api/chat/search`.
+11. ✅ Snippet library — ship-date 2026-04-19 (see above).
+12. ✅ Multi-file tree preview — ship-date 2026-04-19.
+13. Arena diff view — backend share endpoint lands; diff-view UI pending.
+15. ✅ Git-aware prompts — `/api/git/context`.
+16. ✅ Snippet → gist — `/api/gists`.
+17. ✅ Clipboard import — covered by existing templates paste.
+18. ✅ Reading-level — `/api/textutil/reading-level`.
+19. ✅ Model family grouping — ship-date 2026-04-19.
+20. ✅ Deprecation flags — ship-date 2026-04-19.
+21. ✅ Quantization advisor — `/api/quant-advisor`.
+23. ✅ Wishlist / ghost models — `/api/wishlist`.
+25. ✅ Cold-load predictor — `/api/load-timings/predict`.
+26. ✅ Per-model changelog — `/api/models/{id}/changelog`.
+27. ✅ Folder pinning — `/api/folder-pins`.
+28. ✅ Cross-model eval matrix — user-eval merge shipped; matrix UI pending.
+30. ✅ Param sweep — `/api/param-sweep`.
+32. ✅ User-uploaded evals — drop JSONL under `~/.config/crucible/evals/`.
+33. ✅ Arena share link — `/arena/share/<id>`.
+36. ✅ Model chaining — `/api/chain/run`.
+38. ✅ Image input for VLMs — `/api/vision/describe`.
+41. ✅ Log viewer — `/logs` page with SSE tail -F.
+42. ✅ Process-tree dashboard — `/ops`.
+43. ✅ Error taxonomy — `/api/errors/classify`.
+44. ✅ Rate limiting `/v1` — token bucket on /v1/chat/completions.
+45. ✅ Usage tracker — `/usage` page.
+46. ✅ Cron workflows — `/api/cron-workflows` + poller.
+47. ✅ Notification routes — `/api/notification-routes` + dispatcher.
+48. ✅ Battery-saver schedules.
+49. ✅ Auto-restart — `/api/ops/auto-restart`.
+50. ✅ Remote rsync backup — `/api/backup/rsync`.
+
+### Deferred to follow-up passes
+Items requiring larger scoping — see [`DEFERRED.md`](DEFERRED.md).
+
+10 (voice input), 14 (REPL panel), 35 (MCP chat integration), 37 (hermes skill browser), 39 (RAG per-doc configs), 40 (hybrid retrieval).
+
+### Still open (small)
+22 (one-click quant convert), 24 (featurize button), 29 (regression alerts), 31 (speed-context chart — NIAH covers it today), 34 (leaderboard filters — backend ready via norm_mode), 91+ covered in ROADMAP v2.

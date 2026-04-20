@@ -1,5 +1,61 @@
 # Changelog
 
+## 2026-04-20 — Overnight
+
+Completed the pending 2026-04-18 TODO list, shipped backends / minimal UIs
+for 20+ items from [docs/ROADMAP.md](docs/ROADMAP.md), added a 50-item
+[ROADMAP v2](docs/ROADMAP_V2.md), wrote a
+[TEST_PLAN](docs/TEST_PLAN_2026_04_20.md) covering yesterday's untested
+features and today's additions, and captured scoping notes for items that
+need more than a day in [DEFERRED.md](docs/DEFERRED.md).
+
+### Old backlog completed
+- **Global default MLX engine** — Settings picker, plumbed through the engine resolver, per-model preferences still win.
+- **HumanEval prompt side pane** — toggleable drawer alongside the results table with the full problem text.
+- **/planner polish** — Selection list collapsed by default; Plan headline bumped to `text-xl` for across-the-room reading.
+- **Model-parse tests expanded** — 17 new real-library cases (Llama-3.x, Phi-3.5, Q4_K_M, int4, MXFP8). Parser gained int4 + multi-underscore Q-suffix + consistent quant casing. 112/112.
+- **Recovery: Clean start** — third button on the recovery banner that also wipes completed download history.
+- **Auto-bench manual trigger** — `/api/auto-bench/trigger` re-benchmarks any existing model without requiring a fresh download.
+- **Reddit LLM watcher** — full scaffold: config, candidate-post fetch from public `r/{sub}/new.json`, per-post draft generation via the active MLX model, `pending / approved / rejected / posted` workflow on `/reddit`. Never auto-posts.
+
+### Roadmap v1 shipped
+- **Gists (#16)** — `/api/gists` CRUD + raw view for local markdown sharing.
+- **Reading-level (#18)** — `/api/textutil/reading-level` (Flesch–Kincaid).
+- **Quantization advisor (#21)** — `/api/quant-advisor` returns best-fit quant for (param count, RAM budget).
+- **Wishlist (#23)** — track HF repos you haven't downloaded yet via `/api/wishlist`.
+- **Cold-load predictor (#25)** — `/api/load-timings` + per-load hook records elapsed_ms; `/predict` returns median or size-based estimate.
+- **Per-model changelog (#26)** — `/api/models/{id}/changelog` fetches recent HF commits, 6h cached.
+- **Folder pinning (#27)** — `/api/folder-pins` + `/resolve?cwd=` for "when I chat from $repo, default to $model".
+- **Cross-model eval matrix (#28)** — `eval_suite.all_items()` picks up user-dropped JSONL under `~/.config/crucible/evals/`.
+- **Param sweep optimizer (#30)** — `/api/param-sweep` grid-searches temperature × top_p.
+- **User-uploaded evals (#32)** — drop JSONL rows under `~/.config/crucible/evals/`; they merge into the suite.
+- **Arena share link (#33)** — `/arena/share/<id>` renders a public read-only view of any voted battle.
+- **Model chaining (#36)** — `/api/chain/run` pipes output through N steps, unloading between each.
+- **Image input for VLMs (#38)** — `/api/vision/describe` accepts an upload, wraps into OpenAI `image_url` format.
+- **Log viewer /logs (#41)** — live `tail -F` via SSE across Crucible / oMLX / frontend logs.
+- **Ops dashboard /ops (#42)** — process tree of tracked backends with per-service restart buttons and auto-restart policy.
+- **Usage tracker /usage (#45)** — per-day / per-hashed-caller token counts; auto-captured in the `/v1` proxy.
+- **Cron workflows (#46)** — `/api/cron-workflows` CRUD + background poller firing matching schedules every minute.
+- **Notification routes (#47)** — `/api/notification-routes` CRUD + dispatcher for Slack / Discord / raw webhook kinds.
+- **Battery-saver schedules (#48)** — new `battery_saver` flag skips rules when `pmset` reports we're not on AC.
+- **Auto-restart policy (#49)** — `/api/ops/auto-restart` + `/run-restart/{name}` for operator-initiated service kicks.
+- **Remote rsync backup (#50)** — `/api/backup/rsync` pushes `~/.config/crucible/` to a user-supplied destination.
+- **Message edit & branch (#7)** — per-user-turn action forks the conversation with a new edited message.
+- **Conversation search (#9)** — `/api/chat/search?q=` full-text across chat history.
+- **Error taxonomy (#43)** — `/api/errors/classify` buckets a raw error into actionable categories.
+- **Rate limiting (#44)** — per-hashed-key token bucket on `/v1/chat/completions`, tunable via `/api/rate-limits`.
+
+### Documentation
+- [docs/ROADMAP_V2.md](docs/ROADMAP_V2.md) — next 50 ideas, grouped by theme.
+- [docs/TEST_PLAN_2026_04_20.md](docs/TEST_PLAN_2026_04_20.md) — T1–T31 for today plus Y1–Y14 for yesterday's untested items.
+- [docs/DEFERRED.md](docs/DEFERRED.md) — scoping notes for voice input, REPL panel, MCP chat integration, hermes skill browser, per-doc RAG, hybrid retrieval.
+
+### Known constraints
+- Many of today's features shipped as backend endpoints without dedicated frontend pages (eg quant advisor, reading-level, folder pins, wishlist, changelogs, param sweep, chain). The API is stable and documented; UI pages are fair game for the next pass.
+- Batch inference against multiple models sequentially will need the usage tracker hook to route through proxy or the ensemble/chain paths for per-call counts — right now usage is only tallied when callers hit `/v1/chat/completions`.
+
+---
+
 ## 2026-04-18 — Overnight + morning pass
 
 ### Added
