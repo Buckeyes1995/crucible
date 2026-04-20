@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 import store
 import mcps
+import mcp_host
 import prompt_templates
 import workflows_store as _wf  # shim module defined below
 
@@ -29,6 +30,61 @@ async def get_catalog() -> dict[str, Any]:
 @router.post("/store/refresh")
 async def refresh_catalog() -> dict[str, Any]:
     return await store.get_catalog(force=True)
+
+
+@router.get("/store/installed-detail")
+async def installed_detail(request: Request) -> dict[str, Any]:
+    """Full content of everything installed, grouped by kind — what the
+    Installed tab renders. Unlike /installed, this includes items the user
+    added manually outside the catalog (e.g. a locally-written prompt)."""
+    from routers import system_prompts as sp
+
+    # Prompts
+    prompts = [
+        {"id": p.get("id"), "name": p.get("name"), "description": p.get("description"),
+         "content": p.get("content"), "created_at": p.get("created_at")}
+        for p in prompt_templates.list_templates()
+    ]
+
+    # Workflows
+    wfs = [
+        {"id": w.get("id"), "name": w.get("name"), "description": w.get("description"),
+         "agent": w.get("agent"), "template": w.get("template"),
+         "skills": w.get("skills", []), "placeholders": w.get("placeholders", []),
+         "run_count": w.get("run_count", 0), "created_at": w.get("created_at")}
+        for w in _wf.list_workflows()
+    ]
+
+    # System prompts — custom only (built-ins are not user-owned)
+    sys_prompts = [
+        {"id": p.get("id"), "name": p.get("name"), "category": p.get("category"),
+         "content": p.get("content")}
+        for p in sp._load() if not p.get("builtin")
+    ]
+
+    # MCPs — everything in the registry (whether from catalog or not)
+    installed_mcps = mcps.list_installed()
+
+    # Models — from the live registry. Mark origin = "local" or "remote" and
+    # include the path so the Installed tab can offer delete-from-disk.
+    registry = getattr(request.app.state, "registry", None)
+    models = []
+    if registry is not None:
+        for m in registry.all():
+            if m.node == "local":
+                models.append({
+                    "id": m.id, "name": m.name, "kind": m.kind,
+                    "path": m.path, "size_bytes": m.size_bytes,
+                    "avg_tps": m.avg_tps, "last_loaded": m.last_loaded,
+                })
+
+    return {
+        "prompts": prompts,
+        "workflows": wfs,
+        "system_prompts": sys_prompts,
+        "mcps": installed_mcps,
+        "models": models,
+    }
 
 
 @router.get("/store/installed")
@@ -180,9 +236,73 @@ async def uninstall_mcp(mcp_id: str) -> dict[str, str]:
     return {"status": "uninstalled"}
 
 
+@router.delete("/store/install/prompt/{template_id}")
+async def uninstall_prompt(template_id: str) -> dict[str, str]:
+    if not prompt_templates.delete_template(template_id):
+        raise HTTPException(404, "prompt not found")
+    return {"status": "uninstalled"}
+
+
+@router.delete("/store/install/workflow/{wf_id}")
+async def uninstall_workflow(wf_id: str) -> dict[str, str]:
+    items = _wf._load()
+    new = [w for w in items if w.get("id") != wf_id]
+    if len(new) == len(items):
+        raise HTTPException(404, "workflow not found")
+    _wf._save(new)
+    return {"status": "uninstalled"}
+
+
+@router.delete("/store/install/system-prompt/{prompt_id}")
+async def uninstall_system_prompt(prompt_id: str) -> dict[str, str]:
+    from routers import system_prompts as sp
+    custom = [p for p in sp._load() if not p.get("builtin")]
+    new = [p for p in custom if p.get("id") != prompt_id]
+    if len(new) == len(custom):
+        raise HTTPException(404, "system prompt not found")
+    sp._save(new)
+    return {"status": "uninstalled"}
+
+
 @router.get("/store/mcps/installed")
 async def mcps_installed() -> list[dict]:
     return mcps.list_installed()
+
+
+# ── MCP host: live subprocess per installed MCP ────────────────────────────
+
+@router.get("/mcp/{mcp_id}/tools")
+async def mcp_tools(mcp_id: str, force: bool = False) -> dict[str, Any]:
+    try:
+        tools = await mcp_host.list_tools(mcp_id, force=force)
+    except mcp_host.MCPError as e:
+        raise HTTPException(400, str(e))
+    return {"tools": tools}
+
+
+class McpCallRequest(BaseModel):
+    tool: str
+    arguments: dict[str, Any] = {}
+
+
+@router.post("/mcp/{mcp_id}/call")
+async def mcp_call(mcp_id: str, body: McpCallRequest) -> dict[str, Any]:
+    try:
+        result = await mcp_host.call_tool(mcp_id, body.tool, body.arguments)
+    except mcp_host.MCPError as e:
+        raise HTTPException(400, str(e))
+    return {"result": result}
+
+
+@router.post("/mcp/{mcp_id}/stop")
+async def mcp_stop(mcp_id: str) -> dict[str, Any]:
+    stopped = await mcp_host.stop(mcp_id)
+    return {"stopped": stopped}
+
+
+@router.get("/mcp/status")
+async def mcp_status() -> list[dict]:
+    return mcp_host.status()
 
 
 # ── Install: models ────────────────────────────────────────────────────────

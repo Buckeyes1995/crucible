@@ -76,6 +76,26 @@ export type InstalledMcp = {
   id: string; name: string; command: string; args: string[];
   env: Record<string, string>; source: string; installed_at: number;
 };
+export type InstalledDetail = {
+  prompts: { id: string; name: string; description?: string; content: string; created_at?: string }[];
+  workflows: { id: string; name: string; description?: string; agent: string; template: string; skills: string[]; placeholders: string[]; run_count: number; created_at?: string }[];
+  system_prompts: { id: string; name: string; category?: string; content: string }[];
+  mcps: InstalledMcp[];
+  models: { id: string; name: string; kind: string; path?: string; size_bytes?: number; avg_tps?: number; last_loaded?: string }[];
+};
+export type McpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: { type?: string; properties?: Record<string, { type?: string; description?: string }>; required?: string[] };
+};
+export type McpCallResult = {
+  content?: { type: string; text?: string }[];
+  isError?: boolean;
+  [k: string]: unknown;
+};
+export type McpHostStatus = {
+  mcp_id: string; running: boolean; idle_seconds: number | null; tools_cached: number;
+};
 
 export type ChatMessage = { role: string; content: string };
 
@@ -543,8 +563,24 @@ export const api = {
       post<{ status: string; mcp: InstalledMcp }>("/store/install/mcp", { id, values }),
     uninstallMcp: (id: string) =>
       del<{ status: string }>(`/store/install/mcp/${encodeURIComponent(id)}`),
+    uninstallPrompt: (id: string) =>
+      del<{ status: string }>(`/store/install/prompt/${encodeURIComponent(id)}`),
+    uninstallWorkflow: (id: string) =>
+      del<{ status: string }>(`/store/install/workflow/${encodeURIComponent(id)}`),
+    uninstallSystemPrompt: (id: string) =>
+      del<{ status: string }>(`/store/install/system-prompt/${encodeURIComponent(id)}`),
     installModel: (id: string) =>
       post<{ status: string; job_id: string; repo_id: string }>("/store/install/model", { id }),
+    installedDetail: () => get<InstalledDetail>("/store/installed-detail"),
+  },
+  mcp: {
+    tools: (mcpId: string, force = false) =>
+      get<{ tools: McpTool[] }>(`/mcp/${encodeURIComponent(mcpId)}/tools${force ? "?force=true" : ""}`),
+    call: (mcpId: string, tool: string, args: Record<string, unknown>) =>
+      post<{ result: McpCallResult }>(`/mcp/${encodeURIComponent(mcpId)}/call`, { tool, arguments: args }),
+    stop: (mcpId: string) =>
+      post<{ stopped: boolean }>(`/mcp/${encodeURIComponent(mcpId)}/stop`, {}),
+    status: () => get<McpHostStatus[]>("/mcp/status"),
   },
   dflash: {
     get: (id: string) => get<DFlashStatus>(`/models/${encodeURIComponent(id)}/dflash`),

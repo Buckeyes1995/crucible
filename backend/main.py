@@ -213,6 +213,11 @@ async def lifespan(app: FastAPI):
         await app.state.active_adapter.stop()
     if app.state.compare_adapter:
         await app.state.compare_adapter.stop()
+    try:
+        import mcp_host
+        await mcp_host.stop_all()
+    except Exception:
+        pass
     session_persist.mark_clean_shutdown()
 
 
