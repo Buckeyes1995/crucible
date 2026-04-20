@@ -264,6 +264,14 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
                 except Exception:
                     pass
                 try:
+                    import model_extras
+                    model_extras.record_load_timing(
+                        model.id, int(data.get("elapsed_ms", 0) or 0),
+                        int(model.size_bytes or 0),
+                    )
+                except Exception:
+                    pass
+                try:
                     from routers.warmth import record_load_event
                     record_load_event(model.id)
                 except Exception:

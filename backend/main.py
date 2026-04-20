@@ -57,6 +57,8 @@ from routers import (
     optimizer,
     outputs,
     mem_plan,
+    misc as misc_router,
+    ops as ops_router,
     params,
     perf_trends,
     perplexity,
@@ -86,6 +88,8 @@ from routers import (
     workflows,
     token_counter,
     uptime,
+    vision as vision_router,
+    model_chain as model_chain_router,
     webhooks,
     webhook_templates,
     hf_updates as hf_updates_router,
@@ -208,10 +212,17 @@ async def lifespan(app: FastAPI):
 
     ttl_task = asyncio.create_task(_ttl_watcher(app))
     scheduler_task = asyncio.create_task(run_scheduler(app))
+    try:
+        import cron_workflows
+        cron_task = asyncio.create_task(cron_workflows.run_loop(app))
+    except Exception:
+        cron_task = None
     yield
     # Shutdown
     ttl_task.cancel()
     scheduler_task.cancel()
+    if cron_task:
+        cron_task.cancel()
     if app.state.active_adapter:
         await app.state.active_adapter.stop()
     if app.state.compare_adapter:
@@ -260,6 +271,10 @@ app.include_router(store_router.router, prefix="/api")
 app.include_router(snippets_router.router, prefix="/api")
 app.include_router(auto_bench_router.router, prefix="/api")
 app.include_router(reddit_router.router, prefix="/api")
+app.include_router(misc_router.router, prefix="/api")
+app.include_router(ops_router.router, prefix="/api")
+app.include_router(vision_router.router, prefix="/api")
+app.include_router(model_chain_router.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(models.router, prefix="/api")

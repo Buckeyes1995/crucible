@@ -33,6 +33,10 @@ type ChatState = {
    *  to regenerate — it'll be removed, then the preceding user turn is re-sent. */
   regenerateFrom: (keepUntilIndex: number, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
   toggleBookmark: (index: number) => void;
+  /** Edit a past user message and re-run from that point. Drops everything
+   *  after index i (inclusive of the assistant turn that followed) and then
+   *  re-sends the edited content. */
+  editAndBranch: (index: number, newContent: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
 };
 
 // Fire-and-forget persistence helper. We POST to the chat-history router after
@@ -164,6 +168,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const before = msgs.slice(0, userIdx);
     set({ messages: before, stats: null, error: null });
     await get().sendMessage(userText, temperature, maxTokens, systemPrompt, ragSessionId);
+  },
+
+  editAndBranch: async (index: number, newContent: string, temperature: number,
+                        maxTokens: number, systemPrompt?: string, ragSessionId?: string) => {
+    // Only user turns are meaningfully editable for branching.
+    const msgs = get().messages;
+    if (index < 0 || index >= msgs.length || msgs[index].role !== "user") return;
+    const before = msgs.slice(0, index);
+    set({ messages: before, stats: null, error: null });
+    await get().sendMessage(newContent, temperature, maxTokens, systemPrompt, ragSessionId);
   },
 
   resumeSession: async (id: string) => {

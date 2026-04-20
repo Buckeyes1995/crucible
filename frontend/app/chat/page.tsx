@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatMs, formatTps, cn } from "@/lib/utils";
 import {
   Send, BookOpen, X, ChevronDown, Paperclip, FileText, Plus, RotateCcw,
-  Copy, Bookmark, BookmarkCheck, Pin, Download,
+  Copy, Bookmark, BookmarkCheck, Pin, Download, Edit as EditIcon,
 } from "lucide-react";
 import { api, type PromptTemplate, type SystemPromptEntry } from "@/lib/api";
 import { toast } from "@/components/Toast";
@@ -24,8 +24,10 @@ type SlashResult = { handled: boolean; message?: string };
 export default function ChatPage() {
   const {
     messages, streaming, stats, error, sendMessage, clearMessages,
-    resetStreaming, regenerateFrom, toggleBookmark,
+    resetStreaming, regenerateFrom, toggleBookmark, editAndBranch,
   } = useChatStore();
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
   const { activeModelId, models, loadModel } = useModelsStore();
 
   useEffect(() => { resetStreaming(); }, [resetStreaming]);
@@ -544,6 +546,45 @@ export default function ChatPage() {
                           />
                         </>
                       )}
+                      {!isAssistant && (
+                        <TurnAction
+                          icon={<EditIcon className="w-3 h-3" />}
+                          label="Edit & branch"
+                          onClick={() => { setEditingIndex(i); setEditingText(msg.content); }}
+                          disabled={streaming}
+                        />
+                      )}
+                    </div>
+                  )}
+                  {editingIndex === i && !isAssistant && (
+                    <div className="mt-2 rounded-xl border border-indigo-500/40 bg-indigo-950/20 p-3 space-y-2">
+                      <div className="text-[10px] uppercase tracking-wide text-indigo-300">Edit & branch</div>
+                      <textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={4}
+                        className="w-full bg-zinc-950 border border-white/[0.08] rounded px-2 py-1.5 text-xs text-zinc-200"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="xs"
+                          variant="primary"
+                          onClick={() => {
+                            const txt = editingText.trim();
+                            if (!txt) return;
+                            editAndBranch(i, txt, temperature, maxTokens,
+                              systemPrompt || undefined,
+                              ragEnabled && ragCount > 0 ? RAG_SESSION : undefined);
+                            setEditingIndex(null);
+                          }}
+                          disabled={streaming || !editingText.trim()}
+                        >Branch from here</Button>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => { setEditingIndex(null); setEditingText(""); }}
+                        >Cancel</Button>
+                      </div>
                     </div>
                   )}
                 </div>

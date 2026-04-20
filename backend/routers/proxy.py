@@ -1,9 +1,20 @@
 """OpenAI-compatible proxy — rewrites requests to the active adapter's server."""
+import hashlib
 import json
 import logging
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+
+
+def _api_key_tag(request: Request) -> str:
+    """Short stable hash of the caller's API key. Never stores the raw key —
+    gives per-caller sparklines without PII."""
+    auth = request.headers.get("authorization") or request.headers.get("x-api-key") or ""
+    token = auth.replace("Bearer ", "").strip()
+    if not token:
+        return "anonymous"
+    return "k:" + hashlib.sha1(token.encode()).hexdigest()[:10]
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -98,6 +109,17 @@ async def proxy_models(request: Request):
 @router.post("/v1/chat/completions")
 async def proxy_chat(request: Request):
     body = await request.json()
+
+    # Rate limit — best-effort, keyed off the hashed caller.
+    try:
+        import rate_limit
+        if not rate_limit.allow(_api_key_tag(request)):
+            return JSONResponse(
+                {"error": "rate limit exceeded; slow your requests"},
+                status_code=429,
+            )
+    except Exception:
+        pass
 
     # Auto-load the requested model if it's not currently active.
     # Lets opencode / Qwen Code / any OpenAI client switch models by name
@@ -211,6 +233,15 @@ async def proxy_chat(request: Request):
             t1 = time.monotonic()
             if t1 > first_token_time:
                 adapter.last_tps = round(total_tokens / (t1 - first_token_time), 2)
+
+        # Usage tracker — best-effort, anonymous key tag so we never store secrets.
+        try:
+            import usage_tracker
+            tag = _api_key_tag(request)
+            usage_tracker.record(tag, tokens_in=0, tokens_out=total_tokens,
+                                 model_id=getattr(adapter, "model_id", None))
+        except Exception:
+            pass
 
     if is_stream:
         return StreamingResponse(

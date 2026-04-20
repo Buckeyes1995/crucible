@@ -27,7 +27,7 @@ async def start(body: EvalStart, request: Request) -> dict:
     api_key = cfg.omlx_api_key
     omlx_name = _omlx_name(body.model_id, request.app.state.registry)
     job = eval_suite.start(body.model_id, omlx_name, base_url, api_key)
-    return {"job_id": job.id, "total_items": len(eval_suite.EVAL_ITEMS)}
+    return {"job_id": job.id, "total_items": len(eval_suite.all_items())}
 
 
 @router.get("/eval-suite/items")

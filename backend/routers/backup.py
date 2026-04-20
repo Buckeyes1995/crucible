@@ -1,8 +1,9 @@
 """Backup & Restore — export/import all Crucible data."""
-import json, shutil, time, zipfile, io, os
+import json, shutil, subprocess, time, zipfile, io, os
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 router = APIRouter()
 CONFIG_DIR = Path.home() / ".config" / "crucible"
@@ -14,6 +15,9 @@ BACKUP_FILES = [
     "chat_reactions.json", "bench_presets.json", "bench_schedules.json",
     "api_keys.json", "notifications.json", "response_cache.json",
     "uptime_log.json", "model_changelog.json", "auto_bench_results.json",
+    "snippets.json", "mcps.json", "wishlist.json", "load_timings.json",
+    "model_changelogs.json", "reddit_watcher.json", "reddit_drafts.json",
+    "workflows.json", "hf_updates.json", "zlab_drafts.json",
 ]
 
 @router.get("/backup/export")
@@ -61,3 +65,37 @@ async def list_backup_files():
     if db.exists():
         files.append({"name": "crucible.db", "size": db.stat().st_size})
     return files
+
+
+class RsyncRequest(BaseModel):
+    destination: str  # rsync-style dest: "user@host:/path/" or "/local/path/"
+    dry_run: bool = False
+
+
+@router.post("/backup/rsync")
+async def rsync_backup(body: RsyncRequest) -> dict:
+    """Push ~/.config/crucible/ to a user-supplied rsync destination. No creds
+    are stored — this assumes the user has SSH keys or a local mount already
+    set up. Intentionally user-supplied to avoid baking in any specific host."""
+    if not body.destination.strip():
+        raise HTTPException(400, "destination is required")
+    # Basic sanity checks on the destination.
+    if any(ch in body.destination for ch in (";", "&", "|", "`", "$(")):
+        raise HTTPException(400, "destination contains unsupported shell metacharacters")
+    args = ["rsync", "-aH", "--delete"]
+    if body.dry_run:
+        args.insert(2, "--dry-run")
+    args += [str(CONFIG_DIR) + "/", body.destination]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    except FileNotFoundError:
+        raise HTTPException(500, "rsync not installed")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "rsync timed out after 10 minutes")
+    return {
+        "status": "ok" if r.returncode == 0 else "error",
+        "exit_code": r.returncode,
+        "dry_run": body.dry_run,
+        "stdout_tail": r.stdout[-2000:],
+        "stderr_tail": r.stderr[-2000:],
+    }

@@ -186,10 +186,47 @@ async def _gen_once(base_url: str, api_key: str, model: str, prompt: str) -> tup
         return "", str(e)
 
 
+USER_EVALS_DIR = Path.home() / ".config" / "crucible" / "evals"
+
+
+def _load_user_evals() -> list[EvalItem]:
+    """Load every *.jsonl under USER_EVALS_DIR. Each line is
+    {id, category, prompt, scorer_kind, scorer_args}. Bad lines are skipped
+    with a warning rather than failing the whole run."""
+    import logging
+    log = logging.getLogger(__name__)
+    out: list[EvalItem] = []
+    if not USER_EVALS_DIR.exists():
+        return out
+    for fp in sorted(USER_EVALS_DIR.glob("*.jsonl")):
+        try:
+            for line in fp.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                d = json.loads(line)
+                out.append(EvalItem(
+                    id=str(d["id"]),
+                    category=str(d.get("category", "user")),
+                    prompt=str(d["prompt"]),
+                    scorer_kind=str(d.get("scorer_kind", "contains_all")),
+                    scorer_args=d.get("scorer_args") or {},
+                ))
+        except Exception as e:
+            log.warning("eval_suite: skipped bad user eval %s (%s)", fp, e)
+    return out
+
+
+def all_items() -> list[EvalItem]:
+    """Built-in + user-loaded items. Prefer this over raw EVAL_ITEMS for
+    runs so user-uploaded packs participate automatically."""
+    return [*EVAL_ITEMS, *_load_user_evals()]
+
+
 async def _run_job(job: EvalJob, base_url: str, api_key: str) -> None:
     job.status = "running"
     _persist(job)
-    for item in EVAL_ITEMS:
+    for item in all_items():
         if job.cancel_event.is_set():
             job.status = "cancelled"
             job.finished_at = time.time()

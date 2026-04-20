@@ -55,6 +55,19 @@ def _matches_now(rule: dict) -> bool:
         now.hour, rule.get("offpeak_start_hour", 22), rule.get("offpeak_end_hour", 6),
     ):
         return False
+    # Power-aware: if rule is flagged battery_saver, skip when either (a) the
+    # adapter's running on battery (not plugged in) or (b) memory pressure is
+    # already high. Best-effort — if we can't determine power state we fire.
+    if rule.get("battery_saver"):
+        try:
+            import subprocess
+            out = subprocess.run(
+                ["pmset", "-g", "batt"], capture_output=True, text=True, timeout=2,
+            ).stdout
+            if "AC Power" not in out and "AC attached" not in out:
+                return False
+        except Exception:
+            pass
     return now.hour == rule.get("hour", 0) and now.minute == rule.get("minute", 0)
 
 

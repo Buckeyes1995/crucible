@@ -237,6 +237,25 @@ async def history(limit: int = 50) -> list[dict]:
     return await arena.get_history(limit)
 
 
+@router.get("/arena/battle/{battle_id}/public")
+async def battle_public(battle_id: str) -> dict:
+    """Read-only detail for a single completed battle. Used by the share
+    link: /arena/share/{id}. Returns 404 for pending-vote battles so drafts
+    aren't accidentally exposed."""
+    import aiosqlite
+    from db.database import DB_PATH
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM arena_battles WHERE id = ? AND winner IS NOT NULL",
+            (battle_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "battle not found or not yet voted on")
+    return dict(row)
+
+
 # ─── Autobattle: queue N overnight battles for later review ──────────────────
 
 class AutobattleRequest(BaseModel):

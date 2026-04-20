@@ -59,6 +59,28 @@ async def list_sessions(q: Optional[str] = None, limit: int = 50) -> list[dict]:
                 return [dict(row) async for row in cur]
 
 
+@router.get("/chat/search")
+async def search_chat(q: str, limit: int = 50) -> list[dict]:
+    """Full-text search over chat_messages joined with sessions. Matches on
+    raw LIKE for simplicity; upgrade to FTS5 later if perf becomes an issue."""
+    needle = f"%{q.lower()}%"
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT m.session_id, m.role, m.content, m.created_at,
+                   s.title, s.model_id, s.updated_at as session_updated
+            FROM chat_messages m
+            JOIN chat_sessions s ON s.id = m.session_id
+            WHERE LOWER(m.content) LIKE ?
+            ORDER BY m.id DESC LIMIT ?
+            """,
+            (needle, max(1, min(limit, 500))),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/chat/sessions/{session_id}")
 async def get_session(session_id: str) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
