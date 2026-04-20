@@ -11,6 +11,28 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Curated list of LLM / AI / adjacent subs worth watching. User can still
+// add anything else via the custom input. Labels explain why we'd care
+// about a sub so the picker isn't just an alphabet soup.
+const SUBREDDIT_PRESETS: { name: string; blurb: string }[] = [
+  { name: "LocalLLaMA",           blurb: "Biggest local-LLM community — Qwen, Llama, Mistral, etc." },
+  { name: "LocalLLM",             blurb: "Smaller, quieter cousin of LocalLLaMA." },
+  { name: "MachineLearning",      blurb: "Research-heavy; more theory than tooling." },
+  { name: "LanguageTechnology",   blurb: "NLP research + production." },
+  { name: "LLMDevs",              blurb: "Product-oriented LLM building." },
+  { name: "Oobabooga",            blurb: "oobabooga text-generation-webui community." },
+  { name: "ollama",               blurb: "Ollama users + integration questions." },
+  { name: "huggingface",          blurb: "Model discovery + hf-hub tips." },
+  { name: "ChatGPT",              blurb: "Biggest consumer LLM sub — off-topic for local but high traffic." },
+  { name: "OpenAI",               blurb: "API-focused OpenAI discussions." },
+  { name: "ClaudeAI",             blurb: "Claude users + prompt engineering." },
+  { name: "singularity",          blurb: "Forward-looking AI news + speculation." },
+  { name: "StableDiffusion",      blurb: "Image-gen adjacent — occasional LLM crossover." },
+  { name: "ArtificialIntelligence", blurb: "General-AI discussion." },
+  { name: "deeplearning",         blurb: "Lower-level DL questions." },
+];
+
+
 type RedditConfig = {
   enabled: boolean;
   client_id: string;
@@ -151,26 +173,79 @@ export default function RedditPage() {
       )}
 
       {showConfig && (
-        <div className="mx-6 mt-4 rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.enabled}
-              onChange={(e) => saveConfig({ enabled: e.target.checked })}
-              className="accent-indigo-500"
-            />
-            <label className="text-sm text-zinc-200">Enabled</label>
+        <div className="mx-6 mt-4 rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4 space-y-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={config.enabled}
+                onChange={(e) => saveConfig({ enabled: e.target.checked })}
+                className="accent-indigo-500"
+              />
+              <label className="text-sm text-zinc-200">Enabled</label>
+            </div>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Master switch. When off, <strong>Scan now</strong> is a no-op and no drafts get generated.
+            </p>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Client ID" value={config.client_id} onChange={(v) => saveConfig({ client_id: v })} />
-            <Field label="Client secret" value={config.client_secret} onChange={(v) => saveConfig({ client_secret: v })} secret />
-            <Field label="User-Agent" value={config.user_agent} onChange={(v) => saveConfig({ user_agent: v })} className="col-span-2" />
-            <Field label="Subreddits (comma)" value={config.subreddits.join(", ")} onChange={(v) => saveConfig({ subreddits: v.split(",").map(s => s.trim()).filter(Boolean) })} className="col-span-2" />
-            <Field label="Min score" value={String(config.min_score)} onChange={(v) => saveConfig({ min_score: parseInt(v) || 0 })} />
-            <Field label="Max age (hrs)" value={String(config.max_post_age_hours)} onChange={(v) => saveConfig({ max_post_age_hours: parseInt(v) || 12 })} />
+            <Field
+              label="Client ID"
+              value={config.client_id}
+              onChange={(v) => saveConfig({ client_id: v })}
+              help="Optional. Reddit OAuth app id — leave blank to use the public read-only endpoint."
+            />
+            <Field
+              label="Client secret"
+              value={config.client_secret}
+              onChange={(v) => saveConfig({ client_secret: v })}
+              secret
+              help="Optional. Pairs with Client ID for higher rate limits / write access later."
+            />
+            <Field
+              label="User-Agent"
+              value={config.user_agent}
+              onChange={(v) => saveConfig({ user_agent: v })}
+              className="col-span-2"
+              help="Reddit wants an identifying string. Doesn't have to be real creds — `crucible/1.0 by your-username` is fine."
+            />
+            <Field
+              label="Min score"
+              value={String(config.min_score)}
+              onChange={(v) => saveConfig({ min_score: parseInt(v) || 0 })}
+              help="Skip posts with fewer than N upvotes. Filters low-effort + brand-new content."
+            />
+            <Field
+              label="Max age (hrs)"
+              value={String(config.max_post_age_hours)}
+              onChange={(v) => saveConfig({ max_post_age_hours: parseInt(v) || 12 })}
+              help="Skip posts older than this. Don't bother replying to dead threads."
+            />
           </div>
+
+          {/* Subreddit picker — curated checklist + custom additions */}
+          <SubredditPicker
+            selected={config.subreddits}
+            onToggle={(name) => {
+              const set = new Set(config.subreddits);
+              if (set.has(name)) set.delete(name); else set.add(name);
+              saveConfig({ subreddits: Array.from(set) });
+            }}
+            onAddCustom={(name) => {
+              if (!name.trim()) return;
+              const clean = name.trim().replace(/^r\//i, "");
+              if (config.subreddits.includes(clean)) return;
+              saveConfig({ subreddits: [...config.subreddits, clean] });
+            }}
+          />
+
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Draft system prompt</label>
+            <p className="text-[11px] text-zinc-500 mb-1.5">
+              The system message handed to the active MLX model when drafting replies. Shape the tone here —
+              the default pushes for short, concrete, first-person replies.
+            </p>
             <textarea
               value={config.draft_system_prompt}
               onChange={(e) => setConfig({ ...config, draft_system_prompt: e.target.value })}
@@ -297,18 +372,118 @@ function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete 
   );
 }
 
-function Field({ label, value, onChange, secret, className }: {
-  label: string; value: string; onChange: (v: string) => void; secret?: boolean; className?: string;
+function Field({ label, value, onChange, secret, className, help }: {
+  label: string; value: string; onChange: (v: string) => void;
+  secret?: boolean; className?: string; help?: string;
 }) {
   return (
-    <label className={cn("block", className)}>
-      <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">{label}</div>
+    <div className={cn("block", className)}>
+      <label className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1 block">{label}</label>
       <input
         type={secret ? "password" : "text"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full bg-zinc-950 border border-white/[0.08] rounded px-2 py-1.5 text-xs text-zinc-200 font-mono"
       />
-    </label>
+      {help && <p className="text-[10px] text-zinc-500 mt-1">{help}</p>}
+    </div>
+  );
+}
+
+function SubredditPicker({ selected, onToggle, onAddCustom }: {
+  selected: string[];
+  onToggle: (name: string) => void;
+  onAddCustom: (name: string) => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const presetNames = new Set(SUBREDDIT_PRESETS.map(p => p.name.toLowerCase()));
+  const customExtras = selected.filter(s => !presetNames.has(s.toLowerCase()));
+
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+        Subreddits ({selected.length} selected)
+      </div>
+      <p className="text-[11px] text-zinc-500 mb-2">
+        Check the subs you want to scan. Each watch fetches a small batch from each — fewer = faster,
+        fewer drafts queued.
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+        {SUBREDDIT_PRESETS.map(p => {
+          const on = selected.some(s => s.toLowerCase() === p.name.toLowerCase());
+          return (
+            <label
+              key={p.name}
+              className={cn(
+                "flex items-start gap-1.5 rounded px-2 py-1.5 border text-[11px] cursor-pointer transition-colors",
+                on
+                  ? "border-indigo-500/40 bg-indigo-950/20"
+                  : "border-white/[0.06] bg-zinc-950/60 hover:border-white/[0.15]",
+              )}
+              title={p.blurb}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => onToggle(p.name)}
+                className="mt-0.5 accent-indigo-500"
+              />
+              <span className="min-w-0 flex-1">
+                <span className={cn("font-mono block truncate", on ? "text-indigo-200" : "text-zinc-300")}>
+                  r/{p.name}
+                </span>
+                <span className="text-[10px] text-zinc-500 block leading-snug">{p.blurb}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+
+      {customExtras.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+            Custom ({customExtras.length})
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {customExtras.map(name => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-indigo-950/20 border border-indigo-500/30 text-indigo-200"
+              >
+                r/{name}
+                <button
+                  onClick={() => onToggle(name)}
+                  className="text-indigo-400 hover:text-red-300 ml-0.5"
+                  title="Remove"
+                >×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex gap-2 items-center">
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onAddCustom(custom);
+              setCustom("");
+            }
+          }}
+          placeholder="Add another subreddit (e.g. ObsidianMD, datascience)"
+          className="flex-1 bg-zinc-950 border border-white/[0.08] rounded px-2 py-1.5 text-xs text-zinc-200 font-mono"
+        />
+        <button
+          onClick={() => { onAddCustom(custom); setCustom(""); }}
+          disabled={!custom.trim()}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-indigo-600/30 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-600/50 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+    </div>
   );
 }
