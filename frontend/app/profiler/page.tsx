@@ -129,9 +129,9 @@ export default function ProfilerPage() {
               </h3>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={tpsChartData} layout="vertical">
-                  <XAxis type="number" tick={{ fill: "#a1a1aa", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis type="number" tick={{ fill: "#a1a1aa", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Number(v).toFixed(1)} />
                   <YAxis type="category" dataKey="name" tick={{ fill: "#a1a1aa", fontSize: 11 }} width={150} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }} />
+                  <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }} formatter={(v) => typeof v === "number" ? v.toFixed(1) : String(v)} />
                   <Bar dataKey="avg" fill="#6366f1" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -189,8 +189,8 @@ export default function ProfilerPage() {
                   >
                     <td className="px-4 py-2.5 text-zinc-200 font-medium">{s.model_name}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.request_count}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-indigo-300">{s.avg_tps ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-zinc-300">{s.max_tps ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-indigo-300">{s.avg_tps != null ? s.avg_tps.toFixed(1) : "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-zinc-300">{s.max_tps != null ? s.max_tps.toFixed(1) : "—"}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_ttft_ms ? `${s.avg_ttft_ms}ms` : "—"}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_prefill_ms ? `${s.avg_prefill_ms}ms` : "—"}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-zinc-400">{s.avg_decode_ms ? `${s.avg_decode_ms}ms` : "—"}</td>
@@ -228,7 +228,7 @@ export default function ProfilerPage() {
                       />
                     )}
                   </div>
-                  <span className="font-mono text-indigo-300 w-20 text-right">{p.tps ? `${p.tps} t/s` : "—"}</span>
+                  <span className="font-mono text-indigo-300 w-20 text-right">{p.tps != null ? `${p.tps.toFixed(1)} t/s` : "—"}</span>
                   <span className="font-mono text-zinc-500 w-20 text-right">{p.total_ms ? `${Math.round(p.total_ms)}ms` : "—"}</span>
                   <span className="text-zinc-600 w-12">{p.source}</span>
                 </div>
