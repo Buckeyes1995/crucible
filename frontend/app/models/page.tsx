@@ -18,6 +18,24 @@ import { toast } from "@/components/Toast";
 type SortKey = "name" | "size" | "tps";
 type SortDir = "asc" | "desc";
 
+// Tokens that indicate "this and everything after is quant / engine / variant
+// metadata, not part of the family name." Kept conservative so unrelated
+// naming conventions don't collapse into the same family by accident.
+const _QUANT_RE = /^(mlx|gguf|vllm|studio|dflash|mxfp\d+|q\d(_\w+)?|int\d+|fp\d+|\d+bit|crack|original|\d+B|A\d+B)$/i;
+function familyOf(name: string): string {
+  // Split on - . _ but keep letters+digits together. Walk forward until we
+  // hit a quant-like token; everything before that is the family. If the
+  // first token is already a quant (shouldn't happen for real models), fall
+  // back to the full name.
+  const parts = name.split(/[-.]/);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (_QUANT_RE.test(p)) break;
+    out.push(p);
+  }
+  return out.length > 0 ? out.join("-") : name;
+}
+
 export default function ModelsPage() {
   const {
     models, loading, activeModelId, loadingModelId, loadStage, error,
@@ -51,6 +69,15 @@ export default function ModelsPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [capFilter, setCapFilter] = useState<string | null>(null);
   const [allTags, setAllTags] = useState<string[]>([]);
+  const [groupByFamily, setGroupByFamily] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("crucible.models.groupByFamily") === "1";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("crucible.models.groupByFamily", groupByFamily ? "1" : "0");
+    }
+  }, [groupByFamily]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [filterNode, setFilterNode] = useState<string | null>(null);
@@ -301,7 +328,19 @@ export default function ModelsPage() {
           );
         })()}
 
-        <div className="flex gap-1 ml-auto">
+        <button
+          onClick={() => setGroupByFamily(v => !v)}
+          className={cn(
+            "px-2 py-1 rounded text-xs font-medium transition-colors ml-auto",
+            groupByFamily
+              ? "bg-indigo-600/30 text-indigo-200 border border-indigo-500/40"
+              : "bg-zinc-800 text-zinc-400 hover:text-zinc-100",
+          )}
+          title="Group cards by model family (Qwen3-Coder-Next, Qwen3.5-27B, …)"
+        >
+          Group
+        </button>
+        <div className="flex gap-1">
           <span className="text-xs text-zinc-500 self-center mr-1">Sort:</span>
           {(["name", "size", "tps"] as SortKey[]).map((k) => {
             const active = sortKey === k;
@@ -390,14 +429,40 @@ export default function ModelsPage() {
                 Library <span className="text-zinc-600 font-normal normal-case tracking-normal">· {rest.length}</span>
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
-              {rest.map(renderCard)}
-              {filtered.length === 0 && (
-                <div className="col-span-3 text-center text-zinc-500 py-16">
-                  {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
+            {groupByFamily ? (() => {
+              // Bucket by family preserving the current sort order within groups.
+              const groups = new Map<string, ModelEntry[]>();
+              for (const m of rest) {
+                const f = familyOf(m.name);
+                const arr = groups.get(f) ?? [];
+                arr.push(m);
+                groups.set(f, arr);
+              }
+              return (
+                <div className="space-y-6">
+                  {[...groups.entries()].map(([family, items]) => (
+                    <section key={family}>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
+                        <span>{family}</span>
+                        <span className="text-zinc-700">· {items.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {items.map(renderCard)}
+                      </div>
+                    </section>
+                  ))}
                 </div>
-              )}
-            </div>
+              );
+            })() : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
+                {rest.map(renderCard)}
+                {filtered.length === 0 && (
+                  <div className="col-span-3 text-center text-zinc-500 py-16">
+                    {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         );
       })()}
@@ -489,10 +554,22 @@ function ModelCard({
           ? "border-emerald-500/30 bg-emerald-950/10 cursor-default glow-emerald"
           : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer hover-lift",
         isFavorite && !isActive && "border-amber-500/15",
-        isLoading && "border-indigo-500/30 bg-indigo-950/5"
+        isLoading && "border-indigo-500/30 bg-indigo-950/5",
+        model.deprecated && !isActive && "opacity-60 grayscale-[0.4]",
       )}
       onClick={!isActive && !isLoading && !editingAlias && !downloadProgress ? onLoad : undefined}
     >
+      {/* Deprecation banner */}
+      {model.deprecated && (
+        <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-amber-300 bg-amber-950/30 border-b border-amber-500/20 flex items-center gap-1.5">
+          <span>Deprecated</span>
+          {model.replacement_id && (
+            <span className="text-zinc-400 font-normal normal-case">
+              — use <span className="font-mono text-amber-200">{model.replacement_id.replace(/^mlx:/, "")}</span>
+            </span>
+          )}
+        </div>
+      )}
       {/* Loading progress bar */}
       {isLoading && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-zinc-800 overflow-hidden">
@@ -1112,6 +1189,8 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
   const [preferredEngine, setPreferredEngine] = useState<string | null>(model.preferred_engine ?? null);
   const [originRepo, setOriginRepo] = useState<string>(model.origin_repo ?? "");
   const [capabilities, setCapabilities] = useState<string[]>(model.capabilities ?? []);
+  const [deprecated, setDeprecated] = useState<boolean>(!!model.deprecated);
+  const [replacementId, setReplacementId] = useState<string>(model.replacement_id ?? "");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const engines = model.available_engines ?? [];
@@ -1119,11 +1198,13 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
 
   useEffect(() => {
     api.models.getNotes(model.id)
-      .then((d: { notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[] }) => {
+      .then((d: { notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[]; deprecated?: boolean; replacement_id?: string | null }) => {
         setNotes(d.notes);
         setTagsInput(d.tags.join(", "));
         if (d.preferred_engine !== undefined) setPreferredEngine(d.preferred_engine ?? null);
         if (d.capabilities) setCapabilities(d.capabilities);
+        if (typeof d.deprecated === "boolean") setDeprecated(d.deprecated);
+        if (d.replacement_id !== undefined) setReplacementId(d.replacement_id ?? "");
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -1134,7 +1215,10 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
 
   const save = useCallback(async () => {
     const tags = tagsInput.split(",").map(t => t.trim()).filter(Boolean);
-    const result = await api.models.setNotes(model.id, notes, tags, capabilities);
+    const result = await api.models.setNotes(
+      model.id, notes, tags, capabilities,
+      { deprecated, replacement_id: deprecated ? (replacementId.trim() || null) : null },
+    );
     if (showEnginePicker) {
       await api.models.setPreferredEngine(model.id, preferredEngine);
     }
@@ -1144,7 +1228,7 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
     }
     onSaved(result);
     setSaved(true);
-  }, [model.id, notes, tagsInput, capabilities, onSaved, preferredEngine, showEnginePicker, originRepo, model.origin_repo]);
+  }, [model.id, notes, tagsInput, capabilities, deprecated, replacementId, onSaved, preferredEngine, showEnginePicker, originRepo, model.origin_repo]);
 
   return (
     <div
@@ -1223,6 +1307,30 @@ function ModelNotesDialog({ model, onClose, onSaved }: {
                   className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500 font-mono text-[11px]"
                 />
                 <div className="text-[11px] text-zinc-500">Used to detect upstream updates. Auto-filled for models downloaded through Crucible.</div>
+              </div>
+              <div className="space-y-1.5 rounded-lg border border-white/[0.06] bg-zinc-800/30 p-3">
+                <label className="flex items-center gap-2 text-xs font-medium text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deprecated}
+                    onChange={(e) => { setDeprecated(e.target.checked); setSaved(false); }}
+                    className="accent-amber-500"
+                  />
+                  Mark deprecated
+                </label>
+                {deprecated && (
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-zinc-500">Recommended replacement (optional)</label>
+                    <input
+                      type="text"
+                      value={replacementId}
+                      onChange={(e) => { setReplacementId(e.target.value); setSaved(false); }}
+                      placeholder="mlx:Qwen3-Coder-Next-MLX-6bit"
+                      className="w-full bg-zinc-800 border border-white/10 rounded px-2 py-1 text-[11px] text-zinc-100 font-mono"
+                    />
+                    <div className="text-[10px] text-zinc-600">Shown on the card with the "Deprecated" banner.</div>
+                  </div>
+                )}
               </div>
               {showEnginePicker && (
                 <div className="space-y-1.5">

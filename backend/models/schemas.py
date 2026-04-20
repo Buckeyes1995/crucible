@@ -24,6 +24,8 @@ class ModelEntry(BaseModel):
     available_engines: list[str] = []    # engines capable of running this model (e.g. ["omlx","mlx_lm"])
     preferred_engine: Optional[str] = None  # user-set engine preference; None = use default for kind
     capabilities: list[str] = []         # capability chips from the fixed taxonomy (code/reasoning/...)
+    deprecated: bool = False             # user-flagged as deprecated
+    replacement_id: Optional[str] = None # recommended replacement model id, if any
 
 
 class ChatMessage(BaseModel):

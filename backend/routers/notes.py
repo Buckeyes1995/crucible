@@ -13,6 +13,8 @@ class NotePayload(BaseModel):
     tags: list[str] = []
     # Optional — when omitted, existing capabilities on the model are preserved.
     capabilities: list[str] | None = None
+    deprecated: bool | None = None
+    replacement_id: str | None = None  # empty string clears the pointer
 
 
 class HiddenPayload(BaseModel):
@@ -30,8 +32,12 @@ async def get_notes(model_id: str) -> dict[str, Any]:
 
 @router.put("/models/{model_id:path}/notes")
 async def set_notes(model_id: str, payload: NotePayload) -> dict[str, Any]:
-    return model_notes.set_note(model_id, payload.notes, payload.tags,
-                                 capabilities=payload.capabilities)
+    return model_notes.set_note(
+        model_id, payload.notes, payload.tags,
+        capabilities=payload.capabilities,
+        deprecated=payload.deprecated,
+        replacement_id=payload.replacement_id,
+    )
 
 
 @router.get("/capabilities")

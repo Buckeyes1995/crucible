@@ -6,6 +6,7 @@ import { useModelsStore } from "@/lib/stores/models";
 export type ChatMsg = {
   role: "user" | "assistant";
   content: string;
+  bookmarked?: boolean;
 };
 
 type ChatStats = {
@@ -27,6 +28,11 @@ type ChatState = {
   /** Load a previously-persisted conversation so the user can continue it. New
    *  turns sent after this will append to the same DB session. */
   resumeSession: (id: string) => Promise<void>;
+  /** Truncate messages to `keepUntilIndex` (exclusive) and re-run the conversation
+   *  from there. `keepUntilIndex` should point at the assistant message you want
+   *  to regenerate — it'll be removed, then the preceding user turn is re-sent. */
+  regenerateFrom: (keepUntilIndex: number, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
+  toggleBookmark: (index: number) => void;
 };
 
 // Fire-and-forget persistence helper. We POST to the chat-history router after
@@ -137,6 +143,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearMessages: () => set({ messages: [], stats: null, error: null, sessionId: null }),
 
   resetStreaming: () => set({ streaming: false, error: null }),
+
+  toggleBookmark: (index: number) => set((state) => {
+    const updated = [...state.messages];
+    if (!updated[index]) return state;
+    updated[index] = { ...updated[index], bookmarked: !updated[index].bookmarked };
+    return { messages: updated };
+  }),
+
+  regenerateFrom: async (keepUntilIndex: number, temperature: number, maxTokens: number,
+                          systemPrompt?: string, ragSessionId?: string) => {
+    // Drop the target assistant turn + everything after; re-send the preceding user turn.
+    // Caller passes the index of the assistant message to regenerate.
+    const msgs = get().messages.slice(0, keepUntilIndex);
+    // Walk backwards to find the user turn that produced this assistant.
+    let userIdx = msgs.length - 1;
+    while (userIdx >= 0 && msgs[userIdx].role !== "user") userIdx--;
+    if (userIdx < 0) return;  // nothing to regenerate from
+    const userText = msgs[userIdx].content;
+    const before = msgs.slice(0, userIdx);
+    set({ messages: before, stats: null, error: null });
+    await get().sendMessage(userText, temperature, maxTokens, systemPrompt, ragSessionId);
+  },
 
   resumeSession: async (id: string) => {
     try {

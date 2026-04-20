@@ -22,6 +22,8 @@ export type ModelEntry = {
   update_available?: boolean;           // upstream HF repo has been updated since we downloaded
   upstream_last_modified?: string | null; // ISO-8601 from HF
   capabilities?: string[];              // chips from the fixed taxonomy
+  deprecated?: boolean;
+  replacement_id?: string | null;
 };
 
 export const CAPABILITY_TAXONOMY = [
@@ -95,6 +97,24 @@ export type McpCallResult = {
 };
 export type McpHostStatus = {
   mcp_id: string; running: boolean; idle_seconds: number | null; tools_cached: number;
+};
+
+export type Snippet = {
+  id: string;
+  title: string;
+  content: string;
+  source: string;           // "chat" | "arena" | "diff" | "manual"
+  tags: string[];
+  model_id: string | null;
+  created_at: number;
+};
+
+export type SystemPromptEntry = {
+  id: string;
+  name: string;
+  category: string;
+  content: string;
+  builtin?: boolean;
 };
 
 export type ChatMessage = { role: string; content: string };
@@ -441,9 +461,16 @@ export const api = {
     getParams: (id: string) => get<ModelParams>(`/models/${encodeURIComponent(id)}/params`),
     setParams: (id: string, params: ModelParams) => put<ModelParams>(`/models/${encodeURIComponent(id)}/params`, params),
     resetParams: (id: string) => del<{ status: string }>(`/models/${encodeURIComponent(id)}/params`),
-    getNotes: (id: string) => get<{ notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[] }>(`/models/${encodeURIComponent(id)}/notes`),
-    setNotes: (id: string, notes: string, tags: string[], capabilities?: string[]) =>
-      put<{ notes: string; tags: string[]; capabilities?: string[] }>(`/models/${encodeURIComponent(id)}/notes`, { notes, tags, capabilities }),
+    getNotes: (id: string) => get<{ notes: string; tags: string[]; preferred_engine?: string | null; capabilities?: string[]; deprecated?: boolean; replacement_id?: string | null }>(`/models/${encodeURIComponent(id)}/notes`),
+    setNotes: (id: string, notes: string, tags: string[], capabilities?: string[],
+               deprecation?: { deprecated: boolean; replacement_id?: string | null }) =>
+      put<{ notes: string; tags: string[]; capabilities?: string[]; deprecated?: boolean; replacement_id?: string | null }>(
+        `/models/${encodeURIComponent(id)}/notes`,
+        {
+          notes, tags, capabilities,
+          ...(deprecation ? { deprecated: deprecation.deprecated, replacement_id: deprecation.replacement_id ?? "" } : {}),
+        },
+      ),
     setHidden: (id: string, hidden: boolean) =>
       put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
     setPreferredEngine: (id: string, engine: string | null) =>
@@ -572,6 +599,19 @@ export const api = {
     installModel: (id: string) =>
       post<{ status: string; job_id: string; repo_id: string }>("/store/install/model", { id }),
     installedDetail: () => get<InstalledDetail>("/store/installed-detail"),
+  },
+  snippets: {
+    list: () => get<Snippet[]>("/snippets"),
+    create: (body: { title?: string; content: string; source?: string; tags?: string[]; model_id?: string | null }) =>
+      post<Snippet>("/snippets", body),
+    update: (id: string, body: Partial<Pick<Snippet, "title" | "content" | "tags">>) =>
+      put<Snippet>(`/snippets/${encodeURIComponent(id)}`, body),
+    delete: (id: string) =>
+      del<{ status: string }>(`/snippets/${encodeURIComponent(id)}`),
+    tags: () => get<string[]>("/snippet-tags"),
+  },
+  systemPrompts: {
+    list: () => get<SystemPromptEntry[]>("/system-prompts"),
   },
   mcp: {
     tools: (mcpId: string, force = false) =>

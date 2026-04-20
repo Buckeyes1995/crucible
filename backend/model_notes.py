@@ -33,11 +33,14 @@ def get_note(model_id: str) -> dict[str, Any]:
     return _load().get(model_id, {
         "notes": "", "tags": [], "hidden": False,
         "preferred_engine": None, "capabilities": [],
+        "deprecated": False, "replacement_id": None,
     })
 
 
 def set_note(model_id: str, notes: str, tags: list[str],
-             capabilities: list[str] | None = None) -> dict[str, Any]:
+             capabilities: list[str] | None = None,
+             deprecated: bool | None = None,
+             replacement_id: str | None = None) -> dict[str, Any]:
     data = _load()
     existing = data.get(model_id, {})
     caps = capabilities if capabilities is not None else existing.get("capabilities", [])
@@ -50,9 +53,29 @@ def set_note(model_id: str, notes: str, tags: list[str],
         "hidden": existing.get("hidden", False),
         "preferred_engine": existing.get("preferred_engine"),
         "capabilities": caps,
+        "deprecated": (deprecated if deprecated is not None
+                       else bool(existing.get("deprecated", False))),
+        # Empty string clears the replacement pointer; None leaves it alone.
+        "replacement_id": (
+            (replacement_id or None) if replacement_id is not None
+            else existing.get("replacement_id")
+        ),
     }
     _save(data)
     return data[model_id]
+
+
+def all_deprecations() -> dict[str, dict]:
+    """Map of model_id → {deprecated, replacement_id} for everything flagged."""
+    data = _load()
+    out: dict[str, dict] = {}
+    for mid, entry in data.items():
+        if entry.get("deprecated"):
+            out[mid] = {
+                "deprecated": True,
+                "replacement_id": entry.get("replacement_id"),
+            }
+    return out
 
 
 def all_capabilities() -> dict[str, list[str]]:
