@@ -490,6 +490,10 @@ export default function ModelsPage() {
             onSaved={(notes) => {
               setModelNotes(prev => ({ ...prev, [m.id]: notes }));
               api.tags.list().then(setAllTags).catch(() => {});
+              // Refetch so fields that surface on the card (deprecated,
+              // replacement_id, capabilities chips, preferred_engine)
+              // reflect the save without a page reload.
+              fetchModels();
             }}
           />
         ) : null;
