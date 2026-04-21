@@ -109,11 +109,19 @@ export default function ModelsPage() {
     api.tags.list().then(setAllTags).catch(() => {});
   }, []);
 
+  // Keep both stores warm. syncStatus (models store) tracks active_model_id
+  // for pinning; useStatusStore carries the richer payload (active_engine,
+  // thermal, memory_pressure) that the LoadedHeader + sidebar CPU widget
+  // consume. Same cadence.
+  const fetchStatus = useStatusStore((s) => s.fetch);
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
   useEffect(() => {
     if (loadingModelId) return;
-    const id = setInterval(syncStatus, 5000);
+    const id = setInterval(() => { syncStatus(); fetchStatus(); }, 5000);
     return () => clearInterval(id);
-  }, [syncStatus, loadingModelId]);
+  }, [syncStatus, fetchStatus, loadingModelId]);
 
   const effectiveFavoritesOnly = favoritesOnly && favorites.length > 0;
 

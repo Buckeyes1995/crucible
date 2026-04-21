@@ -29,9 +29,14 @@ async def get_status(request: Request) -> dict:
     engine_name = None
     if adapter and adapter.is_loaded():
         cls = type(adapter).__name__.replace("Adapter", "").lower()
-        engine_name = {"omlx": "omlx", "mlxlm": "mlx_lm", "vllm": "vllm",
-                       "llamacpp": "llama.cpp", "ollama": "ollama",
-                       "external": "external", "mlxstudio": "mlx_studio",
+        # MLXAdapter IS the mlx_lm.server adapter in this codebase (separate
+        # class from OMLXAdapter). The `mlx` key normalizes that to the
+        # user-facing engine name so "active_engine" reads cleanly in the UI.
+        engine_name = {"omlx": "omlx", "mlx": "mlx_lm", "mlxlm": "mlx_lm",
+                       "vllm": "vllm", "llamacpp": "llama.cpp",
+                       "ollama": "ollama", "external": "external",
+                       "managedexternal": "external",
+                       "mlxstudio": "mlx_studio",
                        "remotenode": "remote_node"}.get(cls, cls)
     return {
         "active_model_id": adapter.model_id if adapter and adapter.is_loaded() else None,
