@@ -24,8 +24,18 @@ async def get_status(request: Request) -> dict:
     )
     mem_bytes = _get_memory_bytes()
     compare = request.app.state.compare_adapter
+    # Derive the engine name from the active adapter's class. Cheap and
+    # doesn't require adapters to implement a new property.
+    engine_name = None
+    if adapter and adapter.is_loaded():
+        cls = type(adapter).__name__.replace("Adapter", "").lower()
+        engine_name = {"omlx": "omlx", "mlxlm": "mlx_lm", "vllm": "vllm",
+                       "llamacpp": "llama.cpp", "ollama": "ollama",
+                       "external": "external", "mlxstudio": "mlx_studio",
+                       "remotenode": "remote_node"}.get(cls, cls)
     return {
         "active_model_id": adapter.model_id if adapter and adapter.is_loaded() else None,
+        "active_engine": engine_name,
         "compare_model_id": compare.model_id if compare and compare.is_loaded() else None,
         "engine_state": "loaded" if adapter and adapter.is_loaded() else "idle",
         "memory_pressure": mem,
