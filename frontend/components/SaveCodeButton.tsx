@@ -46,6 +46,12 @@ export function SaveCodeButton({
   filenamePrefix: string;
   className?: string;
 }) {
+  // `blocks` has to be computed BEFORE any useState initializer that touches
+  // it — a lazy useState(() => ...new Set(blocks.map)) otherwise hits the
+  // const's temporal dead zone on first render and throws
+  // "Cannot access 'blocks' before initialization".
+  const blocks: CodeBlock[] = extractCodeBlocks(text, filenamePrefix);
+
   const [saving, setSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [runningFile, setRunningFile] = useState<string | null>(null);
@@ -57,7 +63,6 @@ export function SaveCodeButton({
   const [selected, setSelected] = useState<Set<string>>(() => new Set(blocks.map(b => b.filename)));
   const [renames, setRenames] = useState<Record<string, string>>({});
 
-  const blocks: CodeBlock[] = extractCodeBlocks(text, filenamePrefix);
   if (blocks.length === 0) return null;
 
   const cleanSubdir = subdir ? sanitizeSegment(subdir) : undefined;
