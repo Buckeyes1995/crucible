@@ -51,6 +51,16 @@ export default function ChatPage() {
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    try {
+      const prefill = sessionStorage.getItem("crucible:chat-prefill");
+      if (prefill) {
+        setInput(prefill);
+        sessionStorage.removeItem("crucible:chat-prefill");
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -207,6 +217,19 @@ export default function ChatPage() {
       toast("Copy failed — clipboard unavailable", "error");
     }
   };
+  const onCopyAsMarkdown = async (text: string, userText?: string) => {
+    const parts = [
+      userText ? `> **Q:** ${userText.trim().split("\n").join("\n> ")}\n` : "",
+      text,
+      `\n_— ${activeModelId ?? "local model"} · ${new Date().toISOString()}_\n`,
+    ].filter(Boolean);
+    try {
+      await navigator.clipboard.writeText(parts.join("\n"));
+      toast("Copied as Markdown", "success");
+    } catch {
+      toast("Copy failed", "error");
+    }
+  };
   const onPin = async (text: string, userText?: string) => {
     try {
       const title = (userText || "Chat snippet").slice(0, 60);
@@ -262,9 +285,22 @@ export default function ChatPage() {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-zinc-100">Chat</h1>
-            {activeModelId && (
-              <p className="text-[10px] text-zinc-600 font-mono">{activeModelId.replace(/^mlx:/, "")}</p>
-            )}
+            <select
+              value={activeModelId ?? ""}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id && id !== activeModelId) loadModel(id);
+              }}
+              className="text-[10px] font-mono bg-transparent border border-white/10 rounded px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 focus:outline-none focus:border-indigo-500/40 max-w-[260px]"
+              title="Switch model mid-conversation"
+            >
+              <option value="" disabled>No model loaded</option>
+              {models
+                .filter((m) => !m.hidden)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>{m.id.replace(/^mlx:/, "")}</option>
+                ))}
+            </select>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -533,6 +569,11 @@ export default function ChatPage() {
                       />
                       {isAssistant && (
                         <>
+                          <TurnAction
+                            icon={<Copy className="w-3 h-3" />}
+                            label="Copy as MD"
+                            onClick={() => onCopyAsMarkdown(msg.content, preceding?.content)}
+                          />
                           <TurnAction
                             icon={<Pin className="w-3 h-3" />}
                             label="Pin"

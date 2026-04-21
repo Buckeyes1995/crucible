@@ -15,6 +15,7 @@ import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, S
 import Link from "next/link";
 import { api, CAPABILITY_TAXONOMY, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
+import { BenchSparkline } from "@/components/BenchSparkline";
 
 type SortKey = "name" | "size" | "tps";
 type SortDir = "asc" | "desc";
@@ -83,8 +84,24 @@ export default function ModelsPage() {
   const [showHidden, setShowHidden] = useState(false);
   const [filterNode, setFilterNode] = useState<string | null>(null);
   const [activeDownloads, setActiveDownloads] = useState<Record<string, { progress: number; message: string }>>({});
+  const [disk, setDisk] = useState<{ low: boolean; free_gb?: number; path?: string } | null>(null);
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const resp = await fetch("/api/disk-summary");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (alive) setDisk(data);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   // Poll download jobs so the Models page can mark in-progress downloads
   useEffect(() => {
@@ -192,6 +209,14 @@ export default function ModelsPage() {
       {error && (
         <div className="mb-4 px-4 py-2.5 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-sm animate-fade-in">
           {error}
+        </div>
+      )}
+
+      {disk?.low && (
+        <div className="mb-4 px-4 py-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-sm flex items-center justify-between gap-4 animate-fade-in">
+          <span>
+            <strong>Low disk space:</strong> only {disk.free_gb} GB free on {disk.path}. Downloads may fail.
+          </span>
         </div>
       )}
 
@@ -690,7 +715,13 @@ function ModelCard({
         <div className="grid grid-cols-3 gap-2 text-xs">
           <Stat label="Size" value={formatBytes(model.size_bytes)} />
           <Stat label="Context" value={formatContext(model.context_window)} />
-          <Stat label="Avg tok/s" value={formatTps(model.avg_tps)} />
+          <div>
+            <div className="text-zinc-500">Avg tok/s</div>
+            <div className="text-zinc-200 font-mono flex items-center gap-2">
+              <span>{formatTps(model.avg_tps)}</span>
+              <BenchSparkline modelId={model.id} />
+            </div>
+          </div>
         </div>
 
         {(model.capabilities?.length || tags.length) ? (

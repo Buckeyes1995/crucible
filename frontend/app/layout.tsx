@@ -4,6 +4,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { ToastContainer } from "@/components/Toast";
 import { RecoveryBanner } from "@/components/RecoveryBanner";
+import { ShortcutsHelp } from "@/components/ShortcutsHelp";
+import { FirstRunWizard } from "@/components/FirstRunWizard";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -39,6 +41,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="flex-1 overflow-auto">{children}</main>
         </div>
         <ToastContainer />
+        <ShortcutsHelp />
+        <FirstRunWizard />
       </body>
     </html>
   );

@@ -96,6 +96,37 @@ async def remove_wishlist(repo_id: str) -> dict:
     return {"status": "removed"}
 
 
+class WishlistBulkImport(BaseModel):
+    # Accept either raw repo_id lines OR an array of objects with repo_id + kind.
+    entries: list  # list[str] | list[dict]
+
+
+@router.post("/wishlist/bulk-import")
+async def wishlist_bulk_import(body: WishlistBulkImport) -> dict:
+    """Accept a list of HF repo ids (strings) or {repo_id, kind, note} objects
+    and add each to the wishlist. Duplicates skipped."""
+    added = 0
+    skipped = 0
+    for item in body.entries:
+        if isinstance(item, str):
+            repo_id, kind, note = item.strip(), "mlx", ""
+        elif isinstance(item, dict):
+            repo_id = str(item.get("repo_id", "")).strip()
+            kind = str(item.get("kind", "mlx"))
+            note = str(item.get("note", ""))
+        else:
+            continue
+        if not repo_id:
+            continue
+        before = len(model_extras.wishlist_all())
+        model_extras.wishlist_add(repo_id, kind, note)
+        if len(model_extras.wishlist_all()) > before:
+            added += 1
+        else:
+            skipped += 1
+    return {"added": added, "skipped_duplicates": skipped}
+
+
 @router.get("/load-timings")
 async def get_load_timings() -> dict[str, dict]:
     return model_extras.timings_summary()
@@ -224,6 +255,136 @@ async def set_rate_limits(body: RateLimitUpdate) -> dict:
 async def usage(days: int = 30) -> dict:
     import usage_tracker
     return usage_tracker.summary(days)
+
+
+@router.get("/audit")
+async def audit_recent(limit: int = 200) -> list[dict]:
+    import audit
+    return audit.recent(limit=limit)
+
+
+@router.get("/about")
+async def about() -> dict:
+    """Build info for the help page — git sha, start time, counts. Best-effort."""
+    import subprocess
+    import time
+    from pathlib import Path
+    from config import load_config
+    cfg = load_config()
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(Path(__file__).resolve().parent.parent.parent),
+             "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        sha = "unknown"
+    try:
+        branch = subprocess.check_output(
+            ["git", "-C", str(Path(__file__).resolve().parent.parent.parent),
+             "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        branch = "unknown"
+    return {
+        "git_sha": sha,
+        "git_branch": branch,
+        "now": time.time(),
+        "mlx_dir": cfg.mlx_dir,
+        "gguf_dir": cfg.gguf_dir,
+        "bind_host": cfg.bind_host,
+    }
+
+
+@router.get("/disk-summary")
+async def disk_summary() -> dict:
+    """One-shot disk-space summary used by the global low-disk banner.
+    Returns free bytes on the model directory's filesystem and a boolean
+    `low` flag when under 10GB."""
+    import shutil
+    from config import load_config
+    cfg = load_config()
+    target = cfg.mlx_dir or "/Volumes/DataNVME/models"
+    try:
+        usage = shutil.disk_usage(target)
+        free_gb = usage.free / (1024 ** 3)
+        return {
+            "path": target,
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+            "free_gb": round(free_gb, 1),
+            "low": free_gb < 10.0,
+        }
+    except Exception as e:
+        return {"path": target, "error": str(e), "low": False}
+
+
+@router.get("/model-usage-stats")
+async def model_usage_stats() -> list[dict]:
+    """Per-model aggregate: chat sessions, benchmark runs, arena battles,
+    current avg_tps. Feeds the /models/leaderboard page."""
+    import aiosqlite
+    from db.database import DB_PATH
+    stats: dict[str, dict] = {}
+
+    async def _bump(model_id: str, key: str, by: int = 1) -> None:
+        if not model_id:
+            return
+        stats.setdefault(model_id, {
+            "chat_sessions": 0, "benchmark_runs": 0,
+            "arena_battles": 0, "arena_wins": 0,
+        })
+        stats[model_id][key] = stats[model_id].get(key, 0) + by
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            async with db.execute("SELECT model_id, COUNT(*) as n FROM chat_sessions GROUP BY model_id") as cur:
+                async for row in cur:
+                    await _bump(row["model_id"], "chat_sessions", row["n"])
+        except Exception:
+            pass
+        try:
+            async with db.execute(
+                "SELECT model_id, COUNT(DISTINCT run_id) as n FROM benchmark_results GROUP BY model_id"
+            ) as cur:
+                async for row in cur:
+                    await _bump(row["model_id"], "benchmark_runs", row["n"])
+        except Exception:
+            pass
+        try:
+            async with db.execute(
+                "SELECT model_a, model_b, winner FROM arena_battles WHERE winner IS NOT NULL"
+            ) as cur:
+                async for row in cur:
+                    for slot_key, mid in (("model_a", row["model_a"]), ("model_b", row["model_b"])):
+                        if not mid:
+                            continue
+                        await _bump(mid, "arena_battles", 1)
+                        if row["winner"] == slot_key:
+                            await _bump(mid, "arena_wins", 1)
+        except Exception:
+            pass
+        try:
+            async with db.execute(
+                "SELECT model_id, AVG(tps) as avg_tps FROM inference_profiles WHERE tps IS NOT NULL GROUP BY model_id"
+            ) as cur:
+                async for row in cur:
+                    if row["model_id"]:
+                        stats.setdefault(row["model_id"], {
+                            "chat_sessions": 0, "benchmark_runs": 0,
+                            "arena_battles": 0, "arena_wins": 0,
+                        })["avg_tps"] = round(row["avg_tps"] or 0, 1)
+        except Exception:
+            pass
+
+    out = []
+    for mid, s in stats.items():
+        out.append({"model_id": mid, **s})
+    out.sort(key=lambda r: -(r.get("chat_sessions", 0) + r.get("arena_battles", 0) + r.get("benchmark_runs", 0)))
+    return out
 
 
 class QuantAdvise(BaseModel):

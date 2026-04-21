@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { api, readSSE, type ChatMessage } from "@/lib/api";
 import { useModelsStore } from "@/lib/stores/models";
+import { usePrivacyStore } from "@/lib/stores/privacy";
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -126,7 +127,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // Persist this turn (both user + assistant messages) to chat history.
             const state = get();
             const assistantText = state.messages[assistantIdx]?.content ?? "";
-            if (assistantText) {
+            if (assistantText && !usePrivacyStore.getState().ephemeral) {
               const modelId = useModelsStore.getState().activeModelId ?? null;
               persistTurn(state.sessionId, text, assistantText, modelId).then((id) => {
                 if (id && id !== get().sessionId) set({ sessionId: id });

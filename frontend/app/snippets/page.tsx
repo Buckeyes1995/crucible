@@ -5,8 +5,9 @@ import { api, type Snippet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/Toast";
-import { Pin, Search, Copy, Trash2, Loader2, Tag, Clock, X as XIcon } from "lucide-react";
+import { Pin, Search, Copy, Trash2, Loader2, Tag, Clock, X as XIcon, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 export default function SnippetsPage() {
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -15,6 +16,16 @@ export default function SnippetsPage() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const router = useRouter();
+
+  const sendToChat = (content: string) => {
+    try {
+      sessionStorage.setItem("crucible:chat-prefill", content);
+      router.push("/chat");
+    } catch {
+      toast("Could not send to chat", "error");
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -151,6 +162,13 @@ export default function SnippetsPage() {
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      <button
+                        onClick={() => sendToChat(s.content)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-indigo-900/30 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-900/50"
+                        title="Open in Chat"
+                      >
+                        <MessageSquare className="w-3 h-3" /> Send
+                      </button>
                       <button
                         onClick={() => copy(s.content)}
                         className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-zinc-800 text-zinc-300 border border-white/[0.06] hover:bg-zinc-700"

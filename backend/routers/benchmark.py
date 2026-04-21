@@ -303,6 +303,58 @@ async def get_run(run_id: str) -> dict:
     }
 
 
+@router.get("/benchmark/run/{run_id}/csv")
+async def get_run_csv(run_id: str):
+    """Stream benchmark results as CSV for spreadsheet / pandas use."""
+    import aiosqlite
+    import csv
+    import io
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT name FROM benchmark_runs WHERE id = ?", (run_id,)
+        ) as cur:
+            run_row = await cur.fetchone()
+        if not run_row:
+            raise HTTPException(status_code=404, detail="Run not found")
+        rows = []
+        async with db.execute(
+            "SELECT model_id, model_name, backend_kind, prompt_id, rep, metrics_json "
+            "FROM benchmark_results WHERE run_id = ? ORDER BY id",
+            (run_id,),
+        ) as cur:
+            async for row in cur:
+                m = json.loads(row["metrics_json"] or "{}")
+                rows.append({
+                    "model_id": row["model_id"],
+                    "model_name": row["model_name"],
+                    "backend_kind": row["backend_kind"],
+                    "prompt_id": row["prompt_id"],
+                    "rep": row["rep"],
+                    "ttft_ms": m.get("ttft_ms"),
+                    "tps": m.get("throughput_tps"),
+                    "prompt_tokens": m.get("prompt_tokens"),
+                    "output_tokens": m.get("output_tokens"),
+                    "total_ms": m.get("total_ms"),
+                    "error": m.get("error"),
+                })
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=[
+        "model_id", "model_name", "backend_kind", "prompt_id", "rep",
+        "ttft_ms", "tps", "prompt_tokens", "output_tokens", "total_ms", "error",
+    ])
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    safe_name = (run_row["name"] or run_id).replace("/", "_").replace(" ", "_")
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="bench_{safe_name}.csv"'},
+    )
+
+
 @router.delete("/benchmark/run/{run_id}")
 async def delete_run(run_id: str) -> dict:
     import aiosqlite
@@ -325,6 +377,84 @@ async def delete_all_runs() -> dict:
         await db.execute("DELETE FROM benchmark_runs")
         await db.commit()
     return {"status": "deleted", "count": n}
+
+
+@router.get("/benchmark/diff")
+async def benchmark_diff(a: str, b: str) -> dict:
+    """Compare two benchmark runs by model + prompt. Returns per-cell
+    deltas so the frontend can render a colored matrix."""
+    import aiosqlite
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        rows_by_run: dict[str, list[dict]] = {a: [], b: []}
+        for run_id in (a, b):
+            async with db.execute(
+                "SELECT model_id, model_name, prompt_id, metrics_json "
+                "FROM benchmark_results WHERE run_id = ?",
+                (run_id,),
+            ) as cur:
+                async for row in cur:
+                    m = json.loads(row["metrics_json"] or "{}")
+                    rows_by_run[run_id].append({
+                        "model_id": row["model_id"],
+                        "model_name": row["model_name"],
+                        "prompt_id": row["prompt_id"],
+                        "tps": m.get("throughput_tps"),
+                        "ttft_ms": m.get("ttft_ms"),
+                    })
+        async with db.execute(
+            "SELECT id, created_at, name FROM benchmark_runs WHERE id IN (?, ?)",
+            (a, b),
+        ) as cur:
+            meta = {row["id"]: dict(row) async for row in cur}
+
+    # average per (model, prompt) in each run
+    def agg(rows: list[dict]) -> dict[tuple[str, str], dict]:
+        out: dict[tuple[str, str], dict] = {}
+        for r in rows:
+            key = (r["model_id"], r["prompt_id"])
+            slot = out.setdefault(key, {"tps": [], "ttft_ms": [], "model_name": r["model_name"]})
+            if r["tps"] is not None:
+                slot["tps"].append(r["tps"])
+            if r["ttft_ms"] is not None:
+                slot["ttft_ms"].append(r["ttft_ms"])
+        return out
+
+    agg_a = agg(rows_by_run[a])
+    agg_b = agg(rows_by_run[b])
+    all_keys = sorted(set(agg_a.keys()) | set(agg_b.keys()))
+
+    def avg(xs: list[float]) -> float | None:
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    cells = []
+    for (model_id, prompt_id) in all_keys:
+        ra = agg_a.get((model_id, prompt_id), {"tps": [], "ttft_ms": [], "model_name": model_id})
+        rb = agg_b.get((model_id, prompt_id), {"tps": [], "ttft_ms": [], "model_name": model_id})
+        tps_a = avg(ra["tps"])
+        tps_b = avg(rb["tps"])
+        ttft_a = avg(ra["ttft_ms"])
+        ttft_b = avg(rb["ttft_ms"])
+        cells.append({
+            "model_id": model_id,
+            "model_name": ra.get("model_name") or rb.get("model_name") or model_id,
+            "prompt_id": prompt_id,
+            "a": {"tps": tps_a, "ttft_ms": ttft_a},
+            "b": {"tps": tps_b, "ttft_ms": ttft_b},
+            "delta_tps_pct": (
+                round(((tps_b - tps_a) / tps_a) * 100, 1)
+                if tps_a and tps_b else None
+            ),
+            "delta_ttft_pct": (
+                round(((ttft_b - ttft_a) / ttft_a) * 100, 1)
+                if ttft_a and ttft_b else None
+            ),
+        })
+    return {
+        "a": meta.get(a, {"id": a}),
+        "b": meta.get(b, {"id": b}),
+        "cells": cells,
+    }
 
 
 @router.get("/benchmark/model/{model_id:path}/history")

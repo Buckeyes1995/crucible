@@ -10,7 +10,7 @@ import {
   Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
   DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
-  ChevronDown, Search, Bot, Pin, FileText,
+  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ReactNode };
@@ -34,8 +34,10 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/snippets", label: "Snippets", icon: <Pin className="w-4 h-4" /> },
       { href: "/reddit", label: "Reddit", icon: <MessageSquare className="w-4 h-4" /> },
       { href: "/logs", label: "Logs", icon: <FileText className="w-4 h-4" /> },
+      { href: "/audit", label: "Audit", icon: <ScrollText className="w-4 h-4" /> },
       { href: "/ops", label: "Ops", icon: <Activity className="w-4 h-4" /> },
       { href: "/usage", label: "Usage", icon: <DollarSign className="w-4 h-4" /> },
+      { href: "/usage/leaderboard", label: "Model Leaderboard", icon: <Trophy className="w-4 h-4" /> },
       { href: "/visualizer", label: "Visualizer", icon: <Eye className="w-4 h-4" /> },
       { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
     ],
@@ -56,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/benchmark2", label: "New Run", icon: <Zap className="w-4 h-4" /> },
       { href: "/benchmark/history", label: "History", icon: <BarChart3 className="w-4 h-4" /> },
+      { href: "/benchmark/diff", label: "Diff", icon: <GitCompare className="w-4 h-4" /> },
       { href: "/humaneval", label: "HumanEval", icon: <FlaskConical className="w-4 h-4" /> },
       { href: "/dflash", label: "DFlash Bench", icon: <Bolt className="w-4 h-4" /> },
       { href: "/optimizer", label: "Optimizer", icon: <FlaskConical className="w-4 h-4" /> },
@@ -90,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/router", label: "Smart Router", icon: <GitBranch className="w-4 h-4" /> },
       { href: "/backup", label: "Backup", icon: <Archive className="w-4 h-4" /> },
       { href: "/settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
+      { href: "/about", label: "About", icon: <Info className="w-4 h-4" /> },
     ],
   },
 ];

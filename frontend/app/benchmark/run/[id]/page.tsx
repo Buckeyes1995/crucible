@@ -128,6 +128,15 @@ export default function RunDetailPage() {
           )}
         </div>
 
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/benchmark/run/${run.run_id}/csv`}
+            className="px-3 py-2 text-xs rounded-lg border border-white/10 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            title="Download results as CSV"
+          >
+            Download CSV
+          </a>
+
         {/* View toggle */}
         <div className="flex rounded-lg border border-white/10 overflow-hidden text-sm">
           {(["charts", "compare"] as const).map((v) => (
@@ -144,6 +153,7 @@ export default function RunDetailPage() {
               {v === "compare" ? "Side by Side" : "Charts"}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

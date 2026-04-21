@@ -4,14 +4,22 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, Download, MessageSquare, Play } from "lucide-react";
+import { Search, Trash2, Download, MessageSquare, Play, Pin, PinOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChatStore } from "@/lib/stores/chat";
 
 const BASE = "/api";
 
-type Session = { id: string; title: string; model_id: string | null; created_at: string; updated_at: string };
+type Session = {
+  id: string;
+  title: string;
+  model_id: string | null;
+  created_at: string;
+  updated_at: string;
+  pinned?: boolean;
+  tags?: string[];
+};
 type Message = { id: number; role: string; content: string; created_at: string };
 
 export default function ChatHistoryPage() {
@@ -43,6 +51,16 @@ export default function ChatHistoryPage() {
     if (selected === id) { setSelected(null); setMessages([]); }
   };
 
+  const togglePin = async (e: React.MouseEvent, id: string, current: boolean) => {
+    e.stopPropagation();
+    await fetch(`${BASE}/chat/sessions/${id}/pinned`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned: !current }),
+    });
+    fetchSessions(search.trim() || undefined);
+  };
+
   const exportMarkdown = async (id: string) => {
     const r = await fetch(`${BASE}/chat/sessions/${id}/export`);
     const { markdown } = await r.json();
@@ -69,13 +87,29 @@ export default function ChatHistoryPage() {
            sessions.length === 0 ? <div className="p-4 text-xs text-zinc-500">No conversations yet</div> :
            sessions.map((s) => (
             <div key={s.id} onClick={() => setSelected(s.id)}
-              className={cn("px-3 py-2.5 border-b border-white/5 cursor-pointer transition-colors",
+              className={cn("group px-3 py-2.5 border-b border-white/5 cursor-pointer transition-colors",
                 selected === s.id ? "bg-indigo-900/20" : "hover:bg-white/5")}>
-              <div className="text-sm text-zinc-200 truncate">{s.title}</div>
-              <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => togglePin(e, s.id, !!s.pinned)}
+                  className={cn("shrink-0", s.pinned ? "text-amber-400" : "text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-200")}
+                  title={s.pinned ? "Unpin" : "Pin"}
+                >
+                  {s.pinned ? <Pin className="w-3.5 h-3.5 fill-current" /> : <PinOff className="w-3.5 h-3.5" />}
+                </button>
+                <div className="text-sm text-zinc-200 truncate flex-1">{s.title}</div>
+              </div>
+              <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 pl-5.5">
                 <span>{s.model_id?.replace(/^mlx:/, "") ?? ""}</span>
                 <span>{new Date(s.updated_at).toLocaleDateString()}</span>
               </div>
+              {s.tags && s.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1 pl-5.5">
+                  {s.tags.map((t) => (
+                    <span key={t} className="text-[9px] bg-indigo-900/25 text-indigo-300 border border-indigo-500/20 px-1 py-px rounded">{t}</span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

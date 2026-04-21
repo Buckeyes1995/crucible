@@ -46,6 +46,7 @@ from routers import (
     finetune,
     finetune_pipeline,
     humaneval,
+    metrics_prom,
     metrics_ws,
     model_changelog,
     model_leaderboard,
@@ -248,19 +249,38 @@ app.add_middleware(
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """Enforce API key if configured. Always allow localhost."""
-    api_key = app.state.config.api_key if hasattr(app.state, "config") else ""
-    if api_key:
-        client_host = request.client.host if request.client else "127.0.0.1"
-        is_local = client_host in ("127.0.0.1", "::1", "localhost")
-        if not is_local:
-            provided = (
-                request.headers.get("X-API-Key")
-                or request.headers.get("Authorization", "").removeprefix("Bearer ")
-            ).strip()
-            if provided != api_key:
-                return Response("Unauthorized", status_code=401)
-    return await call_next(request)
+    """Enforce API key if configured. Always allow localhost.
+
+    Two accepted credentials:
+    1) legacy `api_key` in config.json — full access, unchanged.
+    2) scoped keys from routers/api_keys.py — each key has a permission
+       list (read/chat/benchmark/admin) and must match the scope the
+       route requires.
+    """
+    legacy_key = app.state.config.api_key if hasattr(app.state, "config") else ""
+    from routers.api_keys import authorize_key, _load as _load_scoped
+
+    has_scoped = any(k.get("key_hash") for k in _load_scoped())
+    # If there's no auth configured at all, allow everything.
+    if not legacy_key and not has_scoped:
+        return await call_next(request)
+
+    client_host = request.client.host if request.client else "127.0.0.1"
+    is_local = client_host in ("127.0.0.1", "::1", "localhost")
+    if is_local:
+        return await call_next(request)
+
+    provided = (
+        request.headers.get("X-API-Key")
+        or request.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip()
+    if not provided:
+        return Response("Unauthorized", status_code=401)
+    if legacy_key and provided == legacy_key:
+        return await call_next(request)
+    if has_scoped and authorize_key(provided, request.url.path, request.method):
+        return await call_next(request)
+    return Response("Unauthorized", status_code=401)
 
 
 app.include_router(proxy.router)  # OpenAI-compatible proxy at /v1/*
@@ -275,6 +295,8 @@ app.include_router(misc_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")
 app.include_router(model_chain_router.router, prefix="/api")
+# /metrics mounted at root (not /api) to match the Prometheus scrape convention.
+app.include_router(metrics_prom.router)
 app.include_router(notes.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(models.router, prefix="/api")

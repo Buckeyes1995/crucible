@@ -1,5 +1,6 @@
 """Chat history — persist and search conversations."""
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -37,26 +38,88 @@ async def create_session(body: CreateSession) -> dict:
 
 
 @router.get("/chat/sessions")
-async def list_sessions(q: Optional[str] = None, limit: int = 50) -> list[dict]:
+async def list_sessions(q: Optional[str] = None, limit: int = 50,
+                         tag: Optional[str] = None) -> list[dict]:
+    # Pinned sessions float to the top regardless of updated_at so favorites
+    # stay visible. Tag filter matches exact tag membership (case-insensitive).
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         if q:
+            base = """SELECT DISTINCT s.* FROM chat_sessions s
+                      JOIN chat_messages m ON m.session_id = s.id
+                      WHERE (m.content LIKE ? OR s.title LIKE ?)
+                      ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"""
+            args = (f"%{q}%", f"%{q}%", limit)
             rows = []
-            async with db.execute(
-                """SELECT DISTINCT s.* FROM chat_sessions s
-                   JOIN chat_messages m ON m.session_id = s.id
-                   WHERE m.content LIKE ? OR s.title LIKE ?
-                   ORDER BY s.updated_at DESC LIMIT ?""",
-                (f"%{q}%", f"%{q}%", limit),
-            ) as cur:
+            async with db.execute(base, args) as cur:
                 async for row in cur:
                     rows.append(dict(row))
-            return rows
         else:
             async with db.execute(
-                "SELECT * FROM chat_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM chat_sessions ORDER BY COALESCE(pinned, 0) DESC, updated_at DESC LIMIT ?",
+                (limit,),
             ) as cur:
-                return [dict(row) async for row in cur]
+                rows = [dict(row) async for row in cur]
+    def _decorate(r: dict) -> dict:
+        try:
+            r["tags"] = json.loads(r.get("tags_json") or "[]")
+        except Exception:
+            r["tags"] = []
+        r["pinned"] = bool(r.get("pinned") or 0)
+        return r
+
+    decorated = [_decorate(r) for r in rows]
+    if tag:
+        needle = tag.lower()
+        return [r for r in decorated if any(t.lower() == needle for t in r["tags"])]
+    return decorated
+
+
+class TagUpdate(BaseModel):
+    tags: list[str]
+
+
+@router.put("/chat/sessions/{session_id}/tags")
+async def set_session_tags(session_id: str, body: TagUpdate) -> dict:
+    tags = [t.strip() for t in body.tags if t.strip()]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chat_sessions SET tags_json = ? WHERE id = ?",
+            (json.dumps(tags), session_id),
+        )
+        await db.commit()
+    return {"id": session_id, "tags": tags}
+
+
+class PinUpdate(BaseModel):
+    pinned: bool
+
+
+@router.put("/chat/sessions/{session_id}/pinned")
+async def set_session_pinned(session_id: str, body: PinUpdate) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chat_sessions SET pinned = ? WHERE id = ?",
+            (1 if body.pinned else 0, session_id),
+        )
+        await db.commit()
+    return {"id": session_id, "pinned": body.pinned}
+
+
+@router.get("/chat/session-tags")
+async def all_session_tags() -> list[str]:
+    """Unique tag list across all sessions — for tag filter dropdowns."""
+    tags: set[str] = set()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT tags_json FROM chat_sessions WHERE tags_json IS NOT NULL") as cur:
+            async for row in cur:
+                try:
+                    for t in json.loads(row[0] or "[]"):
+                        if t:
+                            tags.add(t)
+                except Exception:
+                    pass
+    return sorted(tags)
 
 
 @router.get("/chat/search")

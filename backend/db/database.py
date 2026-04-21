@@ -108,6 +108,9 @@ async def init_db() -> None:
             "ALTER TABLE benchmark_results ADD COLUMN response_text TEXT",
             "ALTER TABLE arena_battles ADD COLUMN norm_mode TEXT DEFAULT 'per_model'",
             "ALTER TABLE arena_battles ADD COLUMN extra_slots_json TEXT",
+            # v3 chat-session additions — tags + pinned for better history management.
+            "ALTER TABLE chat_sessions ADD COLUMN tags_json TEXT",
+            "ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER DEFAULT 0",
         ):
             try:
                 await db.execute(stmt)
