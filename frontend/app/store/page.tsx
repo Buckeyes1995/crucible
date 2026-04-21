@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import {
   api, type StoreCatalog, type StoreInstalled, type StoreMcp,
-  type InstalledDetail, type HFSearchResult, type DownloadJob,
+  type InstalledDetail, type HFSearchResult, type DownloadJob, type InstalledMcp,
   type McpTool, type McpCallResult,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -444,12 +444,36 @@ function McpConfigDialog({
   onCancel: () => void;
   onInstalled: () => Promise<void>;
 }) {
+  // Seed with catalog defaults as a fallback. Actual values are fetched
+  // below if the MCP is already installed — whatever the user entered last
+  // time wins over the catalog default, so reconfigure shows current state.
   const [values, setValues] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
     for (const p of mcp.config_params ?? []) if (p.default) out[p.name] = p.default;
     return out;
   });
+  const [loadingInstalled, setLoadingInstalled] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await fetch("/api/store/mcps/installed").then(r => r.json()) as InstalledMcp[];
+        if (cancelled) return;
+        const existing = rows.find(r => r.id === mcp.id);
+        if (existing && existing.values) {
+          setValues(prev => ({ ...prev, ...existing.values }));
+        }
+      } catch {
+        // Fallback to catalog defaults silently — reconfigure pre-fill is a
+        // nice-to-have, not a blocker.
+      } finally {
+        if (!cancelled) setLoadingInstalled(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mcp.id]);
 
   const requiredMissing = (mcp.config_params ?? []).some(p => p.required && !values[p.name]?.trim());
 
@@ -475,7 +499,9 @@ function McpConfigDialog({
           {mcp.description && <p className="text-xs text-zinc-500 mt-1">{mcp.description}</p>}
         </div>
         <div className="px-5 py-4 space-y-3">
-          {(mcp.config_params ?? []).length === 0 ? (
+          {loadingInstalled ? (
+            <p className="text-xs text-zinc-500 animate-pulse">Loading current values…</p>
+          ) : (mcp.config_params ?? []).length === 0 ? (
             <p className="text-xs text-zinc-400">No configuration needed. Click Install to add this MCP to your registry.</p>
           ) : (
             (mcp.config_params ?? []).map(p => (

@@ -225,6 +225,7 @@ async def install_mcp(body: InstallMcpRequest) -> dict[str, Any]:
         command=entry.get("command", ""),
         args=rendered_args,
         env=rendered_env,
+        values=body.values,
     )
     return {"status": "installed", "mcp": installed}
 

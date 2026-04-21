@@ -42,10 +42,16 @@ def list_installed() -> list[dict[str, Any]]:
 
 
 def install(mcp_id: str, name: str, command: str, args: list[str],
-            env: dict[str, str], source: str = "crucible-store") -> dict:
+            env: dict[str, str], source: str = "crucible-store",
+            values: dict[str, str] | None = None) -> dict:
     """Add or replace a registry entry. Idempotent by mcp_id — installing
     the same id twice replaces the previous config (useful for re-entering
-    an API key)."""
+    an API key).
+
+    `values` is the raw user-supplied config param dict ({root_dir: ...,
+    github_token: ...}) — kept alongside the rendered args so the UI can
+    pre-fill the reconfigure dialog with whatever the user entered last
+    time, rather than falling back to catalog defaults."""
     entries = _load()
     entries = [e for e in entries if e.get("id") != mcp_id]
     entry = {
@@ -54,6 +60,7 @@ def install(mcp_id: str, name: str, command: str, args: list[str],
         "command": command,
         "args": list(args),
         "env": dict(env),
+        "values": dict(values or {}),
         "source": source,
         "installed_at": time.time(),
     }

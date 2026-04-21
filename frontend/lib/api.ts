@@ -76,7 +76,11 @@ export type StoreInstalled = {
 };
 export type InstalledMcp = {
   id: string; name: string; command: string; args: string[];
-  env: Record<string, string>; source: string; installed_at: number;
+  env: Record<string, string>;
+  // User-supplied values at install time — populated for entries installed
+  // after 2026-04-20. Older entries may have `values: {}` or no field at all.
+  values?: Record<string, string>;
+  source: string; installed_at: number;
 };
 export type InstalledDetail = {
   prompts: { id: string; name: string; description?: string; content: string; created_at?: string }[];
