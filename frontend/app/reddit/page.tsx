@@ -124,6 +124,18 @@ export default function RedditPage() {
       await load();
     } catch {}
   };
+  const approveAndOpen = async (d: Draft) => {
+    // Best-effort clipboard copy; browsers block this when not same-origin /
+    // not user-gesture — we fall through to the tab open either way.
+    try {
+      await navigator.clipboard.writeText(d.draft);
+      toast("Draft copied — paste into the Reddit reply box", "success");
+    } catch {
+      toast("Approved — copy the draft manually, clipboard was blocked", "info");
+    }
+    window.open(d.post_permalink, "_blank", "noopener,noreferrer");
+    await updateDraft(d.id, { status: "approved" });
+  };
   const deleteDraft = async (id: string) => {
     if (!confirm("Delete draft?")) return;
     try {
@@ -285,7 +297,7 @@ export default function RedditPage() {
             <DraftCard
               key={d.id}
               draft={d}
-              onApprove={() => updateDraft(d.id, { status: "approved" })}
+              onApprove={() => approveAndOpen(d)}
               onReject={() => updateDraft(d.id, { status: "rejected" })}
               onMarkPosted={() => updateDraft(d.id, { status: "posted" })}
               onEdit={(text) => updateDraft(d.id, { draft: text })}
@@ -361,7 +373,13 @@ function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete 
       <div className="mt-3 flex gap-2">
         {draft.status === "pending" && (
           <>
-            <Button size="xs" variant="primary" onClick={onApprove} className="gap-1"><Check className="w-3 h-3" /> Approve</Button>
+            <Button
+              size="xs"
+              variant="primary"
+              onClick={onApprove}
+              className="gap-1"
+              title="Copy draft to clipboard, open the Reddit thread in a new tab, mark approved"
+            ><Check className="w-3 h-3" /> Approve + open on Reddit</Button>
             <Button size="xs" variant="ghost" onClick={onReject} className="gap-1"><XIcon className="w-3 h-3" /> Reject</Button>
           </>
         )}
