@@ -66,3 +66,6 @@ are not repeated here. Grouped by theme; not ranked.
 98. **Full MCP chat integration** — model uses installed MCP tools via function calling. Depends on deferred item #35.
 99. **Crucible Collaborator** — a persistent "pair-programming" mode that stays across sessions, keeps a memory index, and proactively surfaces relevant past context.
 100. **Fine-tune on my best chats** — extend the curator so "train a small LoRA on my favorite responses" is a single button.
+
+## UX infrastructure (101)
+101. **Universal file/folder picker** — server-side `/api/fs/browse` endpoint + reusable React dialog that walks the local filesystem. Attach as a "Browse…" button next to every path/file input in the app: MCP config params (root_dir), Settings (mlx_dir / gguf_dir / vllm_dir / llama_server binary), folder-pins, rsync backup destination, git-context path. Dialog supports typing-to-filter, keyboard nav, shows size + mtime, and optionally filters by file type when the field is "file" vs "directory". Eliminates "what's the exact path again?" and prevents typos from silently failing deep in a subprocess call. Config params get a new `type` field (`"path" | "file" | "directory" | "string" | "secret"`) so the catalog can declare which inputs should render the picker.
