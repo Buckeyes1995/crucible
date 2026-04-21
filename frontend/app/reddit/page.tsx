@@ -189,6 +189,8 @@ export default function RedditPage() {
             </p>
           </div>
 
+          <CredentialsHelp />
+
           <div className="grid grid-cols-2 gap-3">
             <Field
               label="Client ID"
@@ -208,7 +210,7 @@ export default function RedditPage() {
               value={config.user_agent}
               onChange={(v) => saveConfig({ user_agent: v })}
               className="col-span-2"
-              help="Reddit wants an identifying string. Doesn't have to be real creds — `crucible/1.0 by your-username` is fine."
+              help="Reddit wants an identifying string. `crucible-watcher/1.0 by your-reddit-username` is the recommended shape."
             />
             <Field
               label="Min score"
@@ -368,6 +370,66 @@ function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete 
         )}
         <Button size="xs" variant="destructive" onClick={onDelete} className="gap-1 ml-auto"><Trash2 className="w-3 h-3" /> Delete</Button>
       </div>
+    </div>
+  );
+}
+
+function CredentialsHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-indigo-500/20 bg-indigo-950/10">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-[11px] text-indigo-300 hover:bg-indigo-900/10"
+      >
+        <span className="flex items-center gap-1.5">
+          <ExternalLink className="w-3 h-3" />
+          How do I get a Client ID and Client Secret?
+        </span>
+        <span className="text-indigo-400">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 text-[11px] text-zinc-300 border-t border-indigo-500/15">
+          <ol className="space-y-1.5 list-decimal pl-4">
+            <li>
+              Go to{" "}
+              <a
+                href="https://www.reddit.com/prefs/apps"
+                target="_blank"
+                rel="noreferrer"
+                className="text-indigo-300 underline hover:text-indigo-200"
+              >reddit.com/prefs/apps</a>{" "}
+              while logged in to your Reddit account.
+            </li>
+            <li>
+              Scroll to the bottom and click{" "}
+              <span className="font-mono text-zinc-200">are you a developer? create an app…</span>
+            </li>
+            <li>
+              Fill in the form:
+              <ul className="list-disc pl-4 mt-1 space-y-0.5 text-zinc-400">
+                <li><span className="font-mono">name</span> — anything, e.g. <span className="font-mono text-zinc-200">crucible-watcher</span></li>
+                <li><span className="font-mono">app type</span> — <span className="font-semibold text-indigo-300">script</span> (for personal single-user use)</li>
+                <li><span className="font-mono">about url</span> — leave blank</li>
+                <li><span className="font-mono">redirect uri</span> — required field but unused for script apps; put <span className="font-mono text-zinc-200">http://localhost:8080</span></li>
+              </ul>
+            </li>
+            <li>Click <span className="font-mono">create app</span>.</li>
+            <li>
+              Grab the two values from the created-app panel:
+              <ul className="list-disc pl-4 mt-1 space-y-0.5 text-zinc-400">
+                <li><strong>Client ID</strong> — the short gibberish-looking string <em>under</em> the app name (above &ldquo;personal use script&rdquo;)</li>
+                <li><strong>Client secret</strong> — next to the label <span className="font-mono">secret</span> (click <span className="font-mono">edit</span> if you need to reveal it)</li>
+              </ul>
+            </li>
+          </ol>
+          <p className="text-zinc-500 mt-2 pt-2 border-t border-white/[0.06]">
+            Credentials are <strong>optional</strong>. Without them, the watcher falls back to the public{" "}
+            <span className="font-mono">r/{"{sub}"}/new.json</span> endpoint — good enough for reads.
+            Add creds for higher rate limits.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
