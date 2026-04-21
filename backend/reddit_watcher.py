@@ -35,11 +35,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "min_score": 3,
     # System prompt the drafter sees — editable by the user.
     "draft_system_prompt": (
-        "You are a helpful and thoughtful commenter on r/LocalLLaMA. "
+        "You are a thoughtful commenter on technical LLM / AI / ML subreddits. "
         "Draft a short, specific reply to the post below. Add genuine value — "
         "cite concrete numbers or experiences when possible. Avoid generic "
         "advice. Keep it under 150 words. Do not open with flattery. Do not "
-        "end with 'hope this helps'."
+        "end with 'hope this helps'. Output ONLY the reply text — no "
+        "'thinking process', no meta-commentary, no preamble."
     ),
     "auto_draft_on_scan": True,
 }
@@ -200,8 +201,10 @@ async def draft_reply(post: dict, cfg: dict[str, Any],
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.6,
-        "max_tokens": 512,
+        "max_tokens": 2048,   # Allow thinking models room to think; we strip below.
         "stream": False,
+        # Disable thinking on models that honor it (Qwen3.x family etc.).
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
@@ -209,10 +212,42 @@ async def draft_reply(post: dict, cfg: dict[str, Any],
             r = await client.post(f"{base_url}/v1/chat/completions", json=payload)
             r.raise_for_status()
             data = r.json()
-            return data["choices"][0]["message"]["content"].strip()
+            return _strip_thinking_preamble(data["choices"][0]["message"]["content"])
     except Exception as e:
         log.warning("reddit_watcher: draft failed for %s (%s)", post.get("id"), e)
         return None
+
+
+def _strip_thinking_preamble(text: str) -> str:
+    """Remove the Qwen-style 'Here's a thinking process: 1. ...' preamble
+    some models emit even when enable_thinking=false is requested. We keep
+    everything AFTER the last numbered step (or after a separator line) if
+    we detect the preamble, otherwise return the text as-is."""
+    if not text:
+        return ""
+    s = text.strip()
+    markers = [
+        "here's a thinking process",
+        "here is a thinking process",
+        "<think>",
+        "thinking process:",
+    ]
+    low = s.lower()
+    if any(m in low[:200] for m in markers):
+        # Try common separator patterns — '\n---\n', '\n\nDraft:', '\n\nReply:', '\n\n'.
+        import re
+        for pat in (r"\n---+\n", r"\nReply:\s*\n", r"\nDraft:\s*\n",
+                    r"\n\s*Final (answer|reply|response):\s*\n"):
+            m = re.split(pat, s, maxsplit=1, flags=re.IGNORECASE)
+            if len(m) == 2 and len(m[1].strip()) > 20:
+                return m[1].strip()
+        # Fallback: drop everything before the last blank line if the text
+        # is long enough that the preamble probably isn't the whole response.
+        if "\n\n" in s and len(s) > 500:
+            parts = s.rsplit("\n\n", 1)
+            if len(parts[1].strip()) > 30:
+                return parts[1].strip()
+    return s
 
 
 async def scan_and_draft(cfg: dict[str, Any], base_url: str, api_key: str,
