@@ -33,16 +33,44 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_post_age_hours": 12,
     # Minimum upvotes to even consider a post worth engaging with.
     "min_score": 3,
-    # System prompt the drafter sees — editable by the user.
+    # System prompt the drafter sees — editable by the user. The default is
+    # tuned for "technical niche sub where readers fact-check" and pushes the
+    # model toward hedged / experience-based framing rather than confident
+    # assertions about projects or APIs (which it'll get wrong).
     "draft_system_prompt": (
-        "You are a thoughtful commenter on technical LLM / AI / ML subreddits. "
-        "Draft a short, specific reply to the post below. Add genuine value — "
-        "cite concrete numbers or experiences when possible. Avoid generic "
-        "advice. Keep it under 150 words. Do not open with flattery. Do not "
-        "end with 'hope this helps'. Output ONLY the reply text — no "
-        "'thinking process', no meta-commentary, no preamble."
+        "You are drafting a reply on a technical LLM / AI / ML subreddit where "
+        "readers fact-check harshly. Rules:\n"
+        "- Prefer hedged framing ('I think', 'in my experience', 'as of [date]') "
+        "over confident assertions.\n"
+        "- Do NOT make specific factual claims about projects, features, APIs, "
+        "or version numbers unless you are certain they are accurate. Readers "
+        "will check and downvote.\n"
+        "- When in doubt, ask a clarifying question or share a first-person "
+        "observation instead of making a claim.\n"
+        "- No flattery, no 'hope this helps', no meta-commentary about the "
+        "reply itself.\n"
+        "- Keep it under 150 words.\n"
+        "- Output ONLY the reply text — no 'thinking process' preamble."
     ),
+    # Per-subreddit free-text dossier. When drafting a reply to a post from
+    # one of these subs, the matching dossier is prepended to the system
+    # prompt so the model gets community-specific hot-button context it
+    # wouldn't otherwise know.
+    "subreddit_dossiers": {
+        "LocalLLaMA": (
+            "r/LocalLLaMA is the biggest local-LLM community. Hot-button facts:\n"
+            "- llama.cpp ships llama-server in-tree — it's NOT 'just a library'.\n"
+            "- Ollama is controversial for perceived fork-and-rebrand behavior "
+            "but has dropdown mindshare. Do NOT defend it reflexively.\n"
+            "- MLX is Apple-only; vLLM is effectively Cuda-only.\n"
+            "- Users here fact-check harder than almost any other LLM sub. "
+            "When unsure, hedge or don't make the claim."
+        ),
+    },
     "auto_draft_on_scan": True,
+    # When true, every fresh draft gets a second pass through the model that
+    # identifies shaky claims. Flags are stored on the draft and shown in UI.
+    "critique_drafts": True,
 }
 
 
@@ -88,7 +116,8 @@ def list_drafts(status: Optional[str] = None) -> list[dict]:
     return sorted(rows, key=lambda d: -d.get("created_at", 0))
 
 
-def add_draft(post: dict, draft_text: str, model_id: Optional[str]) -> dict:
+def add_draft(post: dict, draft_text: str, model_id: Optional[str],
+              critique: Optional[list[dict]] = None) -> dict:
     drafts = _load_drafts()
     entry = {
         "id": uuid.uuid4().hex[:12],
@@ -102,6 +131,7 @@ def add_draft(post: dict, draft_text: str, model_id: Optional[str]) -> dict:
         "draft": draft_text,
         "model_id": model_id,
         "status": "pending",          # pending | approved | rejected | posted
+        "critique": critique or [],   # [{claim, confidence, note}]
         "created_at": time.time(),
         "edited_at": None,
     }
@@ -114,11 +144,18 @@ def update_draft(draft_id: str, **fields: Any) -> Optional[dict]:
     drafts = _load_drafts()
     for d in drafts:
         if d["id"] == draft_id:
-            for k in ("draft", "status"):
+            for k in ("draft", "status", "critique"):
                 if k in fields:
                     d[k] = fields[k]
             d["edited_at"] = time.time()
             _save_drafts(drafts)
+            return d
+    return None
+
+
+def get_draft(draft_id: str) -> Optional[dict]:
+    for d in _load_drafts():
+        if d["id"] == draft_id:
             return d
     return None
 
@@ -182,12 +219,30 @@ async def fetch_candidate_posts(cfg: dict[str, Any]) -> list[dict]:
     return posts
 
 
+def _build_system_prompt(cfg: dict[str, Any], subreddit: str) -> str:
+    """Stack the per-sub dossier (if any) on top of the base system prompt.
+    Dossier first so it sets the scene; base rules after so they anchor tone."""
+    parts: list[str] = []
+    dossiers = cfg.get("subreddit_dossiers") or {}
+    # Case-insensitive dossier lookup so user-typed sub names still match.
+    sub_lower = (subreddit or "").lower()
+    for name, body in dossiers.items():
+        if name.lower() == sub_lower and body.strip():
+            parts.append("=== Context for r/" + name + " ===\n" + body.strip())
+            break
+    base = cfg.get("draft_system_prompt", "")
+    if base.strip():
+        parts.append(base.strip())
+    return "\n\n".join(parts)
+
+
 async def draft_reply(post: dict, cfg: dict[str, Any],
                       base_url: str, api_key: str, model_name: str) -> Optional[str]:
     """Ask the active Crucible MLX model to draft a reply to one post.
     Returns the draft text or None on failure."""
     import httpx
 
+    system_prompt = _build_system_prompt(cfg, post.get("subreddit", ""))
     prompt = (
         f"Subreddit: r/{post.get('subreddit','?')}\n"
         f"Title: {post.get('title','')}\n\n"
@@ -197,7 +252,7 @@ async def draft_reply(post: dict, cfg: dict[str, Any],
     payload = {
         "model": model_name,
         "messages": [
-            {"role": "system", "content": cfg.get("draft_system_prompt", "")},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.6,
@@ -250,6 +305,79 @@ def _strip_thinking_preamble(text: str) -> str:
     return s
 
 
+CRITIQUE_SYSTEM_PROMPT = (
+    "You are a hostile, fact-checking reader on a technical LLM / AI subreddit. "
+    "Your only job is to identify specific factual claims in a draft reply "
+    "that would embarrass the author if wrong. Examples: claims about what a "
+    "project ships, how an API works, version numbers, feature availability, "
+    "performance numbers, exclusivity claims ('X is the only Y').\n\n"
+    "Output ONLY a JSON array of objects. Each object has:\n"
+    "  claim: the exact phrase from the draft\n"
+    "  confidence: HIGH | MEDIUM | LOW\n"
+    "    HIGH   = textbook fact, not going to be challenged\n"
+    "    MEDIUM = probably true but worth double-checking\n"
+    "    LOW    = sounds plausible but could easily be wrong\n"
+    "  note: one short sentence explaining why the confidence level is what it is\n\n"
+    "If there are no risky claims, output []. Output nothing outside the JSON array."
+)
+
+
+async def critique_draft(draft_text: str, cfg: dict[str, Any],
+                          base_url: str, api_key: str, model_name: str) -> list[dict]:
+    """Run the draft through a second pass to flag shaky factual claims.
+    Returns a list of {claim, confidence, note} dicts. Empty list on failure —
+    critique is advisory, never blocks a draft."""
+    import httpx
+    import json as _json
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": CRITIQUE_SYSTEM_PROMPT},
+            {"role": "user", "content":
+             "Draft to critique:\n\n" + draft_text + "\n\nJSON array only."},
+        ],
+        "temperature": 0.0,
+        "max_tokens": 2048,
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        async with httpx.AsyncClient(timeout=180.0, headers=headers) as client:
+            r = await client.post(f"{base_url}/v1/chat/completions", json=payload)
+            r.raise_for_status()
+            raw = r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        log.warning("reddit_watcher: critique failed (%s)", e)
+        return []
+    # Models often wrap the JSON in prose or code fences. Extract the first
+    # [...] block and try to parse it.
+    import re
+    m = re.search(r"\[[\s\S]*\]", raw)
+    if not m:
+        return []
+    try:
+        parsed = _json.loads(m.group(0))
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        conf = (item.get("confidence") or "").upper()
+        if conf not in ("HIGH", "MEDIUM", "LOW"):
+            continue
+        out.append({
+            "claim": str(item.get("claim", ""))[:400],
+            "confidence": conf,
+            "note": str(item.get("note", ""))[:300],
+        })
+    return out
+
+
 async def scan_and_draft(cfg: dict[str, Any], base_url: str, api_key: str,
                           model_name: Optional[str]) -> dict[str, Any]:
     """One scan pass: fetch posts, skip already-drafted ones, draft the rest.
@@ -271,7 +399,13 @@ async def scan_and_draft(cfg: dict[str, Any], base_url: str, api_key: str,
             continue
         text = await draft_reply(post, cfg, base_url, api_key, model_name)
         if text:
-            add_draft(post, text, model_name)
+            flags: list[dict] = []
+            if cfg.get("critique_drafts", True):
+                try:
+                    flags = await critique_draft(text, cfg, base_url, api_key, model_name)
+                except Exception as e:
+                    log.warning("reddit_watcher: critique step errored: %s", e)
+            add_draft(post, text, model_name, critique=flags)
             drafted += 1
     return {
         "enabled": True, "fetched": len(posts),

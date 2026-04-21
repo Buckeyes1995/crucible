@@ -28,6 +28,8 @@ class ConfigUpdate(BaseModel):
     min_score: int | None = None
     draft_system_prompt: str | None = None
     auto_draft_on_scan: bool | None = None
+    subreddit_dossiers: dict[str, str] | None = None
+    critique_drafts: bool | None = None
 
 
 @router.put("/reddit/config")
@@ -62,6 +64,26 @@ async def delete_draft(draft_id: str) -> dict:
     if not rw.delete_draft(draft_id):
         raise HTTPException(404, "draft not found")
     return {"status": "deleted"}
+
+
+@router.post("/reddit/drafts/{draft_id}/critique")
+async def recritique(draft_id: str, request: Request) -> dict:
+    """Re-run the call-out-risk critique on an existing draft. Useful if the
+    user added subreddit dossier context after the original scan, or wants
+    a fresh look after editing the draft."""
+    d = rw.get_draft(draft_id)
+    if not d:
+        raise HTTPException(404, "draft not found")
+    adapter = getattr(request.app.state, "active_adapter", None)
+    if adapter is None or not adapter.is_loaded():
+        raise HTTPException(400, "no model loaded; load one in /models first")
+    app_cfg = request.app.state.config
+    base_url = getattr(adapter, "base_url", None) or app_cfg.mlx_external_url or "http://127.0.0.1:8000"
+    api_key = getattr(adapter, "api_key", "") or app_cfg.omlx_api_key
+    model_name = getattr(adapter, "server_model_id", None) or adapter.model_id
+    flags = await rw.critique_draft(d["draft"], rw.load_config(), base_url, api_key, model_name)
+    updated = rw.update_draft(draft_id, critique=flags)
+    return updated or {"id": draft_id, "critique": flags}
 
 
 @router.post("/reddit/scan")

@@ -44,6 +44,14 @@ type RedditConfig = {
   min_score: number;
   draft_system_prompt: string;
   auto_draft_on_scan: boolean;
+  subreddit_dossiers: Record<string, string>;
+  critique_drafts: boolean;
+};
+
+type CritiqueFlag = {
+  claim: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  note: string;
 };
 
 type Draft = {
@@ -58,6 +66,7 @@ type Draft = {
   draft: string;
   model_id: string | null;
   status: "pending" | "approved" | "rejected" | "posted";
+  critique: CritiqueFlag[];
   created_at: number;
   edited_at: number | null;
 };
@@ -254,6 +263,30 @@ export default function RedditPage() {
             }}
           />
 
+          <DossierEditor
+            subs={config.subreddits}
+            dossiers={config.subreddit_dossiers || {}}
+            onChange={(name, text) => {
+              const next = { ...(config.subreddit_dossiers || {}) };
+              if (text.trim()) next[name] = text;
+              else delete next[name];
+              saveConfig({ subreddit_dossiers: next });
+            }}
+          />
+
+          <label className="flex items-center gap-2 text-xs text-zinc-200">
+            <input
+              type="checkbox"
+              checked={config.critique_drafts ?? true}
+              onChange={(e) => saveConfig({ critique_drafts: e.target.checked })}
+              className="accent-indigo-500"
+            />
+            Run a call-out-risk critique on each new draft
+            <span className="text-[10px] text-zinc-500">
+              (second pass flags shaky claims before you review)
+            </span>
+          </label>
+
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Draft system prompt</label>
             <p className="text-[11px] text-zinc-500 mb-1.5">
@@ -302,6 +335,19 @@ export default function RedditPage() {
               onMarkPosted={() => updateDraft(d.id, { status: "posted" })}
               onEdit={(text) => updateDraft(d.id, { draft: text })}
               onDelete={() => deleteDraft(d.id)}
+              onRecritique={async () => {
+                try {
+                  const r = await fetch(`/api/reddit/drafts/${encodeURIComponent(d.id)}/critique`, { method: "POST" });
+                  if (!r.ok) {
+                    const t = await r.text();
+                    throw new Error(t);
+                  }
+                  toast("Critique refreshed", "success");
+                  await load();
+                } catch (e) {
+                  toast(`Critique failed: ${(e as Error).message}`, "error");
+                }
+              }}
             />
           ))
         )}
@@ -310,13 +356,14 @@ export default function RedditPage() {
   );
 }
 
-function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete }: {
+function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete, onRecritique }: {
   draft: Draft;
   onApprove: () => void;
   onReject: () => void;
   onMarkPosted: () => void;
   onEdit: (text: string) => void;
   onDelete: () => void;
+  onRecritique: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(draft.draft);
@@ -370,6 +417,43 @@ function DraftCard({ draft, onApprove, onReject, onMarkPosted, onEdit, onDelete 
           <pre className="text-xs text-zinc-200 bg-black/30 rounded p-3 whitespace-pre-wrap">{draft.draft}</pre>
         )}
       </div>
+
+      {(draft.critique && draft.critique.length > 0) && (
+        <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-950/10 p-2.5">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] uppercase tracking-wide text-amber-300 font-medium">
+              Call-out risk ({draft.critique.length} claim{draft.critique.length === 1 ? "" : "s"})
+            </div>
+            <button onClick={onRecritique} className="text-[10px] text-amber-400 hover:text-amber-200">
+              Re-run
+            </button>
+          </div>
+          <ul className="mt-1.5 space-y-1.5">
+            {draft.critique.map((f, i) => (
+              <li key={i} className="text-[11px]">
+                <span className={cn(
+                  "inline-block text-[9px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded mr-1.5 align-middle",
+                  f.confidence === "LOW" ? "bg-red-500/20 text-red-300 border border-red-500/30"
+                  : f.confidence === "MEDIUM" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+                )}>
+                  {f.confidence}
+                </span>
+                <span className="text-zinc-200">{f.claim}</span>
+                {f.note && <div className="ml-12 text-zinc-500">{f.note}</div>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(!draft.critique || draft.critique.length === 0) && draft.status === "pending" && (
+        <div className="mt-2 text-[10px] text-zinc-600 flex items-center gap-1.5">
+          <span>No risky claims flagged.</span>
+          <button onClick={onRecritique} className="text-zinc-500 hover:text-zinc-300 underline">
+            re-check
+          </button>
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
         {draft.status === "pending" && (
           <>
@@ -446,6 +530,92 @@ function CredentialsHelp() {
             <span className="font-mono">r/{"{sub}"}/new.json</span> endpoint — good enough for reads.
             Add creds for higher rate limits.
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DossierEditor({ subs, dossiers, onChange }: {
+  subs: string[];
+  dossiers: Record<string, string>;
+  onChange: (name: string, text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeSub, setActiveSub] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    if (activeSub) setDraft(dossiers[activeSub] ?? "");
+  }, [activeSub, dossiers]);
+
+  if (subs.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-zinc-950/40">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-[11px] text-zinc-300 hover:bg-zinc-900/40"
+      >
+        <span>
+          <span className="uppercase tracking-wide text-zinc-500 mr-1">Dossiers</span>
+          <span className="text-zinc-600">
+            ({Object.keys(dossiers).filter(k => (dossiers[k] || "").trim()).length} / {subs.length} subs)
+          </span>
+        </span>
+        <span className="text-zinc-500">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-white/[0.06]">
+          <p className="text-[11px] text-zinc-500 mt-2">
+            Per-subreddit context the model won&apos;t otherwise know. Use this to pre-empt
+            common mistakes (e.g. &ldquo;don&apos;t say llama.cpp is just a library — it
+            ships llama-server&rdquo;). Prepended to the system prompt when drafting a reply
+            to a post from the matching sub.
+          </p>
+          <div className="grid grid-cols-[180px_1fr] gap-2">
+            <div className="space-y-0.5 max-h-72 overflow-y-auto">
+              {subs.map(s => {
+                const filled = (dossiers[s] || "").trim().length > 0;
+                const on = activeSub === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setActiveSub(s)}
+                    className={cn(
+                      "w-full text-left px-2 py-1 rounded text-[11px] font-mono flex items-center justify-between",
+                      on ? "bg-indigo-950/30 text-indigo-200 border border-indigo-500/30"
+                         : "text-zinc-400 hover:bg-zinc-800/60 border border-transparent",
+                    )}
+                  >
+                    <span className="truncate">r/{s}</span>
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full shrink-0",
+                      filled ? "bg-emerald-400" : "bg-zinc-700",
+                    )} />
+                  </button>
+                );
+              })}
+            </div>
+            <div>
+              {activeSub ? (
+                <>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => onChange(activeSub, draft)}
+                    rows={6}
+                    placeholder={`Context for r/${activeSub} — facts, hot buttons, terminology, things the model tends to get wrong…`}
+                    className="w-full bg-zinc-950 border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-zinc-200 font-mono"
+                  />
+                  <p className="text-[10px] text-zinc-600 mt-1">
+                    Saves when you click away. Plain text, no markdown required.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-zinc-600">Pick a sub on the left to edit its dossier.</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
