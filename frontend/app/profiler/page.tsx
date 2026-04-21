@@ -86,7 +86,7 @@ export default function ProfilerPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-8 py-8 space-y-6 animate-fade-in">
+    <div className="max-w-4xl mx-auto px-8 py-8 space-y-6 animate-fade-in">
       <PageHeader icon={<Timer className="w-5 h-5" />} title="Inference Profiler"
         description={`${profiles.length} requests profiled`} />
 
