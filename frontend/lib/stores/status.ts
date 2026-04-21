@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 
 type Status = {
   active_model_id: string | null;
+  active_engine: string | null;
   engine_state: string;
   memory_pressure: number | null;
   thermal_state: string;

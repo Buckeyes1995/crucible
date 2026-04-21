@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useModelsStore } from "@/lib/stores/models";
+import { useStatusStore } from "@/lib/stores/status";
 import { useFavoritesStore } from "@/lib/stores/favorites";
 import { useAliasesStore } from "@/lib/stores/aliases";
 import { Button } from "@/components/ui/button";
@@ -411,18 +412,9 @@ export default function ModelsPage() {
         return (
           <>
             {pinned && (
-              <section className="mb-6">
-                <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  <span className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    loadingModelId ? "bg-indigo-400 animate-pulse" : "bg-emerald-400 animate-pulse",
-                  )} />
-                  {loadingModelId ? "Loading" : "Loaded"}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {renderCard(pinned)}
-                </div>
-              </section>
+              <LoadedHeader pinned={pinned} loading={!!loadingModelId}>
+                {renderCard(pinned)}
+              </LoadedHeader>
             )}
             {pinned && rest.length > 0 && (
               <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
@@ -1448,6 +1440,40 @@ function GlobalParamsDialog({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// "Loaded <model> via <engine>" header for the pinned card section.
+// Pulls active_engine from the status store so it reflects what actually
+// answered the load request, not just what was configured.
+function LoadedHeader({ pinned, loading, children }: {
+  pinned: ModelEntry;
+  loading: boolean;
+  children: React.ReactNode;
+}) {
+  const engine = useStatusStore((s) => s.status?.active_engine);
+  const verb = loading ? "Loading" : "Loaded";
+  const name = pinned.name || pinned.id.replace(/^mlx:/, "");
+  return (
+    <section className="mb-6">
+      <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+        <span className={cn(
+          "w-1.5 h-1.5 rounded-full",
+          loading ? "bg-indigo-400 animate-pulse" : "bg-emerald-400 animate-pulse",
+        )} />
+        <span>{verb}</span>
+        <span className="text-zinc-400 normal-case tracking-normal font-mono truncate max-w-[300px]">{name}</span>
+        {!loading && engine && (
+          <>
+            <span className="text-zinc-600 font-normal normal-case tracking-normal">via</span>
+            <span className="text-indigo-300 font-mono normal-case tracking-normal">{engine}</span>
+          </>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {children}
+      </div>
+    </section>
   );
 }
 

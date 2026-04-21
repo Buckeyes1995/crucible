@@ -638,6 +638,7 @@ export const api = {
   },
   status: () => get<{
     active_model_id: string | null;
+    active_engine: string | null;
     compare_model_id: string | null;
     engine_state: string;
     memory_pressure: number | null;
