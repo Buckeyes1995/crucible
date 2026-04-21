@@ -522,24 +522,43 @@ function ResultsTable({ results, expandedTask, onToggle }: {
         </div>
       </div>
       {sideTaskId && (
-        <aside className="w-96 shrink-0 border border-indigo-500/20 bg-indigo-950/5 rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
-            <div>
-              <div className="text-xs font-semibold text-zinc-200">{sideTaskId}</div>
-              {sideProblem && <div className="text-[10px] font-mono text-zinc-500">{sideProblem.entry_point} · {sideProblem.category}</div>}
+        <>
+          {/* Dimmer — click-to-close */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40"
+            onClick={() => setSideTaskId(null)}
+          />
+          {/* Right-edge slide-out — fills viewport height, wide enough for
+              80-char lines without wrapping. */}
+          <aside className="fixed top-0 right-0 h-screen w-[640px] max-w-[90vw] z-50 bg-zinc-950 border-l border-indigo-500/30 shadow-2xl flex flex-col">
+            <div className="px-4 py-3 border-b border-white/[0.08] flex items-start justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-indigo-300 mb-1">Problem prompt</div>
+                <div className="text-sm font-semibold text-zinc-100">{sideTaskId}</div>
+                {sideProblem && (
+                  <div className="text-[11px] font-mono text-zinc-500 mt-0.5">
+                    {sideProblem.entry_point}
+                    {sideProblem.category && <> · {sideProblem.category}</>}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setSideTaskId(null)}
+                className="text-zinc-400 hover:text-zinc-100 p-1"
+                title="Close (Esc)"
+              >
+                <XIcon className="w-5 h-5" />
+              </button>
             </div>
-            <button onClick={() => setSideTaskId(null)} className="text-zinc-500 hover:text-zinc-300">
-              <XIcon className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3">
-            {!sideProblem ? (
-              <div className="text-[11px] text-zinc-500">Loading prompt…</div>
-            ) : (
-              <pre className="text-[11px] text-zinc-300 whitespace-pre-wrap font-mono">{sideProblem.prompt}</pre>
-            )}
-          </div>
-        </aside>
+            <div className="flex-1 overflow-auto p-4 bg-black/20">
+              {!sideProblem ? (
+                <div className="text-xs text-zinc-500">Loading prompt…</div>
+              ) : (
+                <pre className="text-xs text-zinc-100 whitespace-pre font-mono leading-relaxed">{sideProblem.prompt}</pre>
+              )}
+            </div>
+          </aside>
+        </>
       )}
     </div>
   );
