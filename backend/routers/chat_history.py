@@ -17,6 +17,7 @@ router = APIRouter()
 class CreateSession(BaseModel):
     title: Optional[str] = None
     model_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class AddMessage(BaseModel):
@@ -30,35 +31,59 @@ async def create_session(body: CreateSession) -> dict:
     session_id = str(uuid.uuid4())
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO chat_sessions (id, title, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (session_id, body.title or "New Chat", body.model_id, now, now),
+            "INSERT INTO chat_sessions (id, title, model_id, project_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, body.title or "New Chat", body.model_id, body.project_id, now, now),
         )
         await db.commit()
-    return {"id": session_id, "title": body.title or "New Chat", "created_at": now}
+    return {
+        "id": session_id, "title": body.title or "New Chat",
+        "project_id": body.project_id, "created_at": now,
+    }
 
 
 @router.get("/chat/sessions")
 async def list_sessions(q: Optional[str] = None, limit: int = 50,
-                         tag: Optional[str] = None) -> list[dict]:
+                         tag: Optional[str] = None,
+                         project: Optional[str] = None) -> list[dict]:
     # Pinned sessions float to the top regardless of updated_at so favorites
     # stay visible. Tag filter matches exact tag membership (case-insensitive).
+    # `project` = "__none__" → only sessions with NULL project_id (the
+    # uncategorized bucket). `project` = "<id>" → only that project.
+    # Omitted / empty → all sessions.
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        project_clause = ""
+        project_args: tuple = ()
+        if project == "__none__":
+            project_clause = " AND s.project_id IS NULL "
+        elif project:
+            project_clause = " AND s.project_id = ? "
+            project_args = (project,)
         if q:
-            base = """SELECT DISTINCT s.* FROM chat_sessions s
-                      JOIN chat_messages m ON m.session_id = s.id
-                      WHERE (m.content LIKE ? OR s.title LIKE ?)
-                      ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"""
-            args = (f"%{q}%", f"%{q}%", limit)
+            base = (
+                "SELECT DISTINCT s.* FROM chat_sessions s "
+                "JOIN chat_messages m ON m.session_id = s.id "
+                "WHERE (m.content LIKE ? OR s.title LIKE ?)"
+                + project_clause +
+                "ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
+            )
+            args = (f"%{q}%", f"%{q}%", *project_args, limit)
             rows = []
             async with db.execute(base, args) as cur:
                 async for row in cur:
                     rows.append(dict(row))
         else:
-            async with db.execute(
-                "SELECT * FROM chat_sessions ORDER BY COALESCE(pinned, 0) DESC, updated_at DESC LIMIT ?",
-                (limit,),
-            ) as cur:
+            # Keep the aliased "s." column reference so the project_clause
+            # prefix works without a second codepath.
+            base = (
+                "SELECT s.* FROM chat_sessions s "
+                "WHERE 1=1"
+                + project_clause +
+                "ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
+            )
+            args = (*project_args, limit)
+            async with db.execute(base, args) as cur:
                 rows = [dict(row) async for row in cur]
     def _decorate(r: dict) -> dict:
         try:
@@ -93,6 +118,21 @@ async def set_session_tags(session_id: str, body: TagUpdate) -> dict:
 
 class PinUpdate(BaseModel):
     pinned: bool
+
+
+class ProjectUpdate(BaseModel):
+    project_id: str | None = None
+
+
+@router.put("/chat/sessions/{session_id}/project")
+async def set_session_project(session_id: str, body: ProjectUpdate) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chat_sessions SET project_id = ? WHERE id = ?",
+            (body.project_id, session_id),
+        )
+        await db.commit()
+    return {"id": session_id, "project_id": body.project_id}
 
 
 @router.put("/chat/sessions/{session_id}/pinned")

@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS arena_elo (
     battles INTEGER NOT NULL DEFAULT 0,
     last_battle_at TEXT
 );
+
+-- Projects (Roadmap v4 #4) — a scope for chats + snippets + settings.
+-- Null project_id on existing rows = "uncategorized" / default bucket.
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT,
+    default_model_id TEXT,
+    system_prompt TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -111,6 +123,9 @@ async def init_db() -> None:
             # v3 chat-session additions — tags + pinned for better history management.
             "ALTER TABLE chat_sessions ADD COLUMN tags_json TEXT",
             "ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER DEFAULT 0",
+            # v4 #4 — projects scope.
+            "ALTER TABLE chat_sessions ADD COLUMN project_id TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_chat_sessions_project ON chat_sessions(project_id)",
         ):
             try:
                 await db.execute(stmt)

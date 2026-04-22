@@ -8,6 +8,7 @@ import { toast } from "@/components/Toast";
 import { Pin, Search, Copy, Trash2, Loader2, Tag, Clock, X as XIcon, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { useProjectsStore } from "@/lib/stores/projects";
 
 export default function SnippetsPage() {
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -17,6 +18,7 @@ export default function SnippetsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const router = useRouter();
+  const activeProject = useProjectsStore((s) => s.activeId);
 
   const sendToChat = (content: string) => {
     try {
@@ -29,13 +31,13 @@ export default function SnippetsPage() {
 
   const load = useCallback(async () => {
     try {
-      setSnippets(await api.snippets.list());
+      setSnippets(await api.snippets.list(activeProject));
     } catch (e) {
       toast(`Load failed: ${(e as Error).message}`, "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeProject]);
 
   useEffect(() => { load(); }, [load]);
 

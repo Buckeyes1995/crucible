@@ -8,6 +8,7 @@ import { Search, Trash2, Download, MessageSquare, Play, Pin, PinOff } from "luci
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChatStore } from "@/lib/stores/chat";
+import { useProjectsStore, projectQuery } from "@/lib/stores/projects";
 
 const BASE = "/api";
 
@@ -30,13 +31,18 @@ export default function ChatHistoryPage() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const resumeSession = useChatStore((s) => s.resumeSession);
+  const activeProject = useProjectsStore((s) => s.activeId);
 
   const fetchSessions = (q?: string) => {
-    const url = q ? `${BASE}/chat/sessions?q=${encodeURIComponent(q)}` : `${BASE}/chat/sessions`;
+    const parts: string[] = [];
+    if (q) parts.push(`q=${encodeURIComponent(q)}`);
+    const pq = projectQuery(activeProject);
+    if (pq) parts.push(pq);
+    const url = parts.length ? `${BASE}/chat/sessions?${parts.join("&")}` : `${BASE}/chat/sessions`;
     fetch(url).then((r) => r.json()).then(setSessions).finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchSessions(); }, []);
+  useEffect(() => { fetchSessions(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeProject]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }

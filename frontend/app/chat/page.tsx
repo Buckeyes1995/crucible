@@ -234,7 +234,15 @@ export default function ChatPage() {
   const onPin = async (text: string, userText?: string) => {
     try {
       const title = (userText || "Chat snippet").slice(0, 60);
-      await api.snippets.create({ title, content: text, source: "chat", model_id: activeModelId ?? null });
+      // Scope the snippet to the active project when one is selected.
+      const { useProjectsStore } = await import("@/lib/stores/projects");
+      const p = useProjectsStore.getState().activeId;
+      const project_id = p && p !== "__none__" ? p : null;
+      await api.snippets.create({
+        title, content: text, source: "chat",
+        model_id: activeModelId ?? null,
+        project_id,
+      });
       toast(`Pinned to snippets`, "success");
     } catch (e) {
       toast(`Pin failed: ${(e as Error).message}`, "error");

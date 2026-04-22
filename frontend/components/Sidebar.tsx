@@ -12,6 +12,7 @@ import {
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
   ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper,
 } from "lucide-react";
+import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 
 type NavItem = { href: string; label: string; icon: React.ReactNode };
 type NavGroup = { label: string; items: NavItem[]; defaultOpen?: boolean };
@@ -201,6 +202,9 @@ export function Sidebar() {
           <span className="text-[15px] font-bold tracking-tight text-zinc-100">Crucible</span>
         </div>
       </div>
+
+      {/* Project switcher — v4 #4 */}
+      <ProjectSwitcher />
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-3">

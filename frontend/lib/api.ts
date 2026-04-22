@@ -632,10 +632,13 @@ export const api = {
     installedDetail: () => get<InstalledDetail>("/store/installed-detail"),
   },
   snippets: {
-    list: () => get<Snippet[]>("/snippets"),
-    create: (body: { title?: string; content: string; source?: string; tags?: string[]; model_id?: string | null }) =>
+    list: (projectId?: string | null) => {
+      const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+      return get<Snippet[]>(`/snippets${qs}`);
+    },
+    create: (body: { title?: string; content: string; source?: string; tags?: string[]; model_id?: string | null; project_id?: string | null }) =>
       post<Snippet>("/snippets", body),
-    update: (id: string, body: Partial<Pick<Snippet, "title" | "content" | "tags">>) =>
+    update: (id: string, body: Partial<Pick<Snippet, "title" | "content" | "tags">> & { project_id?: string | null }) =>
       put<Snippet>(`/snippets/${encodeURIComponent(id)}`, body),
     delete: (id: string) =>
       del<{ status: string }>(`/snippets/${encodeURIComponent(id)}`),

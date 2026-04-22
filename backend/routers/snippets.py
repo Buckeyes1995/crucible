@@ -13,17 +13,19 @@ class CreateRequest(BaseModel):
     source: str = "chat"
     tags: list[str] = []
     model_id: str | None = None
+    project_id: str | None = None
 
 
 class UpdateRequest(BaseModel):
     title: str | None = None
     content: str | None = None
     tags: list[str] | None = None
+    project_id: str | None = None
 
 
 @router.get("/snippets")
-async def list_snippets() -> list[dict]:
-    return snippets.list_snippets()
+async def list_snippets(project: str | None = None) -> list[dict]:
+    return snippets.list_snippets(project_id=project)
 
 
 @router.post("/snippets", status_code=201)
@@ -32,7 +34,7 @@ async def create(body: CreateRequest) -> dict:
         raise HTTPException(400, "content is required")
     return snippets.create(
         title=body.title, content=body.content, source=body.source,
-        tags=body.tags, model_id=body.model_id,
+        tags=body.tags, model_id=body.model_id, project_id=body.project_id,
     )
 
 

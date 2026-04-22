@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { api, readSSE, type ChatMessage } from "@/lib/api";
 import { useModelsStore } from "@/lib/stores/models";
 import { usePrivacyStore } from "@/lib/stores/privacy";
+import { useProjectsStore } from "@/lib/stores/projects";
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -53,10 +54,14 @@ async function persistTurn(
     let id = sessionId;
     if (!id) {
       const title = userText.trim().slice(0, 80) || "New Chat";
+      // Scope new sessions to the active project. "__none__" (Uncategorized)
+      // and null (All) both mean "don't set a project_id".
+      const pActive = useProjectsStore.getState().activeId;
+      const project_id = pActive && pActive !== "__none__" ? pActive : null;
       const resp = await fetch("/api/chat/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, model_id: modelId }),
+        body: JSON.stringify({ title, model_id: modelId, project_id }),
       });
       if (!resp.ok) return null;
       const data = await resp.json();
