@@ -22,7 +22,26 @@ type ModelsState = {
 // Held outside Zustand state so it's never stale in closures
 let _loadAbortController: AbortController | null = null;
 
-export const useModelsStore = create<ModelsState>((set) => ({
+// Translate cryptic adapter errors into actionable hints (#166, #167).
+// Most useful pattern today: oMLX's DFlash code path crashes with
+//   "generate_dflash_once() got an unexpected keyword argument 'temperature'"
+// surfacing as a generic "peer closed connection without sending complete
+// message body". Detect either form and tell the user what to do.
+function explainLoadError(raw: string): string {
+  const r = (raw || "").toLowerCase();
+  if (r.includes("generate_dflash_once") || (r.includes("dflash") && r.includes("argument"))) {
+    return "DFlash engine crashed in oMLX (upstream bug). Open the model's Notes dialog and disable DFlash, then retry.";
+  }
+  if (r.includes("peer closed connection") || r.includes("incomplete chunked read")) {
+    return "oMLX warmup failed — likely DFlash crash or OOM. If the model is DFlash-eligible, disable DFlash in Notes. Otherwise check oMLX logs.";
+  }
+  if (r.includes("not found. available models")) {
+    return "oMLX hasn't seen this model yet. The auto-kick should fire after downloads — try restarting oMLX manually if this persists.";
+  }
+  return raw || "Unknown error";
+}
+
+export const useModelsStore = create<ModelsState>((set, get) => ({
   models: [],
   activeModelId: null,
   loading: false,
@@ -65,9 +84,21 @@ export const useModelsStore = create<ModelsState>((set) => ({
     const controller = new AbortController();
     _loadAbortController = controller;
 
+    // Remember the previous active model so we can restore it on failure
+    // (#167) — otherwise the chat page falsely shows "No model loaded"
+    // when the prior model is still warm on the inference engine.
+    const prev = (get() as { activeModelId: string | null }).activeModelId;
     set({ loadingModelId: id, loadStage: "starting", error: null, activeModelId: null });
     const loadingToastId = toast(`Loading ${id.replace(/^mlx:/, "")}…`, "loading", 0);
     let gotCompletion = false;
+
+    const failWith = (raw: string) => {
+      const msg = explainLoadError(raw);
+      import("@/components/Toast").then(({ toastUpdate }) =>
+        toastUpdate(loadingToastId, msg, "error"));
+      set({ error: msg, loadingModelId: null, loadStage: "", activeModelId: prev });
+    };
+
     try {
       const { readSSE } = await import("@/lib/api");
       const resp = await api.models.load(id, controller.signal);
@@ -75,10 +106,10 @@ export const useModelsStore = create<ModelsState>((set) => ({
       // Catch non-streaming error responses before attempting SSE read
       if (!resp.ok) {
         const body = await resp.text().catch(() => "");
-        let msg = `Load failed (${resp.status})`;
-        try { msg = JSON.parse(body).detail ?? msg; } catch { /* raw text */ }
-        if (body && !body.startsWith("{")) msg = body.slice(0, 200);
-        set({ error: msg, loadingModelId: null, loadStage: "" });
+        let raw = `Load failed (${resp.status})`;
+        try { raw = JSON.parse(body).detail ?? raw; } catch { /* raw text */ }
+        if (body && !body.startsWith("{")) raw = body.slice(0, 200);
+        failWith(raw);
         return;
       }
 
@@ -101,28 +132,23 @@ export const useModelsStore = create<ModelsState>((set) => ({
             });
           } else if (event === "error") {
             gotCompletion = true;
-            import("@/components/Toast").then(({ toastUpdate }) =>
-              toastUpdate(loadingToastId, (payload?.message as string) ?? "Load failed", "error"));
-            set({
-              error: (payload?.message as string) ?? "Unknown error",
-              loadingModelId: null,
-              loadStage: "",
-            });
+            failWith((payload?.message as string) ?? "Unknown error");
           }
         },
         (err) => {
           if (controller.signal.aborted) return; // expected — user cancelled
-          set({ error: err.message, loadingModelId: null, loadStage: "" });
+          failWith(err.message);
         }
       );
 
-      // Stream ended without a done/error event — clear stuck state
+      // Stream ended without a done/error event — clear stuck state but
+      // keep the previous active model on screen.
       if (!gotCompletion && !controller.signal.aborted) {
-        set({ error: "Load stream ended unexpectedly", loadingModelId: null, loadStage: "" });
+        failWith("Load stream ended unexpectedly");
       }
     } catch (e: unknown) {
       if ((e as Error)?.name === "AbortError") return; // user cancelled, no error
-      set({ error: String(e), loadingModelId: null, loadStage: "" });
+      failWith(String(e));
     }
   },
 

@@ -13,6 +13,32 @@ log = logging.getLogger(__name__)
 JOBS_FILE = Path.home() / ".config" / "crucible" / "downloads.json"
 
 
+async def _kick_omlx() -> None:
+    """Restart the oMLX launchd service so it rescans the model directory.
+    Best-effort — failure is logged, not raised. Used by the auto-kick hook
+    in _run_job() (#168). Skipped silently when launchctl/the service is
+    unavailable (non-mac, no LaunchAgent installed)."""
+    import os
+    import shutil
+    if not shutil.which("launchctl"):
+        return
+    label = os.environ.get("CRUCIBLE_OMLX_LABEL", "com.jim.omlx")
+    target = f"gui/{os.getuid()}/{label}"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "launchctl", "kickstart", "-k", target,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            log.info("auto-kick oMLX returned %d: %s", proc.returncode, (err or b'').decode().strip())
+        else:
+            log.info("auto-kicked oMLX after MLX download")
+    except Exception as e:
+        log.warning("auto-kick oMLX exec failed: %s", e)
+
+
 @dataclass
 class DownloadJob:
     job_id: str
@@ -268,6 +294,14 @@ class DownloadManager:
                 asyncio.create_task(on_download_complete(job))
             except Exception as e:
                 log.warning("Auto-benchmark hook failed: %s", e)
+            # Auto-kick oMLX so a freshly-downloaded MLX model becomes
+            # loadable without a manual restart. oMLX caches its model
+            # list at boot. Roadmap #168.
+            if job.kind == "mlx":
+                try:
+                    asyncio.create_task(_kick_omlx())
+                except Exception as e:
+                    log.warning("Auto-kick oMLX failed to schedule: %s", e)
         except asyncio.CancelledError:
             job.status = "cancelled"
             job.error = "Cancelled"

@@ -17,16 +17,32 @@ type UsageRow = {
   hours_loaded_24h?: number;
 };
 
-type SortKey =
-  | "total"
-  | "chat_sessions"
-  | "benchmark_runs"
-  | "arena_battles"
-  | "avg_tps"
-  | "total_output_tokens"
-  | "tokens_24h"
-  | "hours_loaded"
-  | "hours_loaded_24h";
+// Two orthogonal dimensions: WHAT to measure (metric) and OVER WHAT WINDOW.
+// Old UI mashed them into one button row; #164 splits them.
+type Metric = "tokens" | "hours" | "interactions" | "chat" | "bench" | "arena" | "tps";
+type Window = "lifetime" | "24h";
+
+const METRICS: { key: Metric; label: string; icon: React.ReactNode }[] = [
+  { key: "tokens",       label: "Tokens served", icon: <Hash className="w-3 h-3" /> },
+  { key: "hours",        label: "Hours loaded",  icon: <Clock className="w-3 h-3" /> },
+  { key: "interactions", label: "Interactions",  icon: <Trophy className="w-3 h-3" /> },
+  { key: "chat",         label: "Chat",          icon: <MessageSquare className="w-3 h-3" /> },
+  { key: "bench",        label: "Bench",         icon: <BarChart3 className="w-3 h-3" /> },
+  { key: "arena",        label: "Arena",         icon: <Swords className="w-3 h-3" /> },
+  { key: "tps",          label: "tok/s",         icon: <Zap className="w-3 h-3" /> },
+];
+
+const WINDOWS: { key: Window; label: string }[] = [
+  { key: "lifetime", label: "Lifetime" },
+  { key: "24h",      label: "Last 24h" },
+];
+
+// Which metrics actually have a 24h breakdown? The rest stay constant
+// regardless of window — we grey out the window picker for them.
+const HAS_24H: Record<Metric, boolean> = {
+  tokens: true, hours: true,
+  interactions: false, chat: false, bench: false, arena: false, tps: false,
+};
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -34,10 +50,35 @@ function fmtTokens(n: number): string {
   return n.toString();
 }
 
+function score(r: UsageRow, metric: Metric, win: Window): number {
+  switch (metric) {
+    case "tokens":       return win === "24h" ? (r.tokens_24h ?? 0) : (r.total_output_tokens ?? 0);
+    case "hours":        return win === "24h" ? (r.hours_loaded_24h ?? 0) : (r.hours_loaded ?? 0);
+    case "interactions": return (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0);
+    case "chat":         return r.chat_sessions ?? 0;
+    case "bench":        return r.benchmark_runs ?? 0;
+    case "arena":        return r.arena_battles ?? 0;
+    case "tps":          return r.avg_tps ?? 0;
+  }
+}
+
+function headlineFor(r: UsageRow, metric: Metric, win: Window): string {
+  switch (metric) {
+    case "tokens":       return `${fmtTokens(score(r, metric, win))} tokens${win === "24h" ? " today" : ""}`;
+    case "hours":        return `${score(r, metric, win).toFixed(1)} h${win === "24h" ? " today" : " loaded"}`;
+    case "tps":          return `${(r.avg_tps ?? 0).toFixed(1)} tok/s`;
+    case "interactions": return `${score(r, metric, win)} interactions`;
+    case "chat":         return `${r.chat_sessions ?? 0} chats`;
+    case "bench":        return `${r.benchmark_runs ?? 0} benches`;
+    case "arena":        return `${r.arena_battles ?? 0} battles`;
+  }
+}
+
 export default function UsageLeaderboardPage() {
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sortKey, setSortKey] = useState<SortKey>("total_output_tokens");
+  const [metric, setMetric] = useState<Metric>("tokens");
+  const [win, setWin] = useState<Window>("lifetime");
 
   useEffect(() => {
     (async () => {
@@ -50,26 +91,18 @@ export default function UsageLeaderboardPage() {
     })();
   }, []);
 
-  const sorted = useMemo(() => {
-    const score = (r: UsageRow) =>
-      sortKey === "total"
-        ? (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0)
-        : (r[sortKey] ?? 0);
-    return [...rows].sort((a, b) => score(b) - score(a));
-  }, [rows, sortKey]);
+  const winApplies = HAS_24H[metric];
+  const effectiveWin: Window = winApplies ? win : "lifetime";
 
-  const maxSort = useMemo(() => {
-    const score = (r: UsageRow): number =>
-      sortKey === "total"
-        ? (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0)
-        : ((r[sortKey as keyof UsageRow] as number | undefined) ?? 0);
-    return Math.max(1, ...rows.map(score));
-  }, [rows, sortKey]);
+  const sorted = useMemo(
+    () => [...rows].sort((a, b) => score(b, metric, effectiveWin) - score(a, metric, effectiveWin)),
+    [rows, metric, effectiveWin],
+  );
 
-  const barScore = (r: UsageRow): number =>
-    sortKey === "total"
-      ? (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0)
-      : ((r[sortKey as keyof UsageRow] as number | undefined) ?? 0);
+  const maxScore = useMemo(
+    () => Math.max(1, ...rows.map(r => score(r, metric, effectiveWin))),
+    [rows, metric, effectiveWin],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -77,33 +110,52 @@ export default function UsageLeaderboardPage() {
         <PageHeader
           icon={<Trophy className="w-5 h-5" />}
           title="Model Usage Leaderboard"
-          description="Which models you actually use — chat, benchmarks, arena battles."
+          description="Which models you actually use — pick a metric and a time window."
         />
-        <div className="mt-3 flex gap-1 text-xs flex-wrap">
-          {([
-            ["total_output_tokens", "Tokens (lifetime)"],
-            ["tokens_24h", "Tokens (24h)"],
-            ["hours_loaded", "Hours (lifetime)"],
-            ["hours_loaded_24h", "Hours (24h)"],
-            ["total", "Interactions"],
-            ["chat_sessions", "Chat"],
-            ["benchmark_runs", "Bench"],
-            ["arena_battles", "Arena"],
-            ["avg_tps", "tok/s"],
-          ] as [SortKey, string][]).map(([k, label]) => (
+
+        {/* Row 1 — metric picker */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold w-14 shrink-0">Metric</span>
+          {METRICS.map(({ key, label, icon }) => (
             <button
-              key={k}
-              onClick={() => setSortKey(k)}
+              key={key}
+              onClick={() => setMetric(key)}
               className={
-                "px-2.5 py-1 rounded transition-colors " +
-                (sortKey === k
+                "px-2.5 py-1 text-xs rounded transition-colors flex items-center gap-1.5 " +
+                (metric === key
                   ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                  : "bg-zinc-800/60 text-zinc-400 border border-white/10 hover:text-zinc-100")
+                  : "bg-zinc-900 text-zinc-400 border border-white/10 hover:text-zinc-100")
               }
+            >
+              <span className="text-zinc-500">{icon}</span>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Row 2 — window picker; greyed out when metric has no breakdown */}
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold w-14 shrink-0">Window</span>
+          {WINDOWS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setWin(key)}
+              disabled={!winApplies && key === "24h"}
+              className={
+                "px-2.5 py-1 text-xs rounded transition-colors " +
+                (effectiveWin === key
+                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                  : "bg-zinc-900 text-zinc-400 border border-white/10 hover:text-zinc-100 ") +
+                (!winApplies && key === "24h" ? "opacity-30 cursor-not-allowed" : "")
+              }
+              title={!winApplies && key === "24h" ? "This metric has no 24-hour breakdown" : undefined}
             >
               {label}
             </button>
           ))}
+          {!winApplies && (
+            <span className="text-[10px] text-zinc-600 italic">no time window for this metric</span>
+          )}
         </div>
       </div>
 
@@ -115,21 +167,8 @@ export default function UsageLeaderboardPage() {
         ) : (
           <ul className="space-y-2">
             {sorted.map((r, i) => {
-              const total = (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0);
               const winRate = r.arena_battles ? ((r.arena_wins ?? 0) / r.arena_battles) * 100 : null;
-              const score = barScore(r);
-              const headline =
-                sortKey === "total_output_tokens"
-                  ? `${fmtTokens(r.total_output_tokens ?? 0)} tokens`
-                  : sortKey === "tokens_24h"
-                    ? `${fmtTokens(r.tokens_24h ?? 0)} tokens today`
-                    : sortKey === "hours_loaded"
-                      ? `${(r.hours_loaded ?? 0).toFixed(1)} h loaded`
-                      : sortKey === "hours_loaded_24h"
-                        ? `${(r.hours_loaded_24h ?? 0).toFixed(1)} h today`
-                        : sortKey === "avg_tps"
-                          ? `${(r.avg_tps ?? 0).toFixed(1)} tok/s`
-                          : `${total} interactions`;
+              const s = score(r, metric, effectiveWin);
               return (
                 <li
                   key={r.model_id}
@@ -140,12 +179,12 @@ export default function UsageLeaderboardPage() {
                     <span className="font-mono text-zinc-200 flex-1 truncate">
                       {r.model_id.replace(/^mlx:/, "")}
                     </span>
-                    <span className="text-[11px] text-zinc-400">{headline}</span>
+                    <span className="text-[11px] text-zinc-400">{headlineFor(r, metric, effectiveWin)}</span>
                   </div>
                   <div className="relative h-1.5 rounded bg-zinc-900 overflow-hidden mb-2">
                     <div
                       className="absolute inset-y-0 left-0 bg-indigo-500/70"
-                      style={{ width: `${(score / maxSort) * 100}%` }}
+                      style={{ width: `${(s / maxScore) * 100}%` }}
                     />
                   </div>
                   <div className="flex flex-wrap gap-3 text-[11px] text-zinc-400">

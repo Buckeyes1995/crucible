@@ -28,6 +28,10 @@ export default function BenchDiffPage() {
   const [b, setB] = useState<string>("");
   const [result, setResult] = useState<DiffResult | null>(null);
   const [loading, setLoading] = useState(false);
+  // #165: default to shared cells only — A-only / B-only are noise unless
+  // the user opts in. Toggles in the count-pill row drive these flags.
+  const [showAOnly, setShowAOnly] = useState(false);
+  const [showBOnly, setShowBOnly] = useState(false);
 
   useEffect(() => {
     fetch("/api/benchmark/history")
@@ -71,6 +75,19 @@ export default function BenchDiffPage() {
     for (const c of flatCells) base[c.source] += 1;
     return base;
   }, [flatCells]);
+
+  // If there's nothing to compare side-by-side, auto-show the only kinds
+  // that exist so the table isn't empty on first paint.
+  const visibleCells = useMemo(() => {
+    const onlyA = counts["A+B"] === 0 && counts.A > 0 && counts.B === 0;
+    const onlyB = counts["A+B"] === 0 && counts.B > 0 && counts.A === 0;
+    return flatCells.filter(c => {
+      if (c.source === "A+B") return true;
+      if (c.source === "A") return showAOnly || onlyA;
+      if (c.source === "B") return showBOnly || onlyB;
+      return false;
+    });
+  }, [flatCells, counts, showAOnly, showBOnly]);
 
   const deltaClass = (pct: number | null, higherIsBetter: boolean): string => {
     if (pct === null) return "text-zinc-500";
@@ -132,23 +149,52 @@ export default function BenchDiffPage() {
           <p className="text-zinc-500 text-sm">No cells in either run.</p>
         ) : (
           <>
-            <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-zinc-400">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
               <span className="px-2 py-0.5 rounded bg-emerald-900/25 border border-emerald-500/30 text-emerald-300">
                 {counts["A+B"]} shared
+                <span className="text-zinc-500 ml-1">always shown</span>
               </span>
-              <span className="px-2 py-0.5 rounded bg-blue-900/25 border border-blue-500/30 text-blue-300">
-                {counts.A} A-only
-              </span>
-              <span className="px-2 py-0.5 rounded bg-purple-900/25 border border-purple-500/30 text-purple-300">
-                {counts.B} B-only
-              </span>
-              {counts["A+B"] === 0 && (
-                <span className="text-amber-400">
-                  No shared (model, prompt) pairs — nothing to diff. Pick runs that overlap for Δ columns.
+              <button
+                onClick={() => setShowAOnly(v => !v)}
+                disabled={counts.A === 0}
+                className={
+                  "px-2 py-0.5 rounded border transition-colors disabled:opacity-30 disabled:cursor-not-allowed " +
+                  (showAOnly
+                    ? "bg-blue-900/40 border-blue-500/50 text-blue-200"
+                    : "bg-blue-900/15 border-blue-500/20 text-blue-400 hover:bg-blue-900/25")
+                }
+                title={counts.A === 0 ? "Run A has no extra cells" : (showAOnly ? "Hide A-only rows" : "Show A-only rows")}
+              >
+                {showAOnly ? "✓ " : ""}{counts.A} A-only
+              </button>
+              <button
+                onClick={() => setShowBOnly(v => !v)}
+                disabled={counts.B === 0}
+                className={
+                  "px-2 py-0.5 rounded border transition-colors disabled:opacity-30 disabled:cursor-not-allowed " +
+                  (showBOnly
+                    ? "bg-purple-900/40 border-purple-500/50 text-purple-200"
+                    : "bg-purple-900/15 border-purple-500/20 text-purple-400 hover:bg-purple-900/25")
+                }
+                title={counts.B === 0 ? "Run B has no extra cells" : (showBOnly ? "Hide B-only rows" : "Show B-only rows")}
+              >
+                {showBOnly ? "✓ " : ""}{counts.B} B-only
+              </button>
+              {counts["A+B"] === 0 && (counts.A > 0 || counts.B > 0) && (
+                <span className="text-amber-400 ml-2">
+                  No shared (model, prompt) pairs — Δ columns will be blank. Showing every cell as a single-run snapshot.
                 </span>
+              )}
+              {visibleCells.length > 0 && (
+                <span className="text-zinc-500 ml-auto">{visibleCells.length} of {flatCells.length} rows shown</span>
               )}
             </div>
 
+            {visibleCells.length === 0 ? (
+              <p className="text-zinc-500 text-sm py-6">
+                Nothing to show — toggle <strong>A-only</strong> or <strong>B-only</strong> above to see single-run cells.
+              </p>
+            ) : (
             <div className="rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="text-zinc-500 bg-black/30">
@@ -165,7 +211,7 @@ export default function BenchDiffPage() {
                   </tr>
                 </thead>
                 <tbody className="font-mono">
-                  {flatCells.map((c, i) => {
+                  {visibleCells.map((c, i) => {
                     const rowBg =
                       c.source === "A+B"
                         ? "bg-emerald-950/10"
@@ -205,6 +251,7 @@ export default function BenchDiffPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </>
         )}
       </div>

@@ -212,3 +212,13 @@ body {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Inline code highlighting (lib/highlight.ts) — dark-theme palette
+   tuned to coexist with the indigo accent. Keep contrast moderate so
+   tokens don't fight readable prose around them. */
+.hl-keyword { color: #c084fc; }            /* purple-ish for control flow + types */
+.hl-string  { color: #a3e635; }            /* lime for strings */
+.hl-num     { color: #fbbf24; }            /* amber for numbers */
+.hl-comment { color: #71717a; font-style: italic; }
+.hl-key     { color: #93c5fd; }            /* blue for json/yaml keys */
+.hl-var     { color: #fb923c; }            /* orange for $variables in bash */

@@ -7,6 +7,7 @@
 
 import { useMemo } from "react";
 import { StructuredBlock } from "@/components/StructuredBlock";
+import { highlight } from "@/lib/highlight";
 
 type Segment =
   | { kind: "text"; text: string }
@@ -165,7 +166,7 @@ export function ChatMessageBody({ content }: { content: string }) {
           <span key={i} className="block">
             <pre className="my-2 text-[11px] bg-black/40 border border-white/[0.08] rounded-lg p-2.5 overflow-x-auto font-mono whitespace-pre">
               {seg.lang && <span className="block text-[9px] text-zinc-500 uppercase tracking-wide mb-1.5">{seg.lang}</span>}
-              {seg.body}
+              <code dangerouslySetInnerHTML={{ __html: highlight(seg.body, seg.lang) }} />
             </pre>
             {STRUCTURED_LANGS.has(seg.lang) && <StructuredBlock lang={seg.lang} content={seg.body} />}
           </span>
