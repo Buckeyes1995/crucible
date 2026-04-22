@@ -10,7 +10,7 @@ import {
   Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
   DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
-  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info,
+  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ReactNode };
@@ -33,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/chat/history", label: "History", icon: <Clock className="w-4 h-4" /> },
       { href: "/snippets", label: "Snippets", icon: <Pin className="w-4 h-4" /> },
       { href: "/reddit", label: "Reddit", icon: <MessageSquare className="w-4 h-4" /> },
+      { href: "/news", label: "News", icon: <Newspaper className="w-4 h-4" /> },
       { href: "/logs", label: "Logs", icon: <FileText className="w-4 h-4" /> },
       { href: "/audit", label: "Audit", icon: <ScrollText className="w-4 h-4" /> },
       { href: "/ops", label: "Ops", icon: <Activity className="w-4 h-4" /> },

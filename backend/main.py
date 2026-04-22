@@ -52,6 +52,7 @@ from routers import (
     model_leaderboard,
     model_size,
     models,
+    news as news_router,
     niah_api,
     notes,
     notifications,
@@ -291,6 +292,7 @@ app.include_router(store_router.router, prefix="/api")
 app.include_router(snippets_router.router, prefix="/api")
 app.include_router(auto_bench_router.router, prefix="/api")
 app.include_router(reddit_router.router, prefix="/api")
+app.include_router(news_router.router, prefix="/api")
 app.include_router(misc_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")
