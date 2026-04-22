@@ -346,9 +346,12 @@ async def summarize_item(client: httpx.AsyncClient, endpoint: str, system_prompt
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user},
         ],
-        "max_tokens": 220,
+        "max_tokens": 140,
         "temperature": 0.2,
         "stream": False,
+        # Suppress Qwen3 thinking tokens — we want the JSON immediately,
+        # not a chain-of-thought that blows max_tokens before the answer.
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     r = await client.post(endpoint, json=payload, timeout=180.0)
     r.raise_for_status()

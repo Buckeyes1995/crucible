@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/Toast";
@@ -77,6 +77,7 @@ export default function NewsPage() {
   const [filter, setFilter] = useState<"all" | Impact>("all");
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const activeModelId = useModelsStore((s) => s.activeModelId);
 
   const load = useCallback(async () => {
@@ -90,6 +91,26 @@ export default function NewsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Accumulate item events into the digest live so the user sees progress
+  // instead of an opaque "summarizing..." spinner for minutes.
+  const pushItem = useCallback((it: NewsItem) => {
+    setDigest(prev => {
+      const groups = [...((prev?.groups) ?? [])];
+      let g = groups.find(x => x.source_id === it.source_id);
+      if (!g) {
+        g = { source_id: it.source_id, source_name: it.source_name, items: [] };
+        groups.push(g);
+      }
+      // Replace any stale version of the same id; otherwise prepend.
+      const rest = g.items.filter(x => x.id !== it.id);
+      g.items = [it, ...rest].slice(0, 50);
+      return {
+        groups,
+        refreshed_at: prev?.refreshed_at ?? 0,
+      };
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     if (refreshing) return;
     if (!activeModelId) {
@@ -98,14 +119,17 @@ export default function NewsPage() {
     }
     setRefreshing(true);
     setRefreshStage("starting…");
+    const ctl = new AbortController();
+    abortRef.current = ctl;
     try {
-      const r = await fetch("/api/news/refresh", { method: "POST" });
+      const r = await fetch("/api/news/refresh", { method: "POST", signal: ctl.signal });
       if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
       let done = false;
       let summarized = 0;
+      let totalToSummarize = 0;
       while (!done) {
         const { value, done: d } = await reader.read();
         done = d;
@@ -124,11 +148,17 @@ export default function NewsPage() {
               if (evt.event === "phase") {
                 if (evt.phase === "fetching") setRefreshStage("fetching feeds…");
                 else if (evt.phase === "fetched") setRefreshStage(`${evt.count} items fetched`);
-                else if (evt.phase === "summarizing") setRefreshStage(`summarizing ${evt.count}…`);
+                else if (evt.phase === "summarizing") {
+                  totalToSummarize = evt.count;
+                  setRefreshStage(`summarizing 0 / ${totalToSummarize}…`);
+                }
                 else if (evt.phase === "done") setRefreshStage(`done — ${evt.total} in digest`);
-              } else if (evt.event === "item" && !evt.cached) {
-                summarized += 1;
-                setRefreshStage(`summarizing… ${summarized} complete`);
+              } else if (evt.event === "item") {
+                pushItem(evt.item);
+                if (!evt.cached) {
+                  summarized += 1;
+                  setRefreshStage(totalToSummarize ? `summarizing ${summarized} / ${totalToSummarize}…` : `summarizing… ${summarized} complete`);
+                }
               }
             } catch {}
           }
@@ -137,12 +167,21 @@ export default function NewsPage() {
       await load();
       toast("Digest refreshed", "success");
     } catch (e) {
-      toast(`Refresh failed: ${(e as Error).message}`, "error");
+      if ((e as Error).name === "AbortError") {
+        toast("Refresh stopped — keeping items summarized so far", "info");
+      } else {
+        toast(`Refresh failed: ${(e as Error).message}`, "error");
+      }
     } finally {
+      abortRef.current = null;
       setRefreshing(false);
       setRefreshStage("");
     }
-  }, [refreshing, activeModelId, load]);
+  }, [refreshing, activeModelId, load, pushItem]);
+
+  const stopRefresh = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const dismiss = async (id: string) => {
     try {
@@ -184,6 +223,11 @@ export default function NewsPage() {
           <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)} className="gap-1.5">
             <Settings className="w-3.5 h-3.5" /> Sources
           </Button>
+          {refreshing ? (
+            <Button variant="destructive" size="sm" onClick={stopRefresh} className="gap-1.5">
+              <XIcon className="w-3.5 h-3.5" /> Stop
+            </Button>
+          ) : null}
           <Button
             variant="primary"
             size="sm"
