@@ -42,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/usage/leaderboard", label: "Model Leaderboard", icon: <Trophy className="w-4 h-4" /> },
       { href: "/visualizer", label: "Visualizer", icon: <Eye className="w-4 h-4" /> },
       { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
+      { href: "/runs", label: "Agent Runs", icon: <Bot className="w-4 h-4" /> },
     ],
   },
   {

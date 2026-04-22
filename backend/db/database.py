@@ -107,6 +107,44 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Agent runs (Roadmap v4 #1) — ReAct loop over MCP tools.
+-- One row per run; agent_steps holds the trace.
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    goal TEXT NOT NULL,
+    model_id TEXT,
+    project_id TEXT,
+    status TEXT NOT NULL DEFAULT 'running',     -- running | done | error | cancelled
+    tool_allowlist_json TEXT,                    -- ["fs","git",...] of mcp ids; null = all installed
+    max_steps INTEGER NOT NULL DEFAULT 12,
+    max_tokens INTEGER NOT NULL DEFAULT 2048,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    elapsed_ms REAL NOT NULL DEFAULT 0,
+    final_answer TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_created ON agent_runs(created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_project ON agent_runs(project_id);
+
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    step_index INTEGER NOT NULL,
+    kind TEXT NOT NULL,            -- 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error'
+    name TEXT,                     -- tool name for tool_call / tool_result
+    input_json TEXT,
+    output_json TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    tokens INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(run_id);
 """
 
 

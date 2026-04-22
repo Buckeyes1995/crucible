@@ -54,6 +54,7 @@ from routers import (
     models,
     news as news_router,
     projects as projects_router,
+    agent_runs as agent_runs_router,
     niah_api,
     notes,
     notifications,
@@ -295,6 +296,7 @@ app.include_router(auto_bench_router.router, prefix="/api")
 app.include_router(reddit_router.router, prefix="/api")
 app.include_router(news_router.router, prefix="/api")
 app.include_router(projects_router.router, prefix="/api")
+app.include_router(agent_runs_router.router, prefix="/api")
 app.include_router(misc_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")
