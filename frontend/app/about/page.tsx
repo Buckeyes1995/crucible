@@ -80,7 +80,12 @@ export default function AboutPage() {
           </h2>
           <ul className="text-xs space-y-1 text-zinc-300">
             <li>
-              <a href="https://github.com/anthropics/claude-code/issues" target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline inline-flex items-center gap-1">
+              <a href="https://github.com/Buckeyes1995/crucible" target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline inline-flex items-center gap-1">
+                Crucible on GitHub <ExternalLink className="w-3 h-3" />
+              </a>
+            </li>
+            <li>
+              <a href="https://github.com/Buckeyes1995/crucible/issues/new" target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline inline-flex items-center gap-1">
                 Report a bug or request a feature <ExternalLink className="w-3 h-3" />
               </a>
             </li>

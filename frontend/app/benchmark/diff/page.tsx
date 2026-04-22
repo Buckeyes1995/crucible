@@ -49,16 +49,28 @@ export default function BenchDiffPage() {
     }
   };
 
-  const byModel = useMemo(() => {
-    if (!result) return new Map<string, Cell[]>();
-    const m = new Map<string, Cell[]>();
-    for (const c of result.cells) {
-      const arr = m.get(c.model_id) ?? [];
-      arr.push(c);
-      m.set(c.model_id, arr);
-    }
-    return m;
+  const flatCells = useMemo(() => {
+    if (!result) return [] as (Cell & { source: "A" | "B" | "A+B" })[];
+    return result.cells.map((c) => {
+      const inA = c.a.tps != null || c.a.ttft_ms != null;
+      const inB = c.b.tps != null || c.b.ttft_ms != null;
+      const source: "A" | "B" | "A+B" = inA && inB ? "A+B" : inA ? "A" : "B";
+      return { ...c, source };
+    })
+    // Shared rows first so overlap is obvious, then A-only, then B-only
+    .sort((x, y) => {
+      const rank = { "A+B": 0, "A": 1, "B": 2 } as const;
+      if (rank[x.source] !== rank[y.source]) return rank[x.source] - rank[y.source];
+      if (x.model_name !== y.model_name) return (x.model_name || "").localeCompare(y.model_name || "");
+      return (x.prompt_id || "").localeCompare(y.prompt_id || "");
+    });
   }, [result]);
+
+  const counts = useMemo(() => {
+    const base = { A: 0, B: 0, "A+B": 0 };
+    for (const c of flatCells) base[c.source] += 1;
+    return base;
+  }, [flatCells]);
 
   const deltaClass = (pct: number | null, higherIsBetter: boolean): string => {
     if (pct === null) return "text-zinc-500";
@@ -116,30 +128,66 @@ export default function BenchDiffPage() {
       <div className="flex-1 overflow-auto px-6 py-4">
         {!result ? (
           <p className="text-zinc-500 text-sm">Pick two runs and click Compare.</p>
-        ) : result.cells.length === 0 ? (
-          <p className="text-zinc-500 text-sm">No overlapping cells.</p>
+        ) : flatCells.length === 0 ? (
+          <p className="text-zinc-500 text-sm">No cells in either run.</p>
         ) : (
-          <div className="space-y-5">
-            {[...byModel.entries()].map(([modelId, cells]) => (
-              <div key={modelId} className="rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
-                <div className="px-3 py-2 border-b border-white/[0.05] text-xs font-mono text-zinc-300">
-                  {cells[0].model_name || modelId}
-                </div>
-                <table className="w-full text-xs">
-                  <thead className="text-zinc-500 bg-black/30">
-                    <tr>
-                      <th className="text-left px-3 py-1.5">Prompt</th>
-                      <th className="text-right px-3 py-1.5">A tok/s</th>
-                      <th className="text-right px-3 py-1.5">B tok/s</th>
-                      <th className="text-right px-3 py-1.5">Δ tok/s</th>
-                      <th className="text-right px-3 py-1.5">A ttft</th>
-                      <th className="text-right px-3 py-1.5">B ttft</th>
-                      <th className="text-right px-3 py-1.5">Δ ttft</th>
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono">
-                    {cells.map((c) => (
-                      <tr key={c.prompt_id} className="border-t border-white/[0.04]">
+          <>
+            <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-zinc-400">
+              <span className="px-2 py-0.5 rounded bg-emerald-900/25 border border-emerald-500/30 text-emerald-300">
+                {counts["A+B"]} shared
+              </span>
+              <span className="px-2 py-0.5 rounded bg-blue-900/25 border border-blue-500/30 text-blue-300">
+                {counts.A} A-only
+              </span>
+              <span className="px-2 py-0.5 rounded bg-purple-900/25 border border-purple-500/30 text-purple-300">
+                {counts.B} B-only
+              </span>
+              {counts["A+B"] === 0 && (
+                <span className="text-amber-400">
+                  No shared (model, prompt) pairs — nothing to diff. Pick runs that overlap for Δ columns.
+                </span>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="text-zinc-500 bg-black/30">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 w-14">Src</th>
+                    <th className="text-left px-3 py-1.5">Model</th>
+                    <th className="text-left px-3 py-1.5">Prompt</th>
+                    <th className="text-right px-3 py-1.5">A tok/s</th>
+                    <th className="text-right px-3 py-1.5">B tok/s</th>
+                    <th className="text-right px-3 py-1.5">Δ tok/s</th>
+                    <th className="text-right px-3 py-1.5">A ttft</th>
+                    <th className="text-right px-3 py-1.5">B ttft</th>
+                    <th className="text-right px-3 py-1.5">Δ ttft</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {flatCells.map((c, i) => {
+                    const rowBg =
+                      c.source === "A+B"
+                        ? "bg-emerald-950/10"
+                        : c.source === "A"
+                          ? "bg-blue-950/10"
+                          : "bg-purple-950/10";
+                    const pillCls =
+                      c.source === "A+B"
+                        ? "bg-emerald-900/30 text-emerald-300 border-emerald-500/30"
+                        : c.source === "A"
+                          ? "bg-blue-900/30 text-blue-300 border-blue-500/30"
+                          : "bg-purple-900/30 text-purple-300 border-purple-500/30";
+                    return (
+                      <tr key={i} className={"border-t border-white/[0.04] " + rowBg}>
+                        <td className="px-3 py-1.5">
+                          <span className={"inline-block text-[10px] px-1.5 py-0.5 rounded border font-sans " + pillCls}>
+                            {c.source}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-zinc-300 truncate max-w-[260px]" title={c.model_id}>
+                          {c.model_name || c.model_id}
+                        </td>
                         <td className="px-3 py-1.5 text-zinc-400">{c.prompt_id}</td>
                         <td className="px-3 py-1.5 text-right text-zinc-300">{c.a.tps?.toFixed(1) ?? "—"}</td>
                         <td className="px-3 py-1.5 text-right text-zinc-300">{c.b.tps?.toFixed(1) ?? "—"}</td>
@@ -152,12 +200,12 @@ export default function BenchDiffPage() {
                           {c.delta_ttft_pct === null ? "—" : (c.delta_ttft_pct > 0 ? "+" : "") + c.delta_ttft_pct + "%"}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

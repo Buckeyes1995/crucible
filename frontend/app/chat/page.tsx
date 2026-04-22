@@ -28,7 +28,8 @@ export default function ChatPage() {
   } = useChatStore();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
-  const { activeModelId, models, loadModel } = useModelsStore();
+  const { activeModelId, loadingModelId, models, loadModel, fetchModels } = useModelsStore();
+  useEffect(() => { if (models.length === 0) fetchModels(); }, [models.length, fetchModels]);
 
   useEffect(() => { resetStreaming(); }, [resetStreaming]);
   const [input, setInput] = useState("");
@@ -286,19 +287,23 @@ export default function ChatPage() {
           <div>
             <h1 className="text-sm font-semibold text-zinc-100">Chat</h1>
             <select
-              value={activeModelId ?? ""}
+              value={loadingModelId ?? activeModelId ?? ""}
+              disabled={!!loadingModelId}
               onChange={(e) => {
                 const id = e.target.value;
                 if (id && id !== activeModelId) loadModel(id);
               }}
-              className="text-[10px] font-mono bg-transparent border border-white/10 rounded px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 focus:outline-none focus:border-indigo-500/40 max-w-[260px]"
+              className="text-[10px] font-mono bg-transparent border border-white/10 rounded px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 focus:outline-none focus:border-indigo-500/40 max-w-[260px] disabled:opacity-60"
               title="Switch model mid-conversation"
             >
               <option value="" disabled>No model loaded</option>
               {models
                 .filter((m) => !m.hidden)
                 .map((m) => (
-                  <option key={m.id} value={m.id}>{m.id.replace(/^mlx:/, "")}</option>
+                  <option key={m.id} value={m.id}>
+                    {m.id.replace(/^mlx:/, "")}
+                    {loadingModelId === m.id ? " (loading…)" : ""}
+                  </option>
                 ))}
             </select>
           </div>
@@ -504,9 +509,15 @@ export default function ChatPage() {
         )}
       </div>
 
-      {!activeModelId && (
+      {!activeModelId && !loadingModelId && (
         <div className="mx-6 mt-4 px-4 py-3 rounded-xl bg-amber-950/30 border border-amber-500/15 text-amber-300/80 text-sm animate-fade-in">
           No model loaded. Go to <a href="/models" className="underline hover:text-amber-200">Models</a> to load one first.
+        </div>
+      )}
+      {loadingModelId && (
+        <div className="mx-6 mt-4 px-4 py-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-indigo-300/90 text-sm animate-fade-in flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+          Loading <span className="font-mono">{loadingModelId.replace(/^mlx:/, "")}</span>… you can keep reading the existing conversation.
         </div>
       )}
 

@@ -369,16 +369,87 @@ async def model_usage_stats() -> list[dict]:
             pass
         try:
             async with db.execute(
-                "SELECT model_id, AVG(tps) as avg_tps FROM inference_profiles WHERE tps IS NOT NULL GROUP BY model_id"
+                "SELECT model_id, AVG(tps) as avg_tps, "
+                "SUM(output_tokens) as total_output_tokens "
+                "FROM inference_profiles GROUP BY model_id"
             ) as cur:
                 async for row in cur:
                     if row["model_id"]:
-                        stats.setdefault(row["model_id"], {
+                        slot = stats.setdefault(row["model_id"], {
                             "chat_sessions": 0, "benchmark_runs": 0,
                             "arena_battles": 0, "arena_wins": 0,
-                        })["avg_tps"] = round(row["avg_tps"] or 0, 1)
+                        })
+                        if row["avg_tps"] is not None:
+                            slot["avg_tps"] = round(row["avg_tps"] or 0, 1)
+                        slot["total_output_tokens"] = int(row["total_output_tokens"] or 0)
         except Exception:
             pass
+
+        # Per-day tokens (last 24h). created_at is ISO8601 text.
+        try:
+            from datetime import datetime, timezone, timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            async with db.execute(
+                "SELECT model_id, SUM(output_tokens) as tokens_24h "
+                "FROM inference_profiles WHERE created_at >= ? GROUP BY model_id",
+                (cutoff,),
+            ) as cur:
+                async for row in cur:
+                    if row["model_id"]:
+                        slot = stats.setdefault(row["model_id"], {
+                            "chat_sessions": 0, "benchmark_runs": 0,
+                            "arena_battles": 0, "arena_wins": 0,
+                        })
+                        slot["tokens_24h"] = int(row["tokens_24h"] or 0)
+        except Exception:
+            pass
+
+    # Merge in time-loaded from the uptime tracker (separate JSON store).
+    # Returns both lifetime and last-24h windows.
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        import time as _time
+        uptime_file = _Path.home() / ".config" / "crucible" / "uptime_log.json"
+        if uptime_file.exists():
+            entries = _json.loads(uptime_file.read_text())
+            now = _time.time()
+            cutoff_24h = now - 86400.0
+
+            def _aggregate(window_start: float) -> dict[str, float]:
+                starts: dict[str, float] = {}
+                secs: dict[str, float] = {}
+                for e in entries:
+                    mid = e.get("model_id")
+                    ts = e.get("ts", 0.0)
+                    if not mid:
+                        continue
+                    if e.get("action") == "load":
+                        starts[mid] = ts
+                    elif e.get("action") == "unload" and mid in starts:
+                        # Clip segment to the window.
+                        lo = max(starts[mid], window_start)
+                        hi = ts
+                        if hi > lo:
+                            secs[mid] = secs.get(mid, 0.0) + (hi - lo)
+                        del starts[mid]
+                for mid, start in starts.items():
+                    lo = max(start, window_start)
+                    if now > lo:
+                        secs[mid] = secs.get(mid, 0.0) + (now - lo)
+                return secs
+
+            lifetime = _aggregate(0.0)
+            last_24h = _aggregate(cutoff_24h)
+            for mid, total_secs in lifetime.items():
+                slot = stats.setdefault(mid, {
+                    "chat_sessions": 0, "benchmark_runs": 0,
+                    "arena_battles": 0, "arena_wins": 0,
+                })
+                slot["hours_loaded"] = round(total_secs / 3600.0, 2)
+                slot["hours_loaded_24h"] = round(last_24h.get(mid, 0.0) / 3600.0, 2)
+    except Exception:
+        pass
 
     out = []
     for mid, s in stats.items():

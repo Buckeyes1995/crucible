@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
-import { Trophy, MessageSquare, BarChart3, Swords, Zap } from "lucide-react";
+import { Trophy, MessageSquare, BarChart3, Swords, Zap, Hash, Clock } from "lucide-react";
 
 type UsageRow = {
   model_id: string;
@@ -11,14 +11,33 @@ type UsageRow = {
   arena_battles?: number;
   arena_wins?: number;
   avg_tps?: number;
+  total_output_tokens?: number;
+  tokens_24h?: number;
+  hours_loaded?: number;
+  hours_loaded_24h?: number;
 };
 
-type SortKey = "total" | "chat_sessions" | "benchmark_runs" | "arena_battles" | "avg_tps";
+type SortKey =
+  | "total"
+  | "chat_sessions"
+  | "benchmark_runs"
+  | "arena_battles"
+  | "avg_tps"
+  | "total_output_tokens"
+  | "tokens_24h"
+  | "hours_loaded"
+  | "hours_loaded_24h";
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return n.toString();
+}
 
 export default function UsageLeaderboardPage() {
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sortKey, setSortKey] = useState<SortKey>("total");
+  const [sortKey, setSortKey] = useState<SortKey>("total_output_tokens");
 
   useEffect(() => {
     (async () => {
@@ -39,10 +58,18 @@ export default function UsageLeaderboardPage() {
     return [...rows].sort((a, b) => score(b) - score(a));
   }, [rows, sortKey]);
 
-  const maxTotal = useMemo(
-    () => Math.max(1, ...rows.map((r) => (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0))),
-    [rows],
-  );
+  const maxSort = useMemo(() => {
+    const score = (r: UsageRow): number =>
+      sortKey === "total"
+        ? (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0)
+        : ((r[sortKey as keyof UsageRow] as number | undefined) ?? 0);
+    return Math.max(1, ...rows.map(score));
+  }, [rows, sortKey]);
+
+  const barScore = (r: UsageRow): number =>
+    sortKey === "total"
+      ? (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0)
+      : ((r[sortKey as keyof UsageRow] as number | undefined) ?? 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -52,9 +79,13 @@ export default function UsageLeaderboardPage() {
           title="Model Usage Leaderboard"
           description="Which models you actually use — chat, benchmarks, arena battles."
         />
-        <div className="mt-3 flex gap-1 text-xs">
+        <div className="mt-3 flex gap-1 text-xs flex-wrap">
           {([
-            ["total", "Total"],
+            ["total_output_tokens", "Tokens (lifetime)"],
+            ["tokens_24h", "Tokens (24h)"],
+            ["hours_loaded", "Hours (lifetime)"],
+            ["hours_loaded_24h", "Hours (24h)"],
+            ["total", "Interactions"],
             ["chat_sessions", "Chat"],
             ["benchmark_runs", "Bench"],
             ["arena_battles", "Arena"],
@@ -86,6 +117,19 @@ export default function UsageLeaderboardPage() {
             {sorted.map((r, i) => {
               const total = (r.chat_sessions ?? 0) + (r.benchmark_runs ?? 0) + (r.arena_battles ?? 0);
               const winRate = r.arena_battles ? ((r.arena_wins ?? 0) / r.arena_battles) * 100 : null;
+              const score = barScore(r);
+              const headline =
+                sortKey === "total_output_tokens"
+                  ? `${fmtTokens(r.total_output_tokens ?? 0)} tokens`
+                  : sortKey === "tokens_24h"
+                    ? `${fmtTokens(r.tokens_24h ?? 0)} tokens today`
+                    : sortKey === "hours_loaded"
+                      ? `${(r.hours_loaded ?? 0).toFixed(1)} h loaded`
+                      : sortKey === "hours_loaded_24h"
+                        ? `${(r.hours_loaded_24h ?? 0).toFixed(1)} h today`
+                        : sortKey === "avg_tps"
+                          ? `${(r.avg_tps ?? 0).toFixed(1)} tok/s`
+                          : `${total} interactions`;
               return (
                 <li
                   key={r.model_id}
@@ -96,17 +140,25 @@ export default function UsageLeaderboardPage() {
                     <span className="font-mono text-zinc-200 flex-1 truncate">
                       {r.model_id.replace(/^mlx:/, "")}
                     </span>
-                    <span className="text-[11px] text-zinc-500">
-                      {total} total
-                    </span>
+                    <span className="text-[11px] text-zinc-400">{headline}</span>
                   </div>
                   <div className="relative h-1.5 rounded bg-zinc-900 overflow-hidden mb-2">
                     <div
                       className="absolute inset-y-0 left-0 bg-indigo-500/70"
-                      style={{ width: `${(total / maxTotal) * 100}%` }}
+                      style={{ width: `${(score / maxSort) * 100}%` }}
                     />
                   </div>
                   <div className="flex flex-wrap gap-3 text-[11px] text-zinc-400">
+                    <span className="flex items-center gap-1">
+                      <Hash className="w-3 h-3 text-zinc-500" />
+                      {fmtTokens(r.total_output_tokens ?? 0)} tokens
+                      {r.tokens_24h ? <span className="text-indigo-400">· {fmtTokens(r.tokens_24h)} today</span> : null}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-zinc-500" />
+                      {(r.hours_loaded ?? 0).toFixed(1)}h loaded
+                      {r.hours_loaded_24h ? <span className="text-indigo-400">· {r.hours_loaded_24h.toFixed(1)}h today</span> : null}
+                    </span>
                     <span className="flex items-center gap-1">
                       <MessageSquare className="w-3 h-3 text-zinc-500" />
                       {r.chat_sessions ?? 0} chats

@@ -210,6 +210,20 @@ async def stop_model(request: Request) -> dict:
             session_persist.record_load(None)
         except Exception:
             pass
+        try:
+            import audit
+            audit.record(
+                actor=request.headers.get("x-forwarded-for") or (request.client.host if request.client else "local"),
+                action="model.stop",
+                before={"model_id": model_id},
+            )
+        except Exception:
+            pass
+        try:
+            from routers import uptime as uptime_mod
+            uptime_mod.record_unload(model_id)
+        except Exception:
+            pass
     return {"status": "stopped"}
 
 
@@ -274,6 +288,20 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
                 try:
                     from routers.warmth import record_load_event
                     record_load_event(model.id)
+                except Exception:
+                    pass
+                try:
+                    import audit
+                    audit.record(
+                        actor=request.headers.get("x-forwarded-for") or (request.client.host if request.client else "local"),
+                        action="model.load",
+                        after={"model_id": model.id, "engine": engine, "elapsed_ms": data.get("elapsed_ms", 0)},
+                    )
+                except Exception:
+                    pass
+                try:
+                    from routers import uptime as uptime_mod
+                    uptime_mod.record_load(model.id)
                 except Exception:
                     pass
             elif event_type == "error":

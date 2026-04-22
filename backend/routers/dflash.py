@@ -65,6 +65,16 @@ async def toggle_dflash(model_id: str, body: DFlashToggle, request: Request) -> 
     # Update the model's dflash_enabled in registry
     model.dflash_enabled = body.enabled
 
+    try:
+        import audit
+        audit.record(
+            actor=request.headers.get("x-forwarded-for") or (request.client.host if request.client else "local"),
+            action=f"dflash.{'enable' if body.enabled else 'disable'}",
+            after={"model_id": model_id, "enabled": body.enabled, "draft_quant_bits": body.draft_quant_bits},
+        )
+    except Exception:
+        pass
+
     return {
         "model_id": model_id,
         "dflash_enabled": body.enabled,
