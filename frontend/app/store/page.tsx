@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   api, type StoreCatalog, type StoreInstalled, type StoreMcp,
+  type StoreRail, type StoreRailItem,
   type InstalledDetail, type HFSearchResult, type DownloadJob, type InstalledMcp,
   type McpTool, type McpCallResult,
 } from "@/lib/api";
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/Toast";
+import { StoreShelf, ShelfCardWrap } from "@/components/StoreShelf";
 
 type Tab = "featured" | "models" | "prompts" | "workflows" | "system_prompts" | "mcps" | "installed";
 
@@ -255,7 +257,7 @@ export default function StorePage() {
   );
 }
 
-// ── Featured tab ─────────────────────────────────────────────────────────────
+// ── Featured tab (shelves home) ────────────────────────────────────────────
 
 function FeaturedView({
   catalog, search, isInstalled, busy,
@@ -272,60 +274,100 @@ function FeaturedView({
   onInstallModel: (id: string, name: string) => void;
   onConfigureMcp: (m: StoreMcp) => void;
 }) {
-  const sections = [
-    { label: "Models", kind: "models" as const, items: filterItems(catalog.models.filter(x => x.featured), search) },
-    { label: "Prompts", kind: "prompts" as const, items: filterItems(catalog.prompts.filter(x => x.featured), search) },
-    { label: "Workflows", kind: "workflows" as const, items: filterItems(catalog.workflows.filter(x => x.featured), search) },
-    { label: "System prompts", kind: "system_prompts" as const, items: filterItems(catalog.system_prompts.filter(x => x.featured), search) },
-    { label: "MCPs", kind: "mcps" as const, items: filterItems(catalog.mcps.filter(x => x.featured), search) },
-  ];
-  const anything = sections.some(s => s.items.length > 0);
+  const [rails, setRails] = useState<StoreRail[] | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  if (!anything) {
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.store.rails();
+        if (alive) setRails(r.rails);
+      } catch {
+        if (alive) setRails([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Fallback to the legacy featured view until rails come in — keeps the
+  // page useful even if the new endpoint fails.
+  if (loading) {
+    return <div className="text-center text-zinc-500 py-16 text-sm">Loading shelves…</div>;
+  }
+  if (!rails || rails.length === 0) {
     return <div className="text-center text-zinc-500 py-16 text-sm">Nothing featured right now.</div>;
   }
 
+  const q = search.trim().toLowerCase();
+  const filterRail = (items: StoreRailItem[]) =>
+    !q ? items : items.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      (i.description ?? "").toLowerCase().includes(q) ||
+      (i.tags ?? []).some(t => t.toLowerCase().includes(q)),
+    );
+
+  const invoke = (it: StoreRailItem) => {
+    if (it.kind === "models") onInstallModel(it.id, it.name);
+    else if (it.kind === "prompts") onInstallPrompt(it.id, it.name);
+    else if (it.kind === "workflows") onInstallWorkflow(it.id, it.name);
+    else if (it.kind === "system_prompts") onInstallSysPrompt(it.id, it.name);
+    else if (it.kind === "mcps") {
+      // Re-hydrate the full StoreMcp from catalog so the configure dialog has
+      // access to all fields (rails only carry a trimmed subset).
+      const m = catalog.mcps.find(x => x.id === it.id);
+      if (m) onConfigureMcp(m);
+    }
+  };
+
+  const actionLabel = (it: StoreRailItem) =>
+    it.kind === "models" ? "Download" :
+    it.kind === "mcps" ? ((it.config_params?.length ?? 0) > 0 ? "Configure…" : "Install") :
+    "Install";
+
+  const subtitle = (it: StoreRailItem) =>
+    it.repo_id ? it.repo_id :
+    it.agent ? `agent: ${it.agent}` :
+    it.runtime ? `via ${it.runtime}` :
+    undefined;
+
+  const preview = (it: StoreRailItem) => it.content ?? it.template;
+  const sizeBadge = (it: StoreRailItem) => it.size_gb ? `${it.size_gb} GB` : undefined;
+
   return (
-    <div className="space-y-8">
-      {sections.map(s => s.items.length > 0 && (
-        <section key={s.kind}>
-          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-3">{s.label}</h2>
-          <Grid>
-            {s.items.map(item => {
-              const subtitle = "repo_id" in item ? (item as any).repo_id : ("agent" in item ? `agent: ${(item as any).agent}` : "runtime" in item ? `via ${(item as any).runtime}` : undefined);
-              const preview = "content" in item ? (item as any).content : ("template" in item ? (item as any).template : undefined);
-              const sizeBadge = "size_gb" in item && (item as any).size_gb ? `${(item as any).size_gb} GB` : undefined;
-              const isMcp = s.kind === "mcps";
-              const actionLabel =
-                s.kind === "models" ? "Download" :
-                isMcp ? (((item as StoreMcp).config_params?.length ?? 0) > 0 ? "Configure…" : "Install") :
-                "Install";
-              const act = () => {
-                if (s.kind === "models") onInstallModel(item.id, item.name);
-                else if (s.kind === "prompts") onInstallPrompt(item.id, item.name);
-                else if (s.kind === "workflows") onInstallWorkflow(item.id, item.name);
-                else if (s.kind === "system_prompts") onInstallSysPrompt(item.id, item.name);
-                else if (isMcp) onConfigureMcp(item as StoreMcp);
-              };
-              return (
+    <div className="space-y-6">
+      {rails.map(rail => {
+        const filtered = filterRail(rail.items);
+        if (filtered.length === 0) return null;
+        return (
+          <StoreShelf
+            key={rail.id}
+            title={rail.title}
+            subtitle={rail.subtitle}
+          >
+            {filtered.map(it => (
+              <ShelfCardWrap key={`${rail.id}:${it.kind}:${it.id}`}>
                 <ItemCard
-                  key={item.id}
-                  title={item.name}
-                  subtitle={subtitle}
-                  description={(item as any).description}
-                  tags={(item as any).tags}
-                  preview={preview}
-                  sizeBadge={sizeBadge}
-                  installed={isInstalled(s.kind, item.id)}
-                  busy={busy === item.id}
-                  action={act}
-                  actionLabel={actionLabel}
+                  compact
+                  title={it.name}
+                  subtitle={subtitle(it)}
+                  description={it.description}
+                  tags={it.tags}
+                  preview={preview(it)}
+                  sizeBadge={sizeBadge(it)}
+                  repo={it.repo}
+                  installed={isInstalled(it.kind, it.id)}
+                  busy={busy === it.id}
+                  action={() => invoke(it)}
+                  actionLabel={actionLabel(it)}
                 />
-              );
-            })}
-          </Grid>
-        </section>
-      ))}
+              </ShelfCardWrap>
+            ))}
+          </StoreShelf>
+        );
+      })}
     </div>
   );
 }
@@ -338,7 +380,7 @@ function Grid({ children }: { children: React.ReactNode }) {
 
 function ItemCard({
   title, subtitle, description, tags, preview, sizeBadge, repo,
-  installed, busy, action, actionLabel,
+  installed, busy, action, actionLabel, compact,
 }: {
   title: string;
   subtitle?: string;
@@ -351,16 +393,25 @@ function ItemCard({
   busy?: boolean;
   action: () => void;
   actionLabel: string;
+  // Shelf (horizontal-scroll) cards get tight clamping + no preview toggle
+  // so every card in a row is the same height.
+  compact?: boolean;
 }) {
   const [showPreview, setShowPreview] = useState(false);
+  const visibleTags = (tags ?? []).filter(t => t !== "featured");
+  const shownTags = compact ? visibleTags.slice(0, 3) : visibleTags;
+  const extraTagCount = compact ? Math.max(0, visibleTags.length - shownTags.length) : 0;
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4 flex flex-col gap-3 min-h-[120px]">
+    <div className={cn(
+      "rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4 flex flex-col gap-2 transition-all duration-200",
+      compact ? "w-full h-full hover:-translate-y-0.5 hover:bg-zinc-900/70 hover:border-white/[0.12]" : "min-h-[120px] gap-3",
+    )}>
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-zinc-100 truncate">{title}</h3>
             {sizeBadge && (
-              <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded shrink-0">
                 {sizeBadge}
               </span>
             )}
@@ -372,27 +423,40 @@ function ItemCard({
             href={repo}
             target="_blank"
             rel="noreferrer"
-            className="text-zinc-500 hover:text-zinc-200 p-1 -m-1"
+            className="text-zinc-500 hover:text-zinc-200 p-1 -m-1 shrink-0"
             title="View source"
+            onClick={(e) => e.stopPropagation()}
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         )}
       </div>
 
-      {description && <p className="text-xs text-zinc-400 leading-relaxed">{description}</p>}
+      {description && (
+        <p
+          className={cn(
+            "text-xs text-zinc-400 leading-relaxed",
+            compact ? "line-clamp-2" : "",
+          )}
+        >
+          {description}
+        </p>
+      )}
 
-      {tags && tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {tags.filter(t => t !== "featured").map(t => (
-            <span key={t} className="text-[10px] bg-indigo-900/25 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+      {shownTags.length > 0 && (
+        <div className={cn("flex gap-1", compact ? "flex-nowrap overflow-hidden" : "flex-wrap")}>
+          {shownTags.map(t => (
+            <span key={t} className="text-[10px] bg-indigo-900/25 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded truncate max-w-[100px]">
               {t}
             </span>
           ))}
+          {extraTagCount > 0 && (
+            <span className="text-[10px] text-zinc-500 px-1 py-0.5">+{extraTagCount}</span>
+          )}
         </div>
       )}
 
-      {preview && (
+      {preview && !compact && (
         <div>
           <button
             onClick={() => setShowPreview(v => !v)}

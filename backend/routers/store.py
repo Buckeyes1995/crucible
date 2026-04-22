@@ -32,6 +32,142 @@ async def refresh_catalog() -> dict[str, Any]:
     return await store.get_catalog(force=True)
 
 
+@router.get("/store/rails")
+async def get_rails(request: Request) -> dict[str, Any]:
+    """Return the store homepage as a list of themed rails (shelves).
+    Phase 1: rails are assembled from the existing catalog — no new data
+    sources. Later phases add personalization (Because you benchmarked X,
+    Fits your N GB, etc.)."""
+    cat = await store.get_catalog()
+
+    def _wrap(kind: str, items: list[dict]) -> list[dict]:
+        out = []
+        for it in items:
+            out.append({
+                "kind": kind,
+                "id": it.get("id"),
+                "name": it.get("name"),
+                "description": it.get("description"),
+                "tags": it.get("tags") or [],
+                "featured": bool(it.get("featured")),
+                # kind-specific extras — the frontend ignores what it doesn't use
+                "repo_id": it.get("repo_id"),
+                "size_gb": it.get("size_gb"),
+                "agent": it.get("agent"),
+                "runtime": it.get("runtime"),
+                "content": it.get("content"),
+                "template": it.get("template"),
+                "config_params": it.get("config_params") or [],
+                "command": it.get("command"),
+                "args": it.get("args") or [],
+                "repo": it.get("repo"),
+            })
+        return out
+
+    models = _wrap("models", cat.get("models", []))
+    prompts = _wrap("prompts", cat.get("prompts", []))
+    workflows = _wrap("workflows", cat.get("workflows", []))
+    system_prompts = _wrap("system_prompts", cat.get("system_prompts", []))
+    mcps_ = _wrap("mcps", cat.get("mcps", []))
+
+    featured_mixed = [x for x in (models + prompts + workflows + system_prompts + mcps_) if x["featured"]]
+
+    def _tagged(items: list[dict], needle: str) -> list[dict]:
+        n = needle.lower()
+        return [x for x in items if any(n in (t or "").lower() for t in x.get("tags", []))]
+
+    def _tier(lo: float, hi: float, items: list[dict]) -> list[dict]:
+        return [x for x in items if x.get("size_gb") is not None and lo <= float(x["size_gb"]) < hi]
+
+    rails: list[dict] = []
+    if featured_mixed:
+        rails.append({
+            "id": "featured",
+            "title": "Featured this week",
+            "subtitle": "Hand-picked across models, prompts, workflows, and MCPs",
+            "items": featured_mixed,
+        })
+
+    small = _tier(0, 10, models)
+    if small:
+        rails.append({
+            "id": "tier_small",
+            "title": "Under 10 GB",
+            "subtitle": "Fast to download, easy on memory",
+            "items": small,
+        })
+
+    mid = _tier(10, 30, models)
+    if mid:
+        rails.append({
+            "id": "tier_mid",
+            "title": "10–30 GB",
+            "subtitle": "Mid-size workhorses",
+            "items": mid,
+        })
+
+    big = _tier(30, 1000, models)
+    if big:
+        rails.append({
+            "id": "tier_large",
+            "title": "30 GB and up",
+            "subtitle": "Flagship models — plenty of headroom required",
+            "items": big,
+        })
+
+    coding = _tagged(models, "code")
+    if coding:
+        rails.append({
+            "id": "cat_coding",
+            "title": "For coding",
+            "subtitle": "Models tagged for code generation",
+            "items": coding,
+        })
+
+    vision = _tagged(models, "vision")
+    if vision:
+        rails.append({
+            "id": "cat_vision",
+            "title": "Vision-capable",
+            "subtitle": "Accept images alongside text",
+            "items": vision,
+        })
+
+    if prompts:
+        rails.append({
+            "id": "prompts",
+            "title": "Prompts",
+            "subtitle": "Drop-in chat templates",
+            "items": prompts,
+        })
+
+    if system_prompts:
+        rails.append({
+            "id": "system_prompts",
+            "title": "System prompts",
+            "subtitle": "Personas, roles, guardrails",
+            "items": system_prompts,
+        })
+
+    if workflows:
+        rails.append({
+            "id": "workflows",
+            "title": "Workflows",
+            "subtitle": "Multi-step agent recipes",
+            "items": workflows,
+        })
+
+    if mcps_:
+        rails.append({
+            "id": "mcps",
+            "title": "MCP servers",
+            "subtitle": "Tools and integrations via Model Context Protocol",
+            "items": mcps_,
+        })
+
+    return {"rails": rails}
+
+
 @router.get("/store/installed-detail")
 async def installed_detail(request: Request) -> dict[str, Any]:
     """Full content of everything installed, grouped by kind — what the

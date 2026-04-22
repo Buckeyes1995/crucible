@@ -74,6 +74,30 @@ export type StoreInstalled = {
   models: string[]; prompts: string[]; workflows: string[];
   system_prompts: string[]; mcps: string[];
 };
+export type StoreRailItem = {
+  kind: "models" | "prompts" | "workflows" | "system_prompts" | "mcps";
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  featured?: boolean;
+  repo_id?: string;
+  size_gb?: number;
+  agent?: string;
+  runtime?: string;
+  content?: string;
+  template?: string;
+  command?: string;
+  args?: string[];
+  repo?: string;
+  config_params?: StoreMcpParam[];
+};
+export type StoreRail = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  items: StoreRailItem[];
+};
 export type InstalledMcp = {
   id: string; name: string; command: string; args: string[];
   env: Record<string, string>;
@@ -585,6 +609,7 @@ export const api = {
   store: {
     catalog: () => get<StoreCatalog>("/store/catalog"),
     refresh: () => post<StoreCatalog>("/store/refresh"),
+    rails: () => get<{ rails: StoreRail[] }>("/store/rails"),
     installed: () => get<StoreInstalled>("/store/installed"),
     installPrompt: (id: string) =>
       post<{ status: string }>("/store/install/prompt", { id }),
