@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/Toast";
 import { StoreShelf, ShelfCardWrap } from "@/components/StoreShelf";
+import { StoreArt } from "@/components/StoreArt";
+import { StoreHero } from "@/components/StoreHero";
 
 type Tab = "featured" | "models" | "prompts" | "workflows" | "system_prompts" | "mcps" | "installed";
 
@@ -276,6 +278,7 @@ function FeaturedView({
 }) {
   const [rails, setRails] = useState<StoreRail[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let alive = true;
@@ -290,6 +293,30 @@ function FeaturedView({
       }
     })();
     return () => { alive = false; };
+  }, []);
+
+  // Poll hf_downloader jobs so model cards can render a live progress bar
+  // in place of the Install button. Key by repo_id → percent.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const jobs = await api.hf.listDownloads();
+        if (!alive) return;
+        const next: Record<string, number> = {};
+        for (const j of jobs) {
+          if (j.status === "queued") next[j.repo_id] = 0;
+          else if (j.status === "downloading") {
+            const pct = j.total_bytes ? (j.downloaded_bytes ?? 0) / j.total_bytes * 100 : 1;
+            next[j.repo_id] = Math.max(1, Math.min(99, pct));
+          }
+        }
+        setDownloadProgress(next);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => { alive = false; clearInterval(id); };
   }, []);
 
   // Fallback to the legacy featured view until rails come in — keeps the
@@ -336,8 +363,19 @@ function FeaturedView({
   const preview = (it: StoreRailItem) => it.content ?? it.template;
   const sizeBadge = (it: StoreRailItem) => it.size_gb ? `${it.size_gb} GB` : undefined;
 
+  const featuredRail = rails.find(r => r.id === "featured");
+  const heroItems = featuredRail ? featuredRail.items.slice(0, 5) : [];
+
   return (
     <div className="space-y-6">
+      {heroItems.length > 0 && (
+        <StoreHero
+          items={heroItems}
+          installed={(it) => isInstalled(it.kind, it.id)}
+          ctaLabel={(it) => actionLabel(it)}
+          onAction={(it) => invoke(it)}
+        />
+      )}
       {rails.map(rail => {
         const filtered = filterRail(rail.items);
         if (filtered.length === 0) return null;
@@ -347,24 +385,31 @@ function FeaturedView({
             title={rail.title}
             subtitle={rail.subtitle}
           >
-            {filtered.map(it => (
-              <ShelfCardWrap key={`${rail.id}:${it.kind}:${it.id}`}>
-                <ItemCard
-                  compact
-                  title={it.name}
-                  subtitle={subtitle(it)}
-                  description={it.description}
-                  tags={it.tags}
-                  preview={preview(it)}
-                  sizeBadge={sizeBadge(it)}
-                  repo={it.repo}
-                  installed={isInstalled(it.kind, it.id)}
-                  busy={busy === it.id}
-                  action={() => invoke(it)}
-                  actionLabel={actionLabel(it)}
-                />
-              </ShelfCardWrap>
-            ))}
+            {filtered.map(it => {
+              const progress = it.kind === "models" && it.repo_id ? downloadProgress[it.repo_id] : undefined;
+              return (
+                <ShelfCardWrap key={`${rail.id}:${it.kind}:${it.id}`}>
+                  <ItemCard
+                    compact
+                    artId={it.id}
+                    artKind={it.kind}
+                    artSizeGb={it.size_gb}
+                    title={it.name}
+                    subtitle={subtitle(it)}
+                    description={it.description}
+                    tags={it.tags}
+                    preview={preview(it)}
+                    sizeBadge={sizeBadge(it)}
+                    repo={it.repo}
+                    installed={isInstalled(it.kind, it.id)}
+                    busy={busy === it.id}
+                    progress={progress}
+                    action={() => invoke(it)}
+                    actionLabel={actionLabel(it)}
+                  />
+                </ShelfCardWrap>
+              );
+            })}
           </StoreShelf>
         );
       })}
@@ -381,6 +426,7 @@ function Grid({ children }: { children: React.ReactNode }) {
 function ItemCard({
   title, subtitle, description, tags, preview, sizeBadge, repo,
   installed, busy, action, actionLabel, compact,
+  artId, artKind, artSizeGb, progress,
 }: {
   title: string;
   subtitle?: string;
@@ -396,21 +442,41 @@ function ItemCard({
   // Shelf (horizontal-scroll) cards get tight clamping + no preview toggle
   // so every card in a row is the same height.
   compact?: boolean;
+  // Auto-generated SVG banner (shown on compact cards). Supplying all
+  // three opts in — otherwise the card renders without art.
+  artId?: string;
+  artKind?: "models" | "prompts" | "workflows" | "system_prompts" | "mcps";
+  artSizeGb?: number;
+  // For model downloads tracked via hf_downloader — 0–100 makes the
+  // Install button morph into a progress bar.
+  progress?: number;
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const visibleTags = (tags ?? []).filter(t => t !== "featured");
   const shownTags = compact ? visibleTags.slice(0, 3) : visibleTags;
   const extraTagCount = compact ? Math.max(0, visibleTags.length - shownTags.length) : 0;
+  const hasArt = compact && artId && artKind;
   return (
     <div className={cn(
-      "rounded-xl border border-white/[0.06] bg-zinc-900/40 p-4 flex flex-col gap-2 transition-all duration-200",
-      compact ? "w-full h-full hover:-translate-y-0.5 hover:bg-zinc-900/70 hover:border-white/[0.12]" : "min-h-[120px] gap-3",
+      "rounded-xl border border-white/[0.06] bg-zinc-900/40 flex flex-col gap-2 transition-all duration-200 overflow-hidden",
+      compact ? "w-full h-full hover:-translate-y-0.5 hover:bg-zinc-900/70 hover:border-white/[0.12]" : "min-h-[120px] gap-3 p-4",
     )}>
+      {hasArt && (
+        <div className="relative">
+          <StoreArt id={artId!} kind={artKind!} sizeGb={artSizeGb} height={74} />
+          {sizeBadge && (
+            <span className="absolute top-1.5 right-1.5 text-[10px] font-mono bg-black/60 backdrop-blur-sm text-zinc-200 px-1.5 py-0.5 rounded shadow-sm">
+              {sizeBadge}
+            </span>
+          )}
+        </div>
+      )}
+      <div className={cn(compact ? "px-3 pt-1 flex flex-col gap-2 flex-1 min-h-0" : "contents")}>
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-zinc-100 truncate">{title}</h3>
-            {sizeBadge && (
+            {sizeBadge && !hasArt && (
               <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded shrink-0">
                 {sizeBadge}
               </span>
@@ -473,7 +539,7 @@ function ItemCard({
         </div>
       )}
 
-      <div className="mt-auto pt-1">
+      <div className={cn("mt-auto pt-1", compact && "pb-3")}>
         {installed ? (
           <button
             onClick={action}
@@ -482,6 +548,18 @@ function ItemCard({
           >
             <Check className="w-3.5 h-3.5" /> Installed
           </button>
+        ) : progress !== undefined && progress >= 0 ? (
+          <div className="relative w-full rounded overflow-hidden border border-indigo-500/40 bg-indigo-950/30 text-indigo-100 text-xs font-medium">
+            <div
+              className="absolute inset-y-0 left-0 bg-indigo-500/60 transition-[width] duration-300 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+              aria-hidden="true"
+            />
+            <div className="relative flex items-center justify-center gap-1.5 px-3 py-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              {progress > 0 ? `${Math.round(progress)}%` : "Queued…"}
+            </div>
+          </div>
         ) : (
           <Button
             onClick={action}
@@ -494,6 +572,7 @@ function ItemCard({
             {actionLabel}
           </Button>
         )}
+      </div>
       </div>
     </div>
   );
