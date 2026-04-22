@@ -32,6 +32,84 @@ async def refresh_catalog() -> dict[str, Any]:
     return await store.get_catalog(force=True)
 
 
+# ── Sample-output cache ────────────────────────────────────────────────────
+# We cache "what this item produces" on disk so the detail page can show a
+# real example without burning a model call on every visit. Samples are
+# keyed by `kind:id` and stored under ~/.config/crucible/store_samples.json.
+
+from pathlib import Path as _Path
+import json as _json
+import time as _time
+
+_SAMPLES_FILE = _Path.home() / ".config" / "crucible" / "store_samples.json"
+
+
+def _samples_load() -> dict[str, dict]:
+    try:
+        return _json.loads(_SAMPLES_FILE.read_text()) if _SAMPLES_FILE.exists() else {}
+    except Exception:
+        return {}
+
+
+def _samples_save(data: dict) -> None:
+    _SAMPLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _SAMPLES_FILE.write_text(_json.dumps(data, indent=2))
+
+
+class SampleSave(BaseModel):
+    kind: str
+    id: str
+    prompt: str
+    output: str
+    model_id: str | None = None
+
+
+@router.get("/store/samples/{kind}/{item_id:path}")
+async def get_sample(kind: str, item_id: str) -> dict[str, Any]:
+    key = f"{kind}:{item_id}"
+    data = _samples_load()
+    return data.get(key) or {}
+
+
+@router.post("/store/samples")
+async def save_sample(body: SampleSave) -> dict[str, Any]:
+    data = _samples_load()
+    data[f"{body.kind}:{body.id}"] = {
+        "kind": body.kind,
+        "id": body.id,
+        "prompt": body.prompt,
+        "output": body.output,
+        "model_id": body.model_id,
+        "ts": _time.time(),
+    }
+    _samples_save(data)
+    return {"status": "ok"}
+
+
+@router.delete("/store/samples/{kind}/{item_id:path}")
+async def delete_sample(kind: str, item_id: str) -> dict[str, Any]:
+    data = _samples_load()
+    data.pop(f"{kind}:{item_id}", None)
+    _samples_save(data)
+    return {"status": "deleted"}
+
+
+# ── Phase 5 curated override ───────────────────────────────────────────────
+# If ~/.config/crucible/store_curated.json exists and contains a
+# {"featured": ["kind:id", ...]} list, that list becomes the hero / Featured
+# rail ordering, overriding whatever the catalog's `featured: true` flag
+# produces. Lets editorial ship new hero slots without a catalog deploy.
+
+_CURATED_FILE = _Path.home() / ".config" / "crucible" / "store_curated.json"
+
+
+def _curated_load() -> dict[str, Any]:
+    try:
+        return _json.loads(_CURATED_FILE.read_text()) if _CURATED_FILE.exists() else {}
+    except Exception:
+        return {}
+
+
 @router.get("/store/rails")
 async def get_rails(request: Request) -> dict[str, Any]:
     """Return the store homepage as a list of themed rails (shelves).
@@ -72,7 +150,18 @@ async def get_rails(request: Request) -> dict[str, Any]:
     system_prompts = _wrap("system_prompts", cat.get("system_prompts", []))
     mcps_ = _wrap("mcps", cat.get("mcps", []))
 
-    featured_mixed = [x for x in (models + prompts + workflows + system_prompts + mcps_) if x["featured"]]
+    all_items = models + prompts + workflows + system_prompts + mcps_
+    curated = _curated_load()
+    curated_featured = curated.get("featured") or []
+    if isinstance(curated_featured, list) and curated_featured:
+        # Preserve the curated order; fall back to tag-flag featured for
+        # anything that's curated-but-missing from the catalog.
+        by_key = {f"{it['kind']}:{it['id']}": it for it in all_items}
+        featured_mixed = [by_key[k] for k in curated_featured if k in by_key]
+        if not featured_mixed:
+            featured_mixed = [x for x in all_items if x["featured"]]
+    else:
+        featured_mixed = [x for x in all_items if x["featured"]]
 
     def _tagged(items: list[dict], needle: str) -> list[dict]:
         n = needle.lower()

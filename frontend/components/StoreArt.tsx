@@ -8,7 +8,28 @@
 //   - same kind (model/prompt/…) shares visual language (glyph + palette family)
 //   - larger size tier → bolder pattern
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+// One-time manifest load: /public/store-art/manifest.json lists slugs that
+// have a hand-designed asset (e.g. ["models-qwen3_6-35B", …]). Absent
+// manifest → everyone gets the generated SVG. Keeps us from firing 404s
+// for every card on every page load.
+type Manifest = { slugs: string[] };
+let _manifest: Set<string> | null = null;
+let _manifestPromise: Promise<Set<string>> | null = null;
+
+function loadManifest(): Promise<Set<string>> {
+  if (_manifest) return Promise.resolve(_manifest);
+  if (_manifestPromise) return _manifestPromise;
+  _manifestPromise = fetch("/store-art/manifest.json", { cache: "force-cache" })
+    .then((r) => (r.ok ? r.json() : { slugs: [] } as Manifest))
+    .catch(() => ({ slugs: [] } as Manifest))
+    .then((m) => {
+      _manifest = new Set(m.slugs || []);
+      return _manifest;
+    });
+  return _manifestPromise;
+}
 
 type Kind = "models" | "prompts" | "workflows" | "system_prompts" | "mcps";
 
@@ -145,6 +166,12 @@ function PatternFor({
   );
 }
 
+// Slug a kind:id into the filename we probe in /public/store-art/. Only
+// ASCII word chars + `-` survive; everything else becomes `_`.
+function slug(kind: Kind, id: string): string {
+  return `${kind}-${id}`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
 export function StoreArt({
   id,
   kind,
@@ -158,6 +185,19 @@ export function StoreArt({
   className?: string;
   height?: number;
 }) {
+  // Phase 5: hand-designed key-art lives at /public/store-art/<slug>.webp,
+  // registered in /public/store-art/manifest.json. We only render the <img>
+  // if the slug is in the manifest — otherwise every card would trigger a
+  // 404 probe.
+  const [hasOverride, setHasOverride] = useState<boolean | null>(null);
+  const mySlug = slug(kind, id);
+  useEffect(() => {
+    let alive = true;
+    loadManifest().then((m) => { if (alive) setHasOverride(m.has(mySlug)); });
+    return () => { alive = false; };
+  }, [mySlug]);
+  const customUrl = `/store-art/${mySlug}.webp`;
+
   const tier: "s" | "m" | "l" =
     sizeGb == null ? "m" : sizeGb < 10 ? "s" : sizeGb < 30 ? "m" : "l";
 
@@ -176,6 +216,22 @@ export function StoreArt({
   // Width ~ 2.4× height keeps the card-top banner proportional.
   const width = Math.round(height * 2.44);
   const seed = hash32(`${kind}:${id}`);
+
+  if (hasOverride) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={customUrl}
+        alt=""
+        width="100%"
+        height={height}
+        className={className}
+        style={{ width: "100%", height, objectFit: "cover", display: "block" }}
+        onError={() => setHasOverride(false)}
+        aria-hidden="true"
+      />
+    );
+  }
 
   return (
     <svg

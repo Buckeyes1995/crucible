@@ -20,6 +20,8 @@ import { toast } from "@/components/Toast";
 import { StoreShelf, ShelfCardWrap } from "@/components/StoreShelf";
 import { StoreArt } from "@/components/StoreArt";
 import { StoreHero } from "@/components/StoreHero";
+import { StoreDetail } from "@/components/StoreDetail";
+import { useModelsStore } from "@/lib/stores/models";
 
 type Tab = "featured" | "models" | "prompts" | "workflows" | "system_prompts" | "mcps" | "installed";
 
@@ -279,6 +281,8 @@ function FeaturedView({
   const [rails, setRails] = useState<StoreRail[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [detailItem, setDetailItem] = useState<StoreRailItem | null>(null);
+  const activeModelId = useModelsStore((s) => s.activeModelId);
 
   useEffect(() => {
     let alive = true;
@@ -366,6 +370,32 @@ function FeaturedView({
   const featuredRail = rails.find(r => r.id === "featured");
   const heroItems = featuredRail ? featuredRail.items.slice(0, 5) : [];
 
+  const computeRelated = (target: StoreRailItem): StoreRailItem[] => {
+    if (!rails) return [];
+    // Pull every catalog item across rails (deduped), filter by shared tag
+    // OR same family prefix in name, excluding the target itself.
+    const seen = new Set<string>();
+    const all: StoreRailItem[] = [];
+    for (const r of rails) {
+      for (const it of r.items) {
+        const key = `${it.kind}:${it.id}`;
+        if (!seen.has(key)) { seen.add(key); all.push(it); }
+      }
+    }
+    const targetKey = `${target.kind}:${target.id}`;
+    const targetTags = new Set((target.tags ?? []).map(t => t.toLowerCase()).filter(t => t !== "featured"));
+    const familyPrefix = (target.name.split(/[-_ ]/)[0] || "").toLowerCase();
+    return all
+      .filter(it => `${it.kind}:${it.id}` !== targetKey)
+      .filter(it => {
+        const itTags = new Set((it.tags ?? []).map(t => t.toLowerCase()));
+        const sharedTag = [...targetTags].some(t => itTags.has(t));
+        const sharedFamily = familyPrefix && it.name.toLowerCase().startsWith(familyPrefix);
+        return sharedTag || sharedFamily;
+      })
+      .slice(0, 12);
+  };
+
   return (
     <div className="space-y-6">
       {heroItems.length > 0 && (
@@ -406,6 +436,7 @@ function FeaturedView({
                     progress={progress}
                     action={() => invoke(it)}
                     actionLabel={actionLabel(it)}
+                    onOpen={() => setDetailItem(it)}
                   />
                 </ShelfCardWrap>
               );
@@ -413,6 +444,25 @@ function FeaturedView({
           </StoreShelf>
         );
       })}
+
+      {detailItem && (
+        <StoreDetail
+          item={detailItem}
+          related={computeRelated(detailItem)}
+          installed={isInstalled(detailItem.kind, detailItem.id)}
+          busy={busy === detailItem.id}
+          progress={
+            detailItem.kind === "models" && detailItem.repo_id
+              ? downloadProgress[detailItem.repo_id]
+              : undefined
+          }
+          ctaLabel={actionLabel(detailItem)}
+          onClose={() => setDetailItem(null)}
+          onAction={() => invoke(detailItem)}
+          onOpenRelated={(r) => setDetailItem(r)}
+          activeModelId={activeModelId}
+        />
+      )}
     </div>
   );
 }
@@ -426,7 +476,7 @@ function Grid({ children }: { children: React.ReactNode }) {
 function ItemCard({
   title, subtitle, description, tags, preview, sizeBadge, repo,
   installed, busy, action, actionLabel, compact,
-  artId, artKind, artSizeGb, progress,
+  artId, artKind, artSizeGb, progress, onOpen,
 }: {
   title: string;
   subtitle?: string;
@@ -450,6 +500,9 @@ function ItemCard({
   // For model downloads tracked via hf_downloader — 0–100 makes the
   // Install button morph into a progress bar.
   progress?: number;
+  // Shelf cards call this when the art/body is clicked (vs the Install
+  // button, which installs). Grid cards can ignore it.
+  onOpen?: () => void;
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const visibleTags = (tags ?? []).filter(t => t !== "featured");
@@ -462,7 +515,10 @@ function ItemCard({
       compact ? "w-full h-full hover:-translate-y-0.5 hover:bg-zinc-900/70 hover:border-white/[0.12]" : "min-h-[120px] gap-3 p-4",
     )}>
       {hasArt && (
-        <div className="relative">
+        <div
+          className={cn("relative", onOpen && "cursor-pointer")}
+          onClick={onOpen}
+        >
           <StoreArt id={artId!} kind={artKind!} sizeGb={artSizeGb} height={74} />
           {sizeBadge && (
             <span className="absolute top-1.5 right-1.5 text-[10px] font-mono bg-black/60 backdrop-blur-sm text-zinc-200 px-1.5 py-0.5 rounded shadow-sm">
@@ -471,7 +527,13 @@ function ItemCard({
           )}
         </div>
       )}
-      <div className={cn(compact ? "px-3 pt-1 flex flex-col gap-2 flex-1 min-h-0" : "contents")}>
+      <div
+        className={cn(
+          compact ? "px-3 pt-1 flex flex-col gap-2 flex-1 min-h-0" : "contents",
+          compact && onOpen && "cursor-pointer",
+        )}
+        onClick={compact && onOpen ? onOpen : undefined}
+      >
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -539,7 +601,10 @@ function ItemCard({
         </div>
       )}
 
-      <div className={cn("mt-auto pt-1", compact && "pb-3")}>
+      <div
+        className={cn("mt-auto pt-1", compact && "pb-3")}
+        onClick={(e) => e.stopPropagation()}
+      >
         {installed ? (
           <button
             onClick={action}
