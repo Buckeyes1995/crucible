@@ -5,10 +5,20 @@ import { useModelsStore } from "@/lib/stores/models";
 import { usePrivacyStore } from "@/lib/stores/privacy";
 import { useProjectsStore } from "@/lib/stores/projects";
 
+export type ChatAttachment = {
+  id: string;
+  dataUrl: string;    // data:image/png;base64,…
+  name: string;
+  mime: string;
+};
+
 export type ChatMsg = {
   role: "user" | "assistant";
   content: string;
   bookmarked?: boolean;
+  // Attachments preserved on the user's message so re-rendering the
+  // conversation shows thumbnails alongside their prompt.
+  attachments?: ChatAttachment[];
 };
 
 type ChatStats = {
@@ -24,7 +34,7 @@ type ChatState = {
   error: string | null;
   sessionId: string | null;
 
-  sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string) => Promise<void>;
+  sendMessage: (text: string, temperature: number, maxTokens: number, systemPrompt?: string, ragSessionId?: string, attachments?: ChatAttachment[]) => Promise<void>;
   clearMessages: () => void;
   resetStreaming: () => void;
   /** Load a previously-persisted conversation so the user can continue it. New
@@ -90,8 +100,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: null,
   sessionId: null,
 
-  sendMessage: async (text, temperature, maxTokens, systemPrompt, ragSessionId) => {
-    const userMsg: ChatMsg = { role: "user", content: text };
+  sendMessage: async (text, temperature, maxTokens, systemPrompt, ragSessionId, attachments) => {
+    const userMsg: ChatMsg = { role: "user", content: text, attachments };
     const msgs = [...get().messages, userMsg];
     set({ messages: msgs, streaming: true, error: null, stats: null });
 
@@ -99,10 +109,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const assistantIdx = msgs.length;
     set({ messages: [...msgs, { role: "assistant", content: "" }] });
 
+    // Build the OpenAI-compat payload. If any user turn has attachments,
+    // emit an array of {type:'text'|'image_url'} blocks for that turn;
+    // everything else stays as a plain string so vision-only fields don't
+    // appear for text-only turns (keeps the prompt lean for small models).
+    const toContent = (m: ChatMsg): string | Array<Record<string, unknown>> => {
+      if (!m.attachments || m.attachments.length === 0) return m.content;
+      const blocks: Array<Record<string, unknown>> = m.attachments.map(a => ({
+        type: "image_url",
+        image_url: { url: a.dataUrl },
+      }));
+      if (m.content) blocks.push({ type: "text", text: m.content });
+      return blocks;
+    };
     const apiMessages: ChatMessage[] = [
-      ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-      ...msgs.map((m) => ({ role: m.role, content: m.content })),
-    ];
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      ...msgs.map((m) => ({ role: m.role, content: toContent(m) })),
+    ] as ChatMessage[];
 
     try {
       const resp = await api.chat({ messages: apiMessages, temperature, max_tokens: maxTokens, rag_session_id: ragSessionId });

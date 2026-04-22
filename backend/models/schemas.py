@@ -30,7 +30,11 @@ class ModelEntry(BaseModel):
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    # Multi-modal (v4 #3): content is either a string (legacy, text-only) or
+    # an OpenAI-style list of typed blocks: {type: "text", text: "..."} /
+    # {type: "image_url", image_url: {url: "data:image/png;base64,..."}}.
+    # Adapters forward whatever shape arrives to the upstream server.
+    content: str | list[dict]
 
 
 class ChatRequest(BaseModel):

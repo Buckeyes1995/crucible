@@ -45,12 +45,22 @@ async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
     if record:
         record()
 
-    # Inject RAG context into the last user message if a session is active
+    # Inject RAG context into the last user message if a session is active.
+    # With multi-modal content (v4 #3), the last-user content may be a list
+    # of blocks — pull text blocks out for the RAG lookup so we still hit
+    # the vector store when a user types a question alongside an image.
     messages = list(req.messages)
     if req.rag_session_id:
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         if last_user:
-            ctx = rag.get_context(req.rag_session_id, last_user.content)
+            if isinstance(last_user.content, str):
+                query_text = last_user.content
+            else:
+                query_text = " ".join(
+                    b.get("text", "") for b in last_user.content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ).strip()
+            ctx = rag.get_context(req.rag_session_id, query_text) if query_text else None
             if ctx:
                 # Prepend context as a system message
                 messages = [ChatMessage(role="system", content=ctx)] + [

@@ -12,7 +12,7 @@ type SlotState = {
   modelId: string | null;
   modelName: string;
   selectedId: string;       // what's in the dropdown (may not be loaded yet)
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: string | Array<Record<string, unknown>> }[];
   streaming: boolean;
   partial: string;
   ttft: number | null;
@@ -300,7 +300,7 @@ export default function CompareChatPage() {
                       ? "bg-indigo-600/30 text-zinc-100 border border-indigo-500/30"
                       : "bg-zinc-800/60 text-zinc-200 border border-white/5"
                   )}>
-                    <pre className="whitespace-pre-wrap font-sans leading-relaxed">{msg.content}</pre>
+                    <pre className="whitespace-pre-wrap font-sans leading-relaxed">{typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)}</pre>
                   </div>
                 </div>
               ))}

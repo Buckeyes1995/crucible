@@ -145,7 +145,10 @@ export type SystemPromptEntry = {
   builtin?: boolean;
 };
 
-export type ChatMessage = { role: string; content: string };
+// content may be a string (text-only) OR an OpenAI-compat list of
+// {type: 'text', text} / {type: 'image_url', image_url:{url}} blocks when
+// sending images to a vision model (v4 #3).
+export type ChatMessage = { role: string; content: string | Array<Record<string, unknown>> };
 
 export type BenchmarkPrompt = {
   id: string;

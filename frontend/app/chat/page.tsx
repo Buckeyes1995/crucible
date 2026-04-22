@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useChatStore } from "@/lib/stores/chat";
+import { useChatStore, type ChatAttachment } from "@/lib/stores/chat";
 import { useModelsStore } from "@/lib/stores/models";
 import { Button } from "@/components/ui/button";
 import { formatMs, formatTps, cn } from "@/lib/utils";
@@ -45,6 +45,9 @@ export default function ChatPage() {
   const [ragCount, setRagCount] = useState(0);
   const [ragUploading, setRagUploading] = useState(false);
   const [ragEnabled, setRagEnabled] = useState(false);
+  // v4 #3 — image attachments on the outgoing user turn.
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const templateRef = useRef<HTMLDivElement>(null);
@@ -147,18 +150,95 @@ export default function ChatPage() {
     return { handled: true };
   };
 
+  // Detect whether the loaded model accepts images. Uses the capabilities
+  // taxonomy stamped onto ModelEntry; falls back to a heuristic on id.
+  const visionCheckModel = models.find(m => m.id === activeModelId);
+  const isVisionModel = (() => {
+    if (!visionCheckModel) return false;
+    const caps = (visionCheckModel.capabilities ?? []).map(c => c.toLowerCase());
+    if (caps.includes("vision")) return true;
+    const id = visionCheckModel.id.toLowerCase();
+    return id.includes("-vl") || id.includes("vision");
+  })();
+
   const handleSend = () => {
     const text = input.trim();
-    if (!text || streaming) return;
-    // Intercept slash commands before they hit the model.
-    const r = tryHandleSlash(text);
-    if (r.handled) {
-      setInput("");
-      if (r.message) toast(r.message, "info");
+    const hasAttachments = attachments.length > 0;
+    if ((!text && !hasAttachments) || streaming) return;
+    if (hasAttachments && !isVisionModel) {
+      toast("This model can't read images. Load a vision-capable model (e.g. Qwen3.5-VL) or remove the attachment.", "error");
       return;
     }
+    // Intercept slash commands only when there's no attachment — they
+    // wouldn't make sense with images anyway.
+    if (!hasAttachments) {
+      const r = tryHandleSlash(text);
+      if (r.handled) {
+        setInput("");
+        if (r.message) toast(r.message, "info");
+        return;
+      }
+    }
     setInput("");
-    sendMessage(text, temperature, maxTokens, systemPrompt || undefined, ragEnabled && ragCount > 0 ? RAG_SESSION : undefined);
+    const atts = hasAttachments ? attachments : undefined;
+    setAttachments([]);
+    sendMessage(
+      text,
+      temperature,
+      maxTokens,
+      systemPrompt || undefined,
+      ragEnabled && ragCount > 0 ? RAG_SESSION : undefined,
+      atts,
+    );
+  };
+
+  // Turn a File into a ChatAttachment (base64 data URL).
+  const fileToAttachment = async (file: File): Promise<ChatAttachment> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    return {
+      id: Math.random().toString(36).slice(2, 10),
+      dataUrl,
+      name: file.name,
+      mime: file.type,
+    };
+  };
+
+  const addImagesFromFiles = async (files: FileList | File[]) => {
+    const arr = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (arr.length === 0) return 0;
+    const atts = await Promise.all(arr.map(fileToAttachment));
+    setAttachments(cur => [...cur, ...atts].slice(0, 8));
+    return atts.length;
+  };
+
+  const onPaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const it of items) {
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f && f.type.startsWith("image/")) files.push(f);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      const added = await addImagesFromFiles(files);
+      if (added > 0) toast(`Attached ${added} image${added === 1 ? "" : "s"}`, "success");
+    }
+  };
+
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!e.dataTransfer) return;
+    const added = await addImagesFromFiles(e.dataTransfer.files);
+    if (added > 0) toast(`Attached ${added} image${added === 1 ? "" : "s"}`, "success");
   };
 
   const handleFileUpload = async (files: FileList | null) => {
@@ -285,7 +365,27 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full relative"
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        // leaving the outermost element only (avoid flicker on children)
+        if (e.target === e.currentTarget) setDragOver(false);
+      }}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center bg-indigo-950/40 border-2 border-dashed border-indigo-400/60 rounded-lg">
+          <div className="text-indigo-200 text-sm font-semibold">
+            Drop image{" "}to attach
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-6 h-14 border-b border-white/[0.04] shrink-0">
         <div className="flex items-center gap-3">
@@ -568,6 +668,20 @@ export default function ChatPage() {
                       : "bg-indigo-600/15 border border-indigo-500/20 text-zinc-100 rounded-br-md inline-block",
                     msg.bookmarked && "ring-1 ring-amber-400/40",
                   )}>
+                    {!isAssistant && msg.attachments && msg.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {msg.attachments.map(a => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={a.id}
+                            src={a.dataUrl}
+                            alt={a.name}
+                            className="max-h-40 rounded border border-white/10 cursor-pointer hover:opacity-90"
+                            onClick={() => window.open(a.dataUrl, "_blank")}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {isAssistant ? <ChatMessageBody content={msg.content} /> : msg.content}
                     {showCursor && (
                       <span className="inline-block w-0.5 h-4 ml-0.5 bg-indigo-400 animate-pulse rounded-full align-middle" />
@@ -657,17 +771,44 @@ export default function ChatPage() {
 
       {/* Input */}
       <div className="border-t border-white/[0.04] px-6 py-4 bg-zinc-950/50 backdrop-blur-sm">
+        {attachments.length > 0 && (
+          <div className="max-w-3xl mx-auto mb-2 flex flex-wrap gap-2">
+            {attachments.map(a => (
+              <div key={a.id} className="relative group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={a.dataUrl}
+                  alt={a.name}
+                  className="h-14 w-14 object-cover rounded border border-white/10"
+                />
+                <button
+                  onClick={() => setAttachments(cur => cur.filter(x => x.id !== a.id))}
+                  className="absolute -top-1.5 -right-1.5 bg-zinc-900 border border-white/20 rounded-full w-4 h-4 flex items-center justify-center text-zinc-300 hover:bg-red-900 hover:text-white"
+                  title="Remove"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+            {!isVisionModel && (
+              <span className="self-center text-[11px] text-amber-400">
+                The active model isn't vision-capable — load one with a 👁 chip (e.g. Qwen3.5-VL) to read these.
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex gap-3 max-w-3xl mx-auto">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={onPaste}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }
             }}
-            placeholder={activeModelId ? "Send a message — or /help for commands…" : "Load a model first…"}
+            placeholder={activeModelId ? "Send a message — paste or drop an image for vision models…" : "Load a model first…"}
             disabled={!activeModelId || streaming}
             className="flex-1 bg-zinc-900/60 border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition-all disabled:opacity-50"
           />
@@ -685,7 +826,7 @@ export default function ChatPage() {
             <Button
               variant="primary"
               onClick={handleSend}
-              disabled={!activeModelId || !input.trim()}
+              disabled={!activeModelId || (!input.trim() && attachments.length === 0)}
               className="rounded-xl px-5"
             >
               <Send className="w-4 h-4" />
