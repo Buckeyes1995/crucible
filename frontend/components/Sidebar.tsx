@@ -10,7 +10,7 @@ import {
   Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
   DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
-  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper,
+  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper, Database,
 } from "lucide-react";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 
@@ -43,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/visualizer", label: "Visualizer", icon: <Eye className="w-4 h-4" /> },
       { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
       { href: "/runs", label: "Agent Runs", icon: <Bot className="w-4 h-4" /> },
+      { href: "/rag", label: "RAG", icon: <Database className="w-4 h-4" /> },
     ],
   },
   {
@@ -62,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/benchmark2", label: "New Run", icon: <Zap className="w-4 h-4" /> },
       { href: "/benchmark/history", label: "History", icon: <BarChart3 className="w-4 h-4" /> },
       { href: "/benchmark/diff", label: "Diff", icon: <GitCompare className="w-4 h-4" /> },
+      { href: "/evals", label: "Evals", icon: <FlaskConical className="w-4 h-4" /> },
       { href: "/humaneval", label: "HumanEval", icon: <FlaskConical className="w-4 h-4" /> },
       { href: "/dflash", label: "DFlash Bench", icon: <Bolt className="w-4 h-4" /> },
       { href: "/optimizer", label: "Optimizer", icon: <FlaskConical className="w-4 h-4" /> },
