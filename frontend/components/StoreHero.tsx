@@ -1,13 +1,30 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Download, X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StoreArt } from "@/components/StoreArt";
 import type { StoreRailItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const ROTATE_MS = 8000;
+const DISMISS_KEY = "crucible.store.hero-dismissed";
+
+// localStorage set of "kind:id" tokens the user has explicitly dismissed.
+function loadDismissed(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(DISMISS_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(s: Set<string>) {
+  try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...s])); } catch {}
+}
 
 type HeroItem = StoreRailItem;
 
@@ -32,21 +49,42 @@ export function StoreHero({
 }) {
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hydrate dismissed set on the client so the server render stays stable.
+  useEffect(() => { setDismissed(loadDismissed()); }, []);
+
+  const visible = useMemo(
+    () => items.filter(i => !dismissed.has(`${i.kind}:${i.id}`)),
+    [items, dismissed],
+  );
+
+  // Keep idx in range as items come + go.
+  useEffect(() => {
+    if (idx >= visible.length && visible.length > 0) setIdx(0);
+  }, [visible.length, idx]);
 
   // Auto-rotate every ROTATE_MS unless hovered.
   useEffect(() => {
-    if (paused || items.length < 2) return;
+    if (paused || visible.length < 2) return;
     timer.current = setTimeout(() => {
-      setIdx((i) => (i + 1) % items.length);
+      setIdx((i) => (i + 1) % visible.length);
     }, ROTATE_MS);
     return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [idx, paused, items.length]);
+  }, [idx, paused, visible.length]);
 
-  if (items.length === 0) return null;
-  const it = items[idx];
+  if (visible.length === 0) return null;
+  const it = visible[Math.min(idx, visible.length - 1)];
 
-  const go = (d: 1 | -1) => setIdx((i) => (i + d + items.length) % items.length);
+  const go = (d: 1 | -1) => setIdx((i) => (i + d + visible.length) % visible.length);
+
+  const dismissCurrent = () => {
+    const next = new Set(dismissed);
+    next.add(`${it.kind}:${it.id}`);
+    setDismissed(next);
+    saveDismissed(next);
+  };
 
   return (
     <div
@@ -91,8 +129,18 @@ export function StoreHero({
         </div>
       </div>
 
+      {/* Dismiss — top-right X, hover-revealed */}
+      <button
+        onClick={dismissCurrent}
+        title="Hide this from the hero"
+        aria-label="Dismiss"
+        className="absolute top-3 right-3 h-7 w-7 rounded-full bg-zinc-950/70 border border-white/10 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <XIcon className="w-3.5 h-3.5 mx-auto" />
+      </button>
+
       {/* Prev / next arrows — visible only on hover, only when ≥ 2 items */}
-      {items.length > 1 && (
+      {visible.length > 1 && (
         <>
           <button
             onClick={() => go(-1)}
@@ -109,7 +157,7 @@ export function StoreHero({
             <ChevronRight className="w-4 h-4 mx-auto" />
           </button>
           <div className="absolute bottom-3 right-4 flex gap-1.5">
-            {items.map((_, i) => (
+            {visible.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setIdx(i)}

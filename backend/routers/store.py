@@ -35,9 +35,11 @@ async def refresh_catalog() -> dict[str, Any]:
 @router.get("/store/rails")
 async def get_rails(request: Request) -> dict[str, Any]:
     """Return the store homepage as a list of themed rails (shelves).
-    Phase 1: rails are assembled from the existing catalog — no new data
-    sources. Later phases add personalization (Because you benchmarked X,
-    Fits your N GB, etc.)."""
+    Phase 1 shipped static rails; Phase 3 layers on personalized rails:
+    - Fits your ⟨RAM⟩ GB (filtered by psutil-reported total memory)
+    - Because you benchmarked ⟨model⟩ (same-family / shared-tag picks)
+    - Recently updated (origin HF repo has a newer lastModified than
+      our local downloaded_at)."""
     cat = await store.get_catalog()
 
     def _wrap(kind: str, items: list[dict]) -> list[dict]:
@@ -87,6 +89,119 @@ async def get_rails(request: Request) -> dict[str, Any]:
             "subtitle": "Hand-picked across models, prompts, workflows, and MCPs",
             "items": featured_mixed,
         })
+
+    # ── Personalized rails (Phase 3) ──────────────────────────────────────
+    # Fits your RAM: ≤ 75% of total unified memory so we leave headroom
+    # for the rest of the stack. Total bytes via psutil; fail-quiet on
+    # unexpected platforms.
+    ram_gb: float | None = None
+    try:
+        import psutil
+        ram_gb = psutil.virtual_memory().total / (1024 ** 3)
+    except Exception:
+        pass
+    if ram_gb is not None:
+        budget_gb = ram_gb * 0.75
+        fits = [
+            x for x in models
+            if x.get("size_gb") is not None and float(x["size_gb"]) <= budget_gb
+        ]
+        if fits:
+            rails.append({
+                "id": "fits_your_ram",
+                "title": f"Fits your {int(round(ram_gb))} GB",
+                "subtitle": f"Models under {int(round(budget_gb))} GB — leave headroom for other apps",
+                "items": fits,
+            })
+
+    # Because you benchmarked X: read benchmark_runs to find the
+    # most-benchmarked model id, then recommend catalog models that share
+    # at least one tag with it and aren't the anchor itself.
+    try:
+        import aiosqlite
+        from db.database import DB_PATH
+        anchor_id: str | None = None
+        anchor_tags: set[str] = set()
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT model_id, model_name, COUNT(DISTINCT run_id) as n "
+                "FROM benchmark_results GROUP BY model_id "
+                "ORDER BY n DESC LIMIT 1"
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    anchor_id = row[0]
+        if anchor_id:
+            for m in cat.get("models", []):
+                candidate_repo = (m.get("repo_id") or "").lower()
+                if anchor_id.lower().endswith(candidate_repo.split("/")[-1]) or \
+                   candidate_repo.split("/")[-1] in anchor_id.lower():
+                    anchor_tags = set((t or "").lower() for t in (m.get("tags") or []))
+                    break
+        if anchor_id and anchor_tags:
+            picks = []
+            for x in models:
+                xid = x.get("id")
+                if not xid:
+                    continue
+                # skip the anchor itself (match on repo_id suffix)
+                xrepo = (x.get("repo_id") or "").lower()
+                anchor_leaf = anchor_id.lower().rsplit("/", 1)[-1]
+                if xrepo and xrepo.endswith(anchor_leaf):
+                    continue
+                xtags = set((t or "").lower() for t in (x.get("tags") or []))
+                if xtags & anchor_tags:
+                    picks.append(x)
+            if picks:
+                anchor_name = anchor_id.replace("mlx:", "").rsplit("/", 1)[-1]
+                rails.append({
+                    "id": "because_you_benchmarked",
+                    "title": f"Because you benchmarked {anchor_name}",
+                    "subtitle": "Catalog picks that share capability tags with your most-tested model",
+                    "items": picks,
+                })
+    except Exception:
+        pass
+
+    # Recently updated: installed models whose origin HF repo has a newer
+    # lastModified than our local downloaded_at.
+    try:
+        import hf_updates
+        upd_state = hf_updates.all_state()
+        flagged_ids = {mid for mid, e in upd_state.items() if e.get("update_available")}
+        if flagged_ids:
+            # Map local model id → matching catalog entry (by repo_id leaf)
+            def _leaf(s: str) -> str:
+                return (s or "").rsplit("/", 1)[-1].lower()
+            updated_items: list[dict] = []
+            for mid in flagged_ids:
+                origin = upd_state[mid].get("origin_repo") or ""
+                leaf = _leaf(origin)
+                match = next(
+                    (m for m in models if _leaf(m.get("repo_id") or m.get("id") or "") == leaf),
+                    None,
+                )
+                if match:
+                    updated_items.append(match)
+                else:
+                    # synthesize a minimal rail item from the tracked model id
+                    updated_items.append({
+                        "kind": "models", "id": mid, "name": mid.replace("mlx:", ""),
+                        "description": f"New version on HuggingFace: {origin}",
+                        "tags": [], "featured": False, "repo_id": origin,
+                        "size_gb": None, "agent": None, "runtime": None,
+                        "content": None, "template": None, "config_params": [],
+                        "command": None, "args": [], "repo": f"https://huggingface.co/{origin}" if origin else None,
+                    })
+            if updated_items:
+                rails.append({
+                    "id": "recently_updated",
+                    "title": "Upstream updates available",
+                    "subtitle": "These HF repos have been updated since you downloaded",
+                    "items": updated_items,
+                })
+    except Exception:
+        pass
 
     small = _tier(0, 10, models)
     if small:
