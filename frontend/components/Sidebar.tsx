@@ -11,6 +11,7 @@ import {
   DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
   Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
   ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper, Database,
+  Workflow,
 } from "lucide-react";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 
@@ -44,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
       { href: "/runs", label: "Agent Runs", icon: <Bot className="w-4 h-4" /> },
       { href: "/rag", label: "RAG", icon: <Database className="w-4 h-4" /> },
+      { href: "/prompts", label: "Prompts", icon: <FileText className="w-4 h-4" /> },
     ],
   },
   {
@@ -86,6 +88,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/groups", label: "Groups", icon: <FolderOpen className="w-4 h-4" /> },
       { href: "/store", label: "Store", icon: <Download className="w-4 h-4" /> },
       { href: "/schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },
+      { href: "/automation", label: "Automation", icon: <Workflow className="w-4 h-4" /> },
+      { href: "/finetune/jobs", label: "Fine-tune Jobs", icon: <Sparkles className="w-4 h-4" /> },
       { href: "/finetune", label: "Fine-tune", icon: <Wrench className="w-4 h-4" /> },
       { href: "/recommender", label: "Recommender", icon: <Sparkles className="w-4 h-4" /> },
     ],

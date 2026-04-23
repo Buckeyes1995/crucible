@@ -57,6 +57,9 @@ from routers import (
     agent_runs as agent_runs_router,
     rag2 as rag2_router,
     evals as evals_router,
+    prompts_ide as prompts_ide_router,
+    automation as automation_router,
+    finetune_jobs as finetune_jobs_router,
     niah_api,
     notes,
     notifications,
@@ -223,10 +226,21 @@ async def lifespan(app: FastAPI):
         cron_task = asyncio.create_task(cron_workflows.run_loop(app))
     except Exception:
         cron_task = None
+    # Automation triggers loop — v4 #8. Runs for the life of the server.
+    try:
+        import automation
+        await automation.start_loop(app.state)
+    except Exception as e:
+        log.warning("automation loop failed to start: %s", e)
     yield
     # Shutdown
     ttl_task.cancel()
     scheduler_task.cancel()
+    try:
+        import automation
+        await automation.stop_loop()
+    except Exception:
+        pass
     if cron_task:
         cron_task.cancel()
     if app.state.active_adapter:
@@ -301,6 +315,9 @@ app.include_router(projects_router.router, prefix="/api")
 app.include_router(agent_runs_router.router, prefix="/api")
 app.include_router(rag2_router.router, prefix="/api")
 app.include_router(evals_router.router, prefix="/api")
+app.include_router(prompts_ide_router.router, prefix="/api")
+app.include_router(automation_router.router, prefix="/api")
+app.include_router(finetune_jobs_router.router, prefix="/api")
 app.include_router(misc_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")

@@ -19,7 +19,7 @@ everything else is a discrete smaller ship.
 115. **Per-session pinned system prompt memory** — Crucible remembers which system prompt was set when a session was last active; restore automatically on resume.
 
 ## Code workflow (116–123)
-116. ⭐ **Inline syntax highlighting** — replace plain-text fenced code with a real highlighter (hljs / Prism / shiki). Apply to chat, arena, diff, snippets, gists.
+116. ✅ ⭐ **Inline syntax highlighting** — replace plain-text fenced code with a real highlighter (hljs / Prism / shiki). Apply to chat, arena, diff, snippets, gists.
 117. **ZIP download for multi-file outputs** — one-click download of every code block in a response as a zipped folder.
 118. **Save-anywhere output** — pick an arbitrary destination directory for saved code, not just the sandbox. Opt-in; requires the universal file picker from v2 #101.
 119. **Copy as markdown** — fenced code block action to copy the block wrapped in its language fence, ready to paste into a markdown doc.
@@ -51,7 +51,7 @@ everything else is a discrete smaller ship.
 141. **Public leaderboard share** — opt-in publish of your arena leaderboard to a shareable URL (just a static JSON dump behind the tunnel).
 
 ## Observability & ops (142–148)
-142. ⭐ **Prometheus metrics endpoint** — `/metrics` in OpenMetrics format so external monitoring (Prometheus, Grafana Cloud) can scrape without building a custom integration.
+142. ✅ ⭐ **Prometheus metrics endpoint** — `/metrics` in OpenMetrics format so external monitoring (Prometheus, Grafana Cloud) can scrape without building a custom integration.
 143. **Structured audit log** — every admin action (delete model, change engine, install MCP) recorded with actor / timestamp / before-after.
 144. **Download ETA prediction** — use historical throughput per-domain to predict remaining time more accurately than "bytes/sec * remaining".
 145. **Disk-space warning banner** — global banner when `/Volumes/DataNVME` drops below 10GB. Click → jump to /disk for bulk-reclaim.
@@ -60,7 +60,7 @@ everything else is a discrete smaller ship.
 148. **Per-adapter health ping** — active probe every 60s: is oMLX responsive? mlx_lm? llama-server? Surface on the Ops page.
 
 ## Privacy & security (149–153)
-149. ⭐ **API-key route scoping** — per-key allow-list of routes (e.g. key X can only hit `/v1/chat/completions`, not `/api/models/delete`). For shared tunnel use.
+149. ✅ ⭐ **API-key route scoping** — per-key allow-list of routes (e.g. key X can only hit `/v1/chat/completions`, not `/api/models/delete`). For shared tunnel use.
 150. **Request audit trail** — per-key log of which endpoints were called, when, by IP. Complement to the audit log.
 151. ⭐ **Chat history encryption-at-rest** — opt-in SQLite encryption for the chat history DB.
 152. **Per-session ephemeral mode** — turn on "don't persist" for a specific chat; turns vanish on close.
@@ -74,18 +74,18 @@ everything else is a discrete smaller ship.
 158. **Notion page creator** — pipe a chat or snippet to a new Notion page with proper heading/code block structure.
 
 ## Accessibility & help (159–161)
-159. **Keyboard shortcut cheat sheet** — `?` key opens a modal listing every keyboard shortcut across the app.
+159. ✅ **Keyboard shortcut cheat sheet** — `?` key opens a modal listing every keyboard shortcut across the app.
 160. **Screen-reader-friendly tables** — audit benchmark / arena / snippet tables for proper ARIA markup.
 161. **Large-text mode** — one-click zoom all text +20% for long reading sessions.
 
 ## Onboarding (162–163)
-162. ⭐ **First-run wizard** — when `/models` is empty, walk the user through: pick model dir → download first model → chat. Takes someone from clone to working in <5 minutes.
+162. ✅ ⭐ **First-run wizard** — when `/models` is empty, walk the user through: pick model dir → download first model → chat. Takes someone from clone to working in <5 minutes.
 163. **In-app "What's new" bump** — on version change, show a dismissible panel listing the last release's shipped items from CHANGELOG.md.
 
 ## Follow-ups surfaced during 2026-04-21 eval
-164. **Leaderboard: split metric + window toggles** — current UI mixes "Tokens / Hours / Chat / Bench / …" (what to measure) with "(lifetime) / (24h)" (time window) in one button group. Separate into two rows: top row = metric, second row = window (Lifetime / 24h / 7d / 30d). Also add 7d + 30d rollups to the backend.
-165. **Benchmark diff — UX rework** — shipped as per-model tables, then merged into a single table with A / B / A+B source pills, but still confusing when the two runs don't overlap on (model, prompt). Want: default to only showing shared rows + a "show A-only / show B-only" toggle; maybe separate "new in this run" and "dropped since last run" callouts; consider whether this page should require overlap to be useful, or whether it should be renamed "runs compared" and explicitly admit the no-overlap case.
-166. **oMLX DFlash breakage — better error surfacing** — current installed oMLX has a broken DFlash code path (`generate_dflash_once() got an unexpected keyword argument 'temperature'`); warmup crash surfaces as generic "peer closed connection without sending complete message body." Crucible should pattern-match oMLX warmup failures that mention DFlash / `generate_dflash_once` and surface actionable guidance: "DFlash is currently broken on this oMLX build — disable DFlash for this model in Notes, or upgrade/rebuild oMLX." Optionally offer a one-click disable on the error banner. Track upstream oMLX fix separately.
-167. **Load-error UX: restore previous active model + show error banner** — today, `loadModel` nulls `activeModelId` at the start and leaves it null on failure. Result: after a bad load the chat page says "No model loaded" even though the previous model is still warm on oMLX (or cleanly recoverable). Keep a `prevActiveModelId` in the store; on SSE error event, restore it, and render a dismissible error banner with the failure message. Should also clear gracefully on the next successful load.
-168. **Auto-kick oMLX after HF download** — oMLX caches its model list at startup, so a freshly-downloaded model produces "Model '⟨name⟩' not found" until the user manually restarts the service. When an `hf_downloader` job completes for an `mlx` kind, fire `launchctl kickstart -k gui/$(id -u)/com.jim.omlx` (or equivalent) before marking the job done, so the next load request sees the new directory. Cheap, ~4s restart, huge UX win.
-169. ⭐ **Daily AI news digest page** — `/news` route that pulls RSS/Atom feeds, HN front page ("show:AI"), and a curated subreddit list (r/LocalLLaMA, r/MachineLearning, r/singularity), then runs each item through the currently-loaded model with a "summarize in 2 sentences, tag with impact level" prompt. UI: grouped by source, each card shows headline, 2-sentence summary, impact pill (⚪ routine / 🟡 noteworthy / 🔴 breaking), and a link-out to the original article. Caches for ~6h so the model only runs once per item. Data flow parallels the existing Reddit watcher — same shape (fetch → filter → summarize with critique pass → display), different sources. Extension points: HN/Lobsters/ArsTechnica feeds, paper drops from arXiv cs.LG/cs.CL, release notes from ollama / llama.cpp / mlx GitHub releases.
+164. ✅ **Leaderboard: split metric + window toggles** — current UI mixes "Tokens / Hours / Chat / Bench / …" (what to measure) with "(lifetime) / (24h)" (time window) in one button group. Separate into two rows: top row = metric, second row = window (Lifetime / 24h / 7d / 30d). Also add 7d + 30d rollups to the backend.
+165. ✅ **Benchmark diff — UX rework** — shipped as per-model tables, then merged into a single table with A / B / A+B source pills, but still confusing when the two runs don't overlap on (model, prompt). Want: default to only showing shared rows + a "show A-only / show B-only" toggle; maybe separate "new in this run" and "dropped since last run" callouts; consider whether this page should require overlap to be useful, or whether it should be renamed "runs compared" and explicitly admit the no-overlap case.
+166. ✅ **oMLX DFlash breakage — better error surfacing** — current installed oMLX has a broken DFlash code path (`generate_dflash_once() got an unexpected keyword argument 'temperature'`); warmup crash surfaces as generic "peer closed connection without sending complete message body." Crucible should pattern-match oMLX warmup failures that mention DFlash / `generate_dflash_once` and surface actionable guidance: "DFlash is currently broken on this oMLX build — disable DFlash for this model in Notes, or upgrade/rebuild oMLX." Optionally offer a one-click disable on the error banner. Track upstream oMLX fix separately.
+167. ✅ **Load-error UX: restore previous active model + show error banner** — today, `loadModel` nulls `activeModelId` at the start and leaves it null on failure. Result: after a bad load the chat page says "No model loaded" even though the previous model is still warm on oMLX (or cleanly recoverable). Keep a `prevActiveModelId` in the store; on SSE error event, restore it, and render a dismissible error banner with the failure message. Should also clear gracefully on the next successful load.
+168. ✅ **Auto-kick oMLX after HF download** — oMLX caches its model list at startup, so a freshly-downloaded model produces "Model '⟨name⟩' not found" until the user manually restarts the service. When an `hf_downloader` job completes for an `mlx` kind, fire `launchctl kickstart -k gui/$(id -u)/com.jim.omlx` (or equivalent) before marking the job done, so the next load request sees the new directory. Cheap, ~4s restart, huge UX win.
+169. ✅ ⭐ **Daily AI news digest page** — `/news` route that pulls RSS/Atom feeds, HN front page ("show:AI"), and a curated subreddit list (r/LocalLLaMA, r/MachineLearning, r/singularity), then runs each item through the currently-loaded model with a "summarize in 2 sentences, tag with impact level" prompt. UI: grouped by source, each card shows headline, 2-sentence summary, impact pill (⚪ routine / 🟡 noteworthy / 🔴 breaking), and a link-out to the original article. Caches for ~6h so the model only runs once per item. Data flow parallels the existing Reddit watcher — same shape (fetch → filter → summarize with critique pass → display), different sources. Extension points: HN/Lobsters/ArsTechnica feeds, paper drops from arXiv cs.LG/cs.CL, release notes from ollama / llama.cpp / mlx GitHub releases.

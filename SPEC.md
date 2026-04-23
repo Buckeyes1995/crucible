@@ -623,3 +623,51 @@ class ModelEntry:
     update_available: bool                # upstream is newer than our copy
     upstream_last_modified: str | None    # ISO-8601 from HF
 ```
+
+---
+
+## Phase v4 — major upgrades (2026-04-21 → 2026-04-22)
+
+Ten planned majors, pick-and-choose schedule. Check `docs/ROADMAP_V4_MAJORS.md`
+for the full design. Shipped so far:
+
+- **#4 Project workspaces** — `projects` table scopes chat sessions +
+  snippets; sidebar ProjectSwitcher, New-project dialog with color +
+  system prompt, per-project filter on history + snippets + prompts.
+- **#3 Multi-modal chat** — paste / drag-drop images on the chat input;
+  vision-model capability guard; thumbnails in user turns; OpenAI-compat
+  content-block array on the wire.
+- **#1 Agent Runner** — ReAct loop over installed MCP tools. `/runs`
+  page with SSE live trace (thought → tool_call → tool_result → final),
+  step-expandable JSON viewer, per-run budgets (max_steps, max_tokens).
+- **#2 Local RAG v2 (MVP)** — BM25 indexer + retriever over directories;
+  per-index meta/chunks/postings on disk; `/rag` UI. V2 swaps BM25 for
+  hnswlib + embeddings.
+- **#5 Eval harness (MVP)** — `/evals` landing page with GSM8K
+  (bundled 20-problem subsample, SSE runner, answer extraction with
+  `#### N` / last-number fallback) plus a registry entry deep-linking
+  the existing HumanEval runner. Full MMLU/ARC/TruthfulQA in v2.
+- **#10 Prompt IDE** — `prompt_docs` / `prompt_versions` /
+  `prompt_test_sets` / `prompt_ab_runs` tables. `/prompts` page:
+  editor, Save-version, test-set builder, A/B dialog that streams
+  side-by-side outputs + per-version token/ms averages.
+- **#8 Automation triggers** — `automation_triggers` table, single
+  evaluator loop (15s tick) with dedup window. Conditions: cron,
+  memory_pressure, model_loaded (transition-fire), hf_update_available
+  (new-flagged). Actions: notify, load_model, unload_model,
+  run_benchmark, webhook. `/automation` UI + test-fire button.
+- **#7 Fine-tuning scaffold** — `finetune_jobs` table; job-detail page
+  emits a ready-to-run `mlx_lm.lora` command + a callback URL for the
+  runner to POST loss points back to. `POST /api/finetune/datasets/
+  from-chats` generates a JSONL from selected chat sessions.
+
+Deferred: #6 Voice, #9 Plugins. See ROADMAP_V4_MAJORS.md for ordering
+rationale.
+
+### Store redesign (phases 1–5) — shipped 2026-04-21
+
+The store moved from grid-of-cards to Apple-Music-style shelves + hero
+carousel + rich detail modal. Auto-generated per-item SVG art
+(hue-from-id-hash, kind-specific glyph). Custom hand-designed key-art
+opt-in via `/public/store-art/manifest.json`. Editorial Featured
+override via `~/.config/crucible/store_curated.json`.

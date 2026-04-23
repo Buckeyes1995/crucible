@@ -1,13 +1,15 @@
 # Crucible — Roadmap v4: Ten Major Upgrades
 
-**Status:** design plan, no code yet.
+**Status:** 7 of 10 shipped as MVP (see ✅ marks) as of 2026-04-22.
+Original design plan below; inline check-marks indicate what landed,
+followed by the commit or date.
 **Scope:** ten genuinely major features, each a multi-session build. Not polish. Not another 50 small ideas. Things that change what Crucible *is*.
 
 Every item below includes: **What**, **Why it matters**, **Shape** (how it'd actually get built), **Risks/tradeoffs**, and a **Prereqs** line so we can sequence them.
 
 ---
 
-## 1. ⭐ Agent Runner (execute workflows + tool calling) — unblocks everything
+## 1. ⭐ Agent Runner (execute workflows + tool calling) — unblocks everything ✅ (2026-04-22, `fa3e7ac`, MVP: MCP-only; shell/HTTP/file tools deferred)
 
 **What:** Run the "workflows" from the store as actual agents. Model plans, calls tools (MCP servers already installed, shell, file ops, web), observes results, iterates. Live trace of every step in the UI; each run saved to a `runs` table and replayable.
 
@@ -28,7 +30,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 2. ⭐ Local RAG v2 (real vector store + citations + per-project)
+## 2. ⭐ Local RAG v2 (real vector store + citations + per-project) ✅ (2026-04-22, `8c280b1`, MVP: BM25 — embeddings + inline chat citations deferred to v2 of this feature)
 
 **What:** Replace the current file-upload-into-memory RAG with a proper on-disk vector store. Index directories/files/URLs into a project, cite sources inline in chat responses, show chunk previews on hover, re-index on file change.
 
@@ -48,7 +50,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 3. ⭐ Multi-modal Chat (images + vision models)
+## 3. ⭐ Multi-modal Chat (images + vision models) ✅ (2026-04-22, `4d08b13`; image persistence to DB deferred)
 
 **What:** Drag-drop / paste images into chat, route to vision-capable models (Qwen3.5-VL already downloaded), see inline results. Follow-up: extract frames from a short video, OCR a screenshot, annotate an image with a bounding box.
 
@@ -67,7 +69,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 4. Project Workspaces (group chats / snippets / RAG as a unit)
+## 4. Project Workspaces (group chats / snippets / RAG as a unit) ✅ (2026-04-22, `a52377f`)
 
 **What:** Named "projects" that scope a bundle of chat sessions, snippets, system prompts, RAG index, and settings (default model, temperature, etc.). Switch the project → everything flips context. Export a project as a zip; import one.
 
@@ -86,7 +88,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 5. ⭐ Eval Harness (MMLU, GSM8K, HumanEval, ARC in one click)
+## 5. ⭐ Eval Harness (MMLU, GSM8K, HumanEval, ARC in one click) ✅ (2026-04-22, `8c280b1`, MVP: GSM8K + HumanEval only — MMLU/ARC/TruthfulQA deferred)
 
 **What:** One-click "run all evals against this model" → benchmark runner executes each suite, scores the model, ranks it against published baselines, stores history. Compare multiple models side-by-side, see where each wins.
 
@@ -125,7 +127,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 7. Fine-tuning UI (LoRA on MLX)
+## 7. Fine-tuning UI (LoRA on MLX) ✅ scaffold (2026-04-22, this session; V1 is CLI-bridge only — no in-app trainer)
 
 **What:** Point Crucible at a dataset (either a JSONL file, a set of chat sessions, or a set of snippets), pick a base model, pick rank/alpha/learning rate presets, run training with live loss chart, save the LoRA, hot-swap it at inference time.
 
@@ -143,7 +145,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 8. Automation / Triggers (cron + condition matchers + hooks)
+## 8. Automation / Triggers (cron + condition matchers + hooks) ✅ (2026-04-22, this session; shell action not wired for safety)
 
 **What:** "When X, do Y." Examples: when memory pressure > 0.8, unload the current model. Every 3h, run quick-bench on the loaded model and post to Notifications. When a new Qwen release hits, auto-download it. When a chat contains the word "deploy," open a draft PR.
 
@@ -181,7 +183,7 @@ Every item below includes: **What**, **Why it matters**, **Shape** (how it'd act
 
 ---
 
-## 10. Prompt Engineering IDE
+## 10. Prompt Engineering IDE ✅ (2026-04-22, this session; diff view is v2 — the current UI renders versions as a list + A/B run shows side-by-side outputs)
 
 **What:** Prompts become first-class artifacts: versioned, diffable, testable against saved inputs, with per-version metrics (tokens, latency, tps, eval pass rate). A/B any two versions against a test set. Template variables with validation. Forkable from chat.
 

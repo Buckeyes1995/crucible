@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-04-22 — Roadmap v4 majors + bug tails
+
+Shipped 7 of the 10 v4 majors across the session, plus the bug tails from
+the 2026-04-21 eval. Each major landed as MVP with scope-deferred items
+logged in `docs/ROADMAP_V4_MAJORS.md`.
+
+### v4 majors shipped
+
+- ✅ **#4 Project workspaces** (`a52377f`) — `projects` table, sidebar
+  switcher, per-project scope for chats + snippets, detachable delete.
+- ✅ **#3 Multi-modal chat** (`4d08b13`) — paste / drag-drop images,
+  vision-model capability guard, OpenAI-compat content-block array on
+  the wire, inline thumbnails in user bubbles.
+- ✅ **#1 Agent Runner** (`fa3e7ac`) — ReAct loop over installed MCP
+  tools, `agent_runs` + `agent_steps` tables, `/runs` UI with live SSE
+  trace and expandable step JSON.
+- ✅ **#2 Local RAG v2 MVP** (`8c280b1`) — BM25 indexer + retriever
+  over named directories, `/rag` UI with query + scored hits.
+- ✅ **#5 Eval harness MVP** (`8c280b1`) — `/evals` landing unifying
+  the existing HumanEval runner with a new GSM8K runner (bundled
+  subsample, SSE progress, persisted history).
+- ✅ **#10 Prompt IDE** (this commit) — `prompt_docs` / versions /
+  test-sets / ab-runs tables, `/prompts` page with version history,
+  test-set builder, and SSE A/B comparison dialog.
+- ✅ **#8 Automation triggers** (this commit) — `automation_triggers`
+  table, single 15s evaluator loop, cron / memory-pressure /
+  model-loaded / hf-update conditions, notify / load / unload /
+  benchmark / webhook actions. `/automation` UI with test-fire.
+- ✅ **#7 Fine-tuning scaffold** (this commit) — `finetune_jobs` table,
+  `/finetune/jobs` UI, CLI-bridge that emits a ready-to-run
+  `mlx_lm.lora` command + a callback URL for the runner to post loss
+  points to. Dataset-from-chats helper.
+
+### Bug tails from 2026-04-21
+
+- ✅ **#168 Auto-kick oMLX after HF download** (`b4190b9`) — `launchctl
+  kickstart -k` fires on every MLX-kind job completion so new models
+  are immediately loadable.
+- ✅ **#167 Restore prev activeModelId on load failure** (`b4190b9`) —
+  the chat page no longer falsely shows "No model loaded" after a bad
+  load when the previous model is still warm.
+- ✅ **#166 DFlash crash hint** (`b4190b9`) — pattern-matches the
+  upstream oMLX DFlash bug and surfaces an actionable banner.
+- ✅ **#164 Leaderboard: split metric/window toggles** (`b4190b9`).
+- ✅ **#165 Bench diff UX** (`b4190b9`) — defaults to A+B shared rows,
+  A-only / B-only become click-to-toggle count pills.
+- ✅ **#116 Inline syntax highlighting** (`b4190b9`) — no-dep tiny
+  highlighter for ~12 languages; tuned dark palette in globals.css.
+
+### Deferred (rationale in `docs/ROADMAP_V4_MAJORS.md` § "What I'd cut if time got tight")
+
+- **#6 Voice mode** — new modality, audio pipeline is its own project.
+- **#9 Plugins** — needs a stable API contract + security story;
+  premature at MVP depth.
+
+### Dropped on the floor / explicitly not attempted
+
+- Inline RAG citations in chat turns (needs model-side cooperation; v2
+  of the RAG feature).
+- Full MMLU / ARC / TruthfulQA — GSM8K is V1.
+- In-app LoRA trainer — V1 is CLI-bridge only.
+
 ## 2026-04-20 — Overnight
 
 Completed the pending 2026-04-18 TODO list, shipped backends / minimal UIs

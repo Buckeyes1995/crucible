@@ -64,9 +64,9 @@ async def list_sessions(q: Optional[str] = None, limit: int = 50,
             base = (
                 "SELECT DISTINCT s.* FROM chat_sessions s "
                 "JOIN chat_messages m ON m.session_id = s.id "
-                "WHERE (m.content LIKE ? OR s.title LIKE ?)"
+                "WHERE (m.content LIKE ? OR s.title LIKE ?) "
                 + project_clause +
-                "ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
+                " ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
             )
             args = (f"%{q}%", f"%{q}%", *project_args, limit)
             rows = []
@@ -78,9 +78,9 @@ async def list_sessions(q: Optional[str] = None, limit: int = 50,
             # prefix works without a second codepath.
             base = (
                 "SELECT s.* FROM chat_sessions s "
-                "WHERE 1=1"
+                "WHERE 1=1 "
                 + project_clause +
-                "ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
+                " ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC LIMIT ?"
             )
             args = (*project_args, limit)
             async with db.execute(base, args) as cur:

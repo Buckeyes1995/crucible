@@ -161,6 +161,92 @@ GET  /api/hf/download/{id}/stream       # SSE progress stream
 
 GET  /v1/models                         # OpenAI-compat: active model list
 POST /v1/chat/completions               # OpenAI-compat proxy → adapter
+
+# ── Roadmap v4 additions (2026-04-21 → 2026-04-22) ──
+
+# Projects (v4 #4)
+GET    /api/projects                     # list with chat_count
+POST   /api/projects                     # create
+GET    /api/projects/{id}                # detail
+PUT    /api/projects/{id}                # patch name/color/default/system prompt
+DELETE /api/projects/{id}?detach=true    # delete; detach=false hard-deletes chats
+
+# Chat scoping (v4 #4)
+?project=__none__|<id> on /api/chat/sessions list; project_id on create
+PUT /api/chat/sessions/{id}/project      # move session between projects
+
+# Snippets scoping (v4 #4)
+?project=__none__|<id> on /api/snippets list; project_id on create/update
+
+# Agent runs (v4 #1)
+POST   /api/agents/runs                  # SSE ReAct loop over MCP tools
+GET    /api/agents/runs                  # list (project-scoped)
+GET    /api/agents/runs/{id}             # detail + steps
+DELETE /api/agents/runs/{id}
+
+# News digest (v3 #169)
+GET    /api/news                         # cached grouped digest
+POST   /api/news/refresh                 # SSE fetch + summarize
+GET+PUT/api/news/config                  # sources + filter + prompt
+DELETE /api/news/item/{id}
+
+# Store rails + detail (v4 store redesign phases 1–5)
+GET  /api/store/rails                    # themed shelves (featured / RAM-fits / …)
+GET  /api/store/samples/{kind}/{id}      # cached detail-page sample output
+POST /api/store/samples                  # persist a sample
+DELETE /api/store/samples/{kind}/{id}
+
+# RAG v2 (v4 #2 MVP, BM25)
+GET    /api/rag2/indexes                 # list
+POST   /api/rag2/indexes                 # create from source_dir
+GET    /api/rag2/indexes/{slug}          # detail
+POST   /api/rag2/indexes/{slug}/query    # BM25 top-k
+DELETE /api/rag2/indexes/{slug}
+
+# Evals (v4 #5 MVP)
+GET    /api/evals/suites                 # registry (gsm8k + humaneval)
+POST   /api/evals/gsm8k/run              # SSE runner
+GET    /api/evals/gsm8k/history
+
+# Prompt IDE (v4 #10)
+GET    /api/prompts/docs                 # list (?project=)
+POST   /api/prompts/docs                 # create
+GET    /api/prompts/docs/{id}            # detail + versions
+PUT    /api/prompts/docs/{id}            # patch
+DELETE /api/prompts/docs/{id}
+POST   /api/prompts/docs/{id}/versions   # new version
+POST   /api/prompts/docs/{id}/test-sets  # create test set
+GET    /api/prompts/docs/{id}/test-sets
+DELETE /api/prompts/test-sets/{id}
+POST   /api/prompts/docs/{id}/ab         # SSE A/B run against loaded model
+GET    /api/prompts/docs/{id}/ab         # list past A/B runs
+GET    /api/prompts/ab/{run_id}          # run detail
+
+# Automation / triggers (v4 #8)
+GET    /api/automation/triggers
+POST   /api/automation/triggers
+GET    /api/automation/triggers/{id}     # detail + last 20 fires
+PUT    /api/automation/triggers/{id}
+DELETE /api/automation/triggers/{id}
+POST   /api/automation/triggers/{id}/fire-test
+
+# Fine-tuning scaffold (v4 #7, CLI-bridge only)
+GET+POST /api/finetune/jobs
+GET+PUT+DELETE /api/finetune/jobs/{id}
+POST /api/finetune/jobs/{id}/status
+POST /api/finetune/jobs/{id}/loss        # loss-curve append from runner
+POST /api/finetune/datasets/from-chats   # JSONL from selected sessions
+
+# Misc follow-ups
+GET  /api/audit                          # scoped audit log
+GET  /api/about                          # git sha + dirs + bind host
+GET  /api/disk-summary                   # low-disk banner feed
+GET  /api/model-usage-stats              # leaderboard data (tokens/hours lifetime + 24h)
+POST /api/wishlist/bulk-import           # list of repo_ids → download queue
+GET  /api/benchmark/run/{id}/csv         # CSV export
+GET  /api/benchmark/diff?a=&b=           # two-run comparison
+
+GET  /metrics                            # Prometheus-compat (root-mounted)
 ```
 
 All SSE streams use `data: <json>\n\n` format with an `event` field indicating message type.
@@ -201,6 +287,17 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 | `~/.config/crucible/crucible.db` | SQLite benchmark history |
 | `~/.config/crucible/zlab_drafts.json` | Cached z-lab HF repo list (6h TTL) |
 | `~/.config/crucible/hf_updates.json` | Per-model origin HF repo + upstream lastModified tracking |
+| `~/.config/crucible/audit.log.jsonl` | Structured admin-action audit (v3 follow-up) |
+| `~/.config/crucible/news_config.json` | AI news digest source config (v3 #169) |
+| `~/.config/crucible/news_digest.json` | Cached summaries (6h TTL per item) |
+| `~/.config/crucible/store_samples.json` | Store detail-page sample outputs (v4 store phase 4) |
+| `~/.config/crucible/store_curated.json` | Optional editorial override for Featured (v4 store phase 5) |
+| `~/.config/crucible/rag/<slug>/` | RAG v2 BM25 index directory (meta/chunks/postings) |
+| `~/.config/crucible/evals/gsm8k_results.json` | GSM8K run history (v4 #5) |
+| `~/.config/crucible/finetune/datasets/` | JSONL datasets generated from chat history (v4 #7) |
+| `~/.config/crucible/uptime_log.json` | Per-model load/unload events → Hours-loaded leaderboard |
+
+New SQLite tables (2026-04-22): `projects`, `agent_runs`, `agent_steps`, `prompt_docs`, `prompt_versions`, `prompt_test_sets`, `prompt_ab_runs`, `automation_triggers`, `automation_fires`, `finetune_jobs`. `chat_sessions` gains `project_id`.
 
 ## UI Design Language
 

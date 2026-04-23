@@ -145,6 +145,107 @@ CREATE TABLE IF NOT EXISTS agent_steps (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(run_id);
+
+-- Prompt IDE (Roadmap v4 #10) — prompts as first-class versioned artifacts.
+-- prompt_docs = the named prompt; prompt_versions = git-blob-style versions.
+-- prompt_test_sets = saved {input, expected} pairs for A/B runs.
+CREATE TABLE IF NOT EXISTS prompt_docs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    project_id TEXT,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_docs_project ON prompt_docs(project_id);
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES prompt_docs(id) ON DELETE CASCADE,
+    parent_version_id TEXT,
+    content TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_doc ON prompt_versions(doc_id);
+
+CREATE TABLE IF NOT EXISTS prompt_test_sets (
+    id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES prompt_docs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    inputs_json TEXT NOT NULL,   -- [{input: str, expected?: str}, ...]
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_test_sets_doc ON prompt_test_sets(doc_id);
+
+CREATE TABLE IF NOT EXISTS prompt_ab_runs (
+    id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES prompt_docs(id) ON DELETE CASCADE,
+    version_a_id TEXT NOT NULL,
+    version_b_id TEXT NOT NULL,
+    test_set_id TEXT,
+    model_id TEXT,
+    results_json TEXT NOT NULL,       -- [{input, a_output, b_output, a_tokens, b_tokens}]
+    summary_json TEXT NOT NULL,       -- {a_avg_tokens, b_avg_tokens, n, ...}
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_ab_runs_doc ON prompt_ab_runs(doc_id);
+
+-- Automation / triggers (Roadmap v4 #8) — cron + condition-matched actions.
+CREATE TABLE IF NOT EXISTS automation_triggers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    condition_type TEXT NOT NULL,       -- 'cron' | 'memory_pressure' | 'model_loaded' | 'hf_update_available'
+    condition_args_json TEXT NOT NULL,
+    action_type TEXT NOT NULL,          -- 'notify' | 'load_model' | 'unload_model' | 'run_benchmark' | 'webhook'
+    action_args_json TEXT NOT NULL,
+    last_fired_at TEXT,
+    last_error TEXT,
+    fire_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS automation_fires (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger_id TEXT NOT NULL REFERENCES automation_triggers(id) ON DELETE CASCADE,
+    fired_at TEXT NOT NULL,
+    status TEXT NOT NULL,               -- 'ok' | 'error'
+    message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_fires_trigger ON automation_fires(trigger_id);
+CREATE INDEX IF NOT EXISTS idx_automation_fires_time ON automation_fires(fired_at);
+
+-- Fine-tuning jobs (Roadmap v4 #7 scaffold) — metadata + loss curve only.
+-- Actual training shells out to mlx_lm.lora or similar; for now the row
+-- tracks config + status + captured stdout lines.
+CREATE TABLE IF NOT EXISTS finetune_jobs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_model_id TEXT NOT NULL,
+    dataset_path TEXT NOT NULL,
+    lora_rank INTEGER NOT NULL DEFAULT 8,
+    lora_alpha INTEGER NOT NULL DEFAULT 16,
+    learning_rate REAL NOT NULL DEFAULT 1e-4,
+    max_steps INTEGER NOT NULL DEFAULT 200,
+    status TEXT NOT NULL DEFAULT 'draft',   -- 'draft' | 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+    adapter_path TEXT,
+    log_path TEXT,
+    train_loss_json TEXT,                   -- [[step, loss], ...]
+    eval_loss_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_finetune_jobs_created ON finetune_jobs(created_at);
 """
 
 
