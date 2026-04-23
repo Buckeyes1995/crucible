@@ -171,10 +171,12 @@ class CrucibleMenuBar(rumps.App):
         the next timer tick to consume. Called from the Refresh button
         and once at startup."""
         def _go() -> None:
+            fav_resp = _get("/favorites") or {}
             data = {
                 "status": _get("/status"),
                 "models": _get("/models"),
                 "downloads": _get("/hf/downloads") or [],
+                "favorites": fav_resp.get("ids") if isinstance(fav_resp, dict) else [],
             }
             with self._pending_lock:
                 self._pending = data
@@ -187,7 +189,12 @@ class CrucibleMenuBar(rumps.App):
             with self._pending_lock:
                 data, self._pending = self._pending, {}
             if data:
-                self._apply(data.get("status"), data.get("models"), data.get("downloads"))
+                self._apply(
+                    data.get("status"),
+                    data.get("models"),
+                    data.get("downloads"),
+                    data.get("favorites") or [],
+                )
         except Exception as e:
             # Swallow — never let a bad tick kill the timer (rumps reuses
             # the timer, exceptions here bubble up and can halt it).
@@ -196,7 +203,8 @@ class CrucibleMenuBar(rumps.App):
         # Fire the next background fetch so the NEXT tick has data ready.
         self._kick_fetch()
 
-    def _apply(self, status: Optional[dict], models: Optional[list], downloads: list[dict]) -> None:
+    def _apply(self, status: Optional[dict], models: Optional[list],
+               downloads: list[dict], favorites: list[str]) -> None:
         # ── Offline → show the offline title and bail ────────────────
         if status is None:
             self._set_title("⚗ ✗")
@@ -205,9 +213,19 @@ class CrucibleMenuBar(rumps.App):
             return
 
         self._status = status
-        self._models = models or []
+        # Filter: drop hidden models, and drop non-favorites. The menubar is
+        # meant for quick access — 30+ entries defeats that. Active model
+        # always shows regardless of fav/hidden so users can inspect or
+        # unload it.
+        self._favorites = set(favorites or [])
+        active_id = (status or {}).get("active_model_id")
+        all_models = models or []
+        self._models = [
+            m for m in all_models
+            if (not m.get("hidden"))
+            and (m["id"] in self._favorites or m["id"] == active_id)
+        ]
 
-        active_id = status.get("active_model_id")
         engine_state = status.get("engine_state", "idle")
         mem = status.get("memory_pressure")
 

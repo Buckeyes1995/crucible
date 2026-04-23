@@ -43,7 +43,9 @@ export default function ModelsPage() {
     models, loading, activeModelId, loadingModelId, loadStage, error,
     fetchModels, refreshModels, loadModel, cancelLoad, stopModel, syncStatus,
   } = useModelsStore();
-  const { favorites, favoritesOnly, toggle: toggleFavorite, isFavorite, setFavoritesOnly } = useFavoritesStore();
+  const { favorites, favoritesOnly, toggle: toggleFavorite, isFavorite, setFavoritesOnly, sync: syncFavorites } = useFavoritesStore();
+  // One-shot hydration from the server (migrates any localStorage list up).
+  useEffect(() => { syncFavorites(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   const { getAlias, setAlias, clearAlias } = useAliasesStore();
 
   const [search, setSearch] = useState("");

@@ -60,6 +60,7 @@ from routers import (
     prompts_ide as prompts_ide_router,
     automation as automation_router,
     finetune_jobs as finetune_jobs_router,
+    favorites as favorites_router,
     niah_api,
     notes,
     notifications,
@@ -318,6 +319,7 @@ app.include_router(evals_router.router, prefix="/api")
 app.include_router(prompts_ide_router.router, prefix="/api")
 app.include_router(automation_router.router, prefix="/api")
 app.include_router(finetune_jobs_router.router, prefix="/api")
+app.include_router(favorites_router.router, prefix="/api")
 app.include_router(misc_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")
