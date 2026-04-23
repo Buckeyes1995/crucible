@@ -170,6 +170,33 @@ async def proxy_chat(request: Request):
         body["model"] = server_model_id
     body.pop("_smart_routed", None)
 
+    # Merge Crucible per-model params onto the outbound request so external
+    # clients (opencode / pi / Qwen Code) inherit the same sampling + chat-
+    # template settings users see in the UI. Request body wins over Crucible
+    # defaults — explicit client values are never overwritten. This also
+    # ensures `chat_template_kwargs` (e.g. enable_thinking) survives even
+    # when the AI-SDK shim strips non-OpenAI fields on the way in.
+    try:
+        from model_params import get_params
+        crucible_params = get_params(adapter.model_id or "") or {}
+        for key in ("temperature", "top_p", "top_k", "min_p",
+                    "repetition_penalty", "presence_penalty"):
+            if crucible_params.get(key) is not None and body.get(key) is None:
+                body[key] = crucible_params[key]
+        ctk: dict = {}
+        if crucible_params.get("enable_thinking") is not None:
+            ctk["enable_thinking"] = bool(crucible_params["enable_thinking"])
+        if crucible_params.get("preserve_thinking") is not None:
+            ctk["preserve_thinking"] = bool(crucible_params["preserve_thinking"])
+        if ctk:
+            existing = body.get("chat_template_kwargs") or {}
+            # Client-provided values win over Crucible defaults.
+            body["chat_template_kwargs"] = {**ctk, **existing}
+    except Exception as e:
+        # Never block the request on a params merge failure.
+        import logging as _log
+        _log.getLogger(__name__).warning("proxy: per-model param merge failed: %s", e)
+
     is_stream = body.get("stream", False)
     if is_stream:
         body.setdefault("stream_options", {})["include_usage"] = True
