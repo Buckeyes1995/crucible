@@ -99,6 +99,15 @@ async def list_models(request: Request) -> list[ModelEntry]:
 @router.post("/models/refresh", response_model=list[ModelEntry])
 async def refresh_models(request: Request) -> list[ModelEntry]:
     await request.app.state.registry.refresh()
+    # Keep opencode + pi config blocks in sync with the new registry —
+    # fire-and-forget, never blocks the refresh response.
+    try:
+        from clients import regenerate_opencode_models, regenerate_pi_models
+        from model_params import get_params
+        regenerate_opencode_models(request.app.state.registry, get_params)
+        regenerate_pi_models(request.app.state.registry, get_params)
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning("client config sync failed: %s", e)
     return _annotate_hidden(request.app.state.registry.all())
 
 

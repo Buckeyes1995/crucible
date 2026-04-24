@@ -164,3 +164,131 @@ def sync_all_clients(model_id: Optional[str], base_url: str = "http://127.0.0.1:
     sync_opencode(model_id, base_url=base_url)
     sync_aider(model_id, base_url=base_url)
     sync_zed(model_id, base_url=base_url)
+
+
+# ── Full model-block regeneration (config-as-a-view) ──────────────────────
+# Rather than only syncing the "active model" pointer, these rebuild the
+# full provider.crucible.models block from Crucible's registry + per-model
+# params. They preserve any user-authored `parameters: {...}` sampling
+# tweaks — only the name + limit.context + limit.output get regenerated.
+
+PI_MODELS = Path.home() / ".pi" / "agent" / "models.json"
+
+
+def _humanize_size(bytes_: Optional[int]) -> str:
+    if not bytes_:
+        return ""
+    gb = bytes_ / (1024 ** 3)
+    if gb >= 1:
+        return f"{gb:.0f}GB"
+    return f"{bytes_ / (1024 ** 2):.0f}MB"
+
+
+def _gather_models_from_registry(registry, get_params) -> list[dict]:
+    """Return a list of flat dicts for every non-hidden local model, with
+    its current context + output limits resolved from per-model params or
+    sensible fallbacks. Registry is expected to have an `.all()` iterable
+    of ModelEntry-shaped items."""
+    try:
+        from model_notes import all_hidden
+        hidden_map = all_hidden() or {}
+    except Exception:
+        hidden_map = {}
+
+    out: list[dict] = []
+    for m in registry.all():
+        if getattr(m, "node", "local") != "local":
+            # Remote-node models are reachable via the remote node's Crucible
+            # instance — syncing them to local opencode/pi doesn't make sense.
+            continue
+        if hidden_map.get(m.id):
+            continue
+        bare = m.id.split(":", 1)[-1]
+        params = get_params(m.id) or {}
+        ctx = params.get("context_window") or m.context_window or 32768
+        out_tok = params.get("max_tokens") or 16384
+        size_label = _humanize_size(m.size_bytes)
+        display = f"{m.name}"
+        if size_label:
+            display += f" ({size_label})"
+        out.append({
+            "id": bare,
+            "crucible_id": m.id,
+            "name": display,
+            "context": int(ctx),
+            "output": int(out_tok),
+            "kind": m.kind,
+            "caps": m.capabilities or [],
+        })
+    return out
+
+
+def regenerate_opencode_models(registry, get_params, base_url: str = "http://127.0.0.1:7777/v1") -> int:
+    """Rebuild provider.crucible.models to match the registry. Returns the
+    number of entries written. Existing per-model `parameters:` blocks and
+    the provider's top-level fields are preserved."""
+    models = _gather_models_from_registry(registry, get_params)
+    if not OPENCODE_CONFIG.exists():
+        OPENCODE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        OPENCODE_CONFIG.write_text("{}")
+    try:
+        cfg = json.loads(OPENCODE_CONFIG.read_text())
+    except Exception:
+        cfg = {}
+
+    # Make sure the crucible provider exists.
+    provider = cfg.setdefault("provider", {}).setdefault("crucible", {})
+    provider.setdefault("npm", "@ai-sdk/openai-compatible")
+    provider.setdefault("name", "Crucible (local)")
+    provider.setdefault("options", {}).update({
+        "baseURL": base_url,
+        "apiKey": provider.get("options", {}).get("apiKey") or "dummy",
+    })
+    existing = provider.get("models") or {}
+    new_models: dict[str, dict] = {}
+    for m in models:
+        prev = existing.get(m["id"]) or {}
+        # Preserve user-authored parameters block + anything else we don't own.
+        merged = {**prev}
+        merged["name"] = m["name"]
+        merged["limit"] = {"context": m["context"], "output": m["output"]}
+        new_models[m["id"]] = merged
+    provider["models"] = new_models
+
+    OPENCODE_CONFIG.write_text(json.dumps(cfg, indent=2) + "\n")
+    log.info("clients: regenerated opencode models block (%d entries)", len(new_models))
+    return len(new_models)
+
+
+def regenerate_pi_models(registry, get_params, base_url: str = "http://127.0.0.1:7777/v1") -> int:
+    """Rebuild ~/.pi/agent/models.json to list every non-hidden local model
+    under the `crucible` provider. Preserves the provider-level api /
+    apiKey / compat config; overwrites only the `models` list."""
+    models = _gather_models_from_registry(registry, get_params)
+    if not PI_MODELS.exists():
+        PI_MODELS.parent.mkdir(parents=True, exist_ok=True)
+        PI_MODELS.write_text("{}")
+    try:
+        cfg = json.loads(PI_MODELS.read_text())
+    except Exception:
+        cfg = {}
+
+    provider = cfg.setdefault("providers", {}).setdefault("crucible", {})
+    provider["baseUrl"] = base_url
+    provider.setdefault("api", "openai-completions")
+    provider.setdefault("apiKey", provider.get("apiKey") or "crucible")
+    provider.setdefault("compat", {
+        "supportsDeveloperRole": False,
+        "supportsReasoningEffort": False,
+    })
+    provider["models"] = [
+        {
+            "id": m["id"],
+            "reasoning": "reasoning" in (m.get("caps") or []) or "thinking" in (m.get("caps") or []),
+        }
+        for m in models
+    ]
+
+    PI_MODELS.write_text(json.dumps(cfg, indent=2) + "\n")
+    log.info("clients: regenerated pi models.json (%d entries)", len(models))
+    return len(models)

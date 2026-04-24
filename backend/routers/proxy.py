@@ -85,25 +85,50 @@ async def _ensure_loaded(app_state, requested_model: str) -> tuple[bool, str]:
 
 @router.get("/v1/models")
 async def proxy_models(request: Request):
-    adapter = request.app.state.active_adapter
-    if not adapter or not adapter.is_loaded():
+    """Return every model in Crucible's registry as OpenAI-compat entries,
+    with non-standard extras (`context_window`, `max_tokens`, `capabilities`)
+    so discovery-aware clients (pi extensions, opencode syncer) can populate
+    their model tables without hand-editing config.
+
+    Strict OpenAI clients ignore unknown fields — safe to extend. Only the
+    bare model id (no `mlx:` prefix) is exposed because that's what clients
+    pass back in chat completion requests; Crucible's proxy rewrites it to
+    the server-side id internally."""
+    try:
+        from model_params import get_params
+        from model_notes import all_hidden
+    except Exception:
+        get_params = lambda _: {}
+        all_hidden = lambda: {}
+
+    registry = getattr(request.app.state, "registry", None)
+    if registry is None:
         return JSONResponse({"object": "list", "data": []})
-    # Forward to the underlying server if it has a base_url, else synthesize
-    base_url = getattr(adapter, "_base_url", None)
-    if base_url:
-        try:
-            headers = getattr(adapter, "_headers", lambda: {})()
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(f"{base_url}/v1/models", headers=headers)
-                return JSONResponse(r.json(), status_code=r.status_code)
-        except Exception:
-            pass
-    # Fallback: synthesize from known model
-    model_id = adapter.model_id or "local"
-    return JSONResponse({
-        "object": "list",
-        "data": [{"id": model_id, "object": "model", "created": 0}],
-    })
+
+    hidden = all_hidden() or {}
+    out: list[dict] = []
+    for m in registry.all():
+        if hidden.get(m.id):
+            continue
+        # `id` is what clients send back. Strip the Crucible prefix so
+        # OpenAI-compat requests don't have to escape colons in URLs.
+        bare = m.id.split(":", 1)[-1]
+        params = get_params(m.id) or {}
+        entry: dict = {
+            "id": bare,
+            "object": "model",
+            "created": 0,
+            "owned_by": m.kind,
+            # Non-standard, discovery-extensions:
+            "context_window": params.get("context_window") or m.context_window or 32768,
+            "max_tokens": params.get("max_tokens") or 16384,
+            "size_bytes": m.size_bytes,
+            "capabilities": m.capabilities or [],
+            "crucible_id": m.id,
+            "quant": m.quant,
+        }
+        out.append(entry)
+    return JSONResponse({"object": "list", "data": out})
 
 
 @router.post("/v1/chat/completions")
