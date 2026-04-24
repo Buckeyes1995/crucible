@@ -285,6 +285,11 @@ def regenerate_pi_models(registry, get_params, base_url: str = "http://127.0.0.1
         {
             "id": m["id"],
             "reasoning": "reasoning" in (m.get("caps") or []) or "thinking" in (m.get("caps") or []),
+            # Pi defaults contextWindow to 128000 when absent; auto-compaction
+            # uses this as the ceiling. Set explicitly so it matches oMLX's
+            # cap and /compact kicks in at the right time.
+            "contextWindow": int(m["context"]),
+            "maxTokens": int(m["output"]),
         }
         for m in models
     ]
