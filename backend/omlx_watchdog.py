@@ -48,6 +48,35 @@ PATTERNS: list[tuple[re.Pattern, str, str]] = [
         "warning",
         "oMLX engine pool shut down. Next request will cold-start the engine.",
     ),
+    # Observed 2026-04-24: VLM engine hangs on very long prefills (65K+
+    # tokens), launchd kills it, KeepAlive respawns. The "Aborting request"
+    # + "Prefill interrupted" pair is the fingerprint. Surfacing early
+    # lets the user unload mxfp8 and switch to a more stable model
+    # (Qwen3-Coder-Next) before the hang becomes a kill.
+    (
+        re.compile(r"\[vlm_stream_generate\] Aborting request"),
+        "warning",
+        "VLM engine aborted a request mid-prefill. If this repeats, the current model may be stuck on long context — consider switching to a non-VLM model (e.g. Qwen3-Coder-Next).",
+    ),
+    (
+        re.compile(r"Prefill interrupted at (\d+)/(\d+) tokens"),
+        "warning",
+        "Prefill interrupted at {0}/{1} tokens. Long-context prefills on mxfp8 sometimes stall — if the session stops responding, restart oMLX and shorten context.",
+    ),
+    # Fresh process start without an orderly shutdown preceding it means
+    # launchd KeepAlive respawned after a crash or SIGKILL. Not fatal on
+    # its own (service is back up), but worth knowing when you're mid-
+    # session and suddenly have no model loaded.
+    (
+        re.compile(r"Server initialized with \d+ models"),
+        "warning",
+        "oMLX process (re)started. If you didn't trigger this, it was killed by launchd — any loaded model is gone; reload before continuing.",
+    ),
+    (
+        re.compile(r"Process memory enforcer .* killed|MemoryEnforcer terminating"),
+        "critical",
+        "oMLX's process-memory enforcer killed the engine. Reduce the loaded model size or lower the cap in ~/.omlx/settings.json.",
+    ),
 ]
 
 
