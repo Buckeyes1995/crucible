@@ -130,6 +130,7 @@ class CrucibleMenuBar(rumps.App):
             "All models",
             rumps.separator,
             rumps.MenuItem("Stop active model", callback=self._stop_model),
+            rumps.MenuItem("Restart oMLX daemon", callback=self._restart_omlx),
             rumps.separator,
             self._quick_menu(),
             rumps.separator,
@@ -406,6 +407,22 @@ class CrucibleMenuBar(rumps.App):
         # update via the same fetch→tick path so the UI sees the post-
         # stop state on the next tick without a blocking sleep.
         _post("/models/stop")
+        self._kick_fetch()
+
+    def _restart_omlx(self, sender) -> None:
+        if not rumps.alert(
+            "Restart oMLX?",
+            "This will kickstart the oMLX daemon via launchd. Any loaded "
+            "model will be dropped. Use when oMLX is stuck or after a "
+            "watchdog alert.",
+            ok="Restart", cancel="Cancel",
+        ):
+            return
+        resp = _post("/admin/restart-omlx") or {}
+        if resp.get("ok"):
+            rumps.notification("Crucible", "oMLX restarting", "launchd will respawn it.")
+        else:
+            rumps.notification("Crucible", "Restart failed", resp.get("message", "check backend log"))
         self._kick_fetch()
 
     def _toggle_dflash(self, model_id: str, enabled: bool) -> None:

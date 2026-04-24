@@ -42,6 +42,30 @@ async def _kickstart_omlx() -> bool:
         return False
 
 
+@router.post("/admin/restart-omlx")
+async def restart_omlx(request: Request) -> dict:
+    """One-click oMLX restart. Drops the loaded model too — use when the
+    daemon is in a stuck/nonresponsive state. Pairs with the watchdog's
+    "oMLX crashed mid-stream" notifications."""
+    ok = await _kickstart_omlx()
+    try:
+        import audit
+        audit.record(
+            actor=request.headers.get("x-forwarded-for") or (request.client.host if request.client else "local"),
+            action="omlx.restart",
+            meta={"ok": ok},
+        )
+    except Exception:
+        pass
+    # Clear Crucible's adapter pointer — oMLX just rebooted, whatever
+    # model it thought was loaded is gone.
+    try:
+        request.app.state.active_adapter = None
+    except Exception:
+        pass
+    return {"ok": ok, "message": "oMLX kickstart issued" if ok else "kickstart failed — check logs"}
+
+
 @router.post("/admin/reset-backends")
 async def reset_backends(request: Request) -> dict:
     """Stop all adapters and force a fresh oMLX process.

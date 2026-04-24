@@ -233,6 +233,13 @@ async def lifespan(app: FastAPI):
         await automation.start_loop(app.state)
     except Exception as e:
         log.warning("automation loop failed to start: %s", e)
+    # oMLX watchdog — tails ~/Library/Logs/omlx.log for reclaim-failure
+    # and engine-crash patterns, notifies + audits. No auto-action.
+    try:
+        import omlx_watchdog
+        await omlx_watchdog.start_loop(app.state)
+    except Exception as e:
+        log.warning("omlx_watchdog failed to start: %s", e)
     yield
     # Shutdown
     ttl_task.cancel()
@@ -240,6 +247,11 @@ async def lifespan(app: FastAPI):
     try:
         import automation
         await automation.stop_loop()
+    except Exception:
+        pass
+    try:
+        import omlx_watchdog
+        await omlx_watchdog.stop_loop()
     except Exception:
         pass
     if cron_task:
