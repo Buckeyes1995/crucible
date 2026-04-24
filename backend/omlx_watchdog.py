@@ -77,6 +77,34 @@ PATTERNS: list[tuple[re.Pattern, str, str]] = [
         "critical",
         "oMLX's process-memory enforcer killed the engine. Reduce the loaded model size or lower the cap in ~/.omlx/settings.json.",
     ),
+    # Metal GPU watchdog fault. macOS's driver aborted a command buffer
+    # because it was starving display refresh ("Impacting Interactivity")
+    # or ran out of VRAM ("Insufficient Memory"). Observed 4× on 2026-04-24
+    # with Qwen3-Coder-Next-MLX-6bit — long prefills (65K+ tokens) on the
+    # 63GB model produce single Metal dispatches that exceed the ~2s
+    # watchdog. Sleeping the display and closing GPU-heavy apps drops
+    # preemption pressure; smaller quants (4bit) finish each dispatch
+    # fast enough to stay under the limit.
+    (
+        re.compile(r"\[METAL\] Command buffer execution failed: Impacting Interactivity"),
+        "critical",
+        "Metal aborted an oMLX command buffer (display-interactivity watchdog). Session dropped; model gone. For long prefills: sleep the display (pmset displaysleepnow), close GPU-heavy apps, or switch to the 4bit quant.",
+    ),
+    (
+        re.compile(r"\[METAL\] Command buffer execution failed: Insufficient Memory"),
+        "critical",
+        "Metal aborted an oMLX command buffer (GPU OOM). Reduce loaded model size or unload.",
+    ),
+    (
+        re.compile(r"\[METAL\] Command buffer execution failed"),
+        "critical",
+        "Metal aborted an oMLX command buffer. Engine likely crashed; launchd will respawn.",
+    ),
+    (
+        re.compile(r"libc\+\+abi: terminating due to uncaught exception"),
+        "critical",
+        "oMLX aborted on an uncaught C++ exception. Engine is down; launchd will respawn but the loaded model is gone.",
+    ),
 ]
 
 
