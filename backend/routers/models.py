@@ -272,9 +272,16 @@ async def load_model(model_id: str, request: Request) -> StreamingResponse:
         async for evt in adapter.load(model):
             event_type = evt.get("event", "stage")
             data = evt.get("data", {})
+            if event_type == "done":
+                # Set active_adapter BEFORE yielding. Otherwise /api/status
+                # races with the client's post-done status call — client
+                # receives done, fetches status, backend reads active_adapter
+                # (still null, generator hasn't resumed past yield yet),
+                # returns active_model_id=null, UI stays on "not loaded"
+                # until a manual refresh.
+                request.app.state.active_adapter = adapter
             yield _sse(event_type, {"data": data})
             if event_type == "done":
-                request.app.state.active_adapter = adapter
                 sync_all_clients(model_id, base_url="http://127.0.0.1:7777/v1")
                 asyncio.create_task(wh.fire("model.loaded", {
                     "model_id": model.id,
@@ -351,10 +358,10 @@ async def load_compare_model(model_id: str, request: Request) -> StreamingRespon
         async for evt in adapter.load(model):
             event_type = evt.get("event", "stage")
             data = evt.get("data", {})
-            yield _sse(event_type, {"data": data})
             if event_type == "done":
                 request.app.state.compare_adapter = adapter
-            elif event_type == "error":
+            yield _sse(event_type, {"data": data})
+            if event_type == "error":
                 return
 
     return StreamingResponse(
