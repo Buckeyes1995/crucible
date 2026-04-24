@@ -99,6 +99,20 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
       set({ error: msg, loadingModelId: null, loadStage: "", activeModelId: prev });
     };
 
+    // Abort path: if THIS controller is still the tracked one, nobody else
+    // will clean up the loadingModelId/stage/toast — do it ourselves.
+    // Skip if a newer loadModel replaced us (state is theirs), if cancelLoad
+    // ran (null'd the tracker and cleared state already), or if done already
+    // fired (state is correctly set to the loaded model).
+    const cleanupIfOrphaned = () => {
+      if (gotCompletion) return;
+      if (_loadAbortController !== controller) return;
+      _loadAbortController = null;
+      set({ loadingModelId: null, loadStage: "", activeModelId: prev });
+      import("@/components/Toast").then(({ toastUpdate }) =>
+        toastUpdate(loadingToastId, `${id.replace(/^mlx:/, "")} load cancelled`, "info"));
+    };
+
     try {
       const { readSSE } = await import("@/lib/api");
       const resp = await api.models.load(id, controller.signal);
@@ -136,18 +150,30 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
           }
         },
         (err) => {
-          if (controller.signal.aborted) return; // expected — user cancelled
+          if (controller.signal.aborted) {
+            cleanupIfOrphaned();
+            return;
+          }
           failWith(err.message);
         }
       );
 
-      // Stream ended without a done/error event — clear stuck state but
-      // keep the previous active model on screen.
-      if (!gotCompletion && !controller.signal.aborted) {
-        failWith("Load stream ended unexpectedly");
+      // Stream ended. Three outcomes:
+      //   - done event fired: state already set by the done handler above.
+      //   - aborted: clean up if we're still the tracked controller.
+      //   - neither: stream closed without a terminal event — show an error.
+      if (!gotCompletion) {
+        if (controller.signal.aborted) {
+          cleanupIfOrphaned();
+        } else {
+          failWith("Load stream ended unexpectedly");
+        }
       }
     } catch (e: unknown) {
-      if ((e as Error)?.name === "AbortError") return; // user cancelled, no error
+      if ((e as Error)?.name === "AbortError") {
+        cleanupIfOrphaned();
+        return;
+      }
       failWith(String(e));
     }
   },
