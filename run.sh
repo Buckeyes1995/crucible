@@ -12,6 +12,19 @@ if [[ "$1" == "--dev" ]]; then
   MODE="dev"
 fi
 
+# ── Refuse to start if a healthy Crucible is already running ────────────────
+# Two parallel run.sh instances will race on :7777 — both call _free_port
+# below (killing each other's listeners), then both try to bind, and one
+# wins by exiting the OTHER's listener. Net result: backend dies, frontend
+# stays up, and every API call returns 500. Detect this case up front by
+# probing /api/status with a short timeout. If something answers cleanly,
+# stop. Use restart-crucible.sh to deliberately replace it.
+if curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:7777/api/status 2>/dev/null; then
+  echo "[crucible] Already running and healthy on :7777 — refusing to start a second instance."
+  echo "[crucible] To restart cleanly, run scripts/restart-crucible.sh"
+  exit 1
+fi
+
 # ── Kill zombies before starting ─────────────────────────────────────────────
 # Any listener on 7777 / 3000 is stale from a previous run (different --host
 # binds can coexist on macOS, producing "ghost" API responses). Clean first.

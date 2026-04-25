@@ -378,7 +378,20 @@ class DownloadManager:
                 local_files_only=False,
             )
 
-        download_fut = loop.run_in_executor(None, _do_download)
+        # Wrap the executor call so any exception from snapshot_download
+        # surfaces with a stack trace in the log instead of disappearing
+        # into the future. Observed 2026-04-25: large 32-file repo finished,
+        # then uvicorn exited with only a multiprocessing semaphore-leak
+        # warning — likely a worker crash silently propagated. Logging here
+        # at minimum gives us a fingerprint next time.
+        def _do_download_logged():
+            try:
+                return _do_download()
+            except BaseException as e:  # noqa: BLE001 — last-ditch diagnostic
+                log.exception("hf_downloader: snapshot_download crashed for %s: %s", job.repo_id, e)
+                raise
+
+        download_fut = loop.run_in_executor(None, _do_download_logged)
 
         # Windowed speed: track bytes over the last ~10s instead of cumulative
         # since start. Resume baselines otherwise make "speed since resume"
