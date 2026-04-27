@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { parseModelName } from "@/lib/model-parse";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown, List, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { api, CAPABILITY_TAXONOMY, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
@@ -24,6 +24,14 @@ type SortDir = "asc" | "desc";
 // metadata, not part of the family name." Kept conservative so unrelated
 // naming conventions don't collapse into the same family by accident.
 const _QUANT_RE = /^(mlx|gguf|vllm|studio|dflash|mxfp\d+|q\d(_\w+)?|int\d+|fp\d+|\d+bit|crack|original|\d+B|A\d+B)$/i;
+
+// Models named with these tokens are uncensored / abliterated / community
+// detuned variants. Surfaced as a small badge on the card so users can
+// pick them at a glance without having to read the full model name.
+const _UNCENSORED_RE = /(uncensored|abliterated|heretic|dolphin|tigers?|nsfw|wizard-?vicuna)/i;
+function isUncensored(name: string): boolean {
+  return _UNCENSORED_RE.test(name);
+}
 function familyOf(name: string): string {
   // Split on - . _ but keep letters+digits together. Walk forward until we
   // hit a quant-like token; everything before that is the family. If the
@@ -82,6 +90,15 @@ export default function ModelsPage() {
       window.localStorage.setItem("crucible.models.groupByFamily", groupByFamily ? "1" : "0");
     }
   }, [groupByFamily]);
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    if (typeof window === "undefined") return "grid";
+    return window.localStorage.getItem("crucible.models.viewMode") === "list" ? "list" : "grid";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("crucible.models.viewMode", viewMode);
+    }
+  }, [viewMode]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [filterNode, setFilterNode] = useState<string | null>(null);
@@ -364,15 +381,37 @@ export default function ModelsPage() {
           );
         })()}
 
+        <div className="ml-auto flex items-center gap-1 bg-zinc-800 rounded-md p-0.5" title="Switch between card grid and compact list">
+          <button
+            onClick={() => setViewMode("grid")}
+            className={cn(
+              "px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors",
+              viewMode === "grid" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-200",
+            )}
+            aria-label="Grid view"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setViewMode("list")}
+            className={cn(
+              "px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors",
+              viewMode === "list" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-200",
+            )}
+            aria-label="List view"
+          >
+            <List className="w-3.5 h-3.5" />
+          </button>
+        </div>
         <button
           onClick={() => setGroupByFamily(v => !v)}
           className={cn(
-            "px-2 py-1 rounded text-xs font-medium transition-colors ml-auto",
+            "px-2 py-1 rounded text-xs font-medium transition-colors",
             groupByFamily
               ? "bg-indigo-600/30 text-indigo-200 border border-indigo-500/40"
               : "bg-zinc-800 text-zinc-400 hover:text-zinc-100",
           )}
-          title="Group cards by model family (Qwen3-Coder-Next, Qwen3.5-27B, …)"
+          title="Group rows/cards by model family (Qwen3-Coder-Next, Qwen3.5-27B, …)"
         >
           Group
         </button>
@@ -411,44 +450,57 @@ export default function ModelsPage() {
           ))}
         </div>
       ) : (() => {
-        const renderCard = (m: ModelEntry) => (
-          <ModelCard
-            key={m.id}
-            model={m}
-            alias={getAlias(m.id)}
-            isActive={m.id === activeModelId && loadingModelId === null}
-            isLoading={m.id === loadingModelId}
-            loadStage={loadStage}
-            isFavorite={isFavorite(m.id)}
-            tags={modelNotes[m.id]?.tags ?? []}
-            onLoad={() => loadModel(m.id)}
-            onCancelLoad={cancelLoad}
-            onStop={stopModel}
-            onToggleFavorite={() => toggleFavorite(m.id)}
-            onToggleHidden={() => {
-              api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
-            }}
-            onDelete={() => {
-              const label = m.name;
-              if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
-              api.models.deleteFromDisk(m.id)
-                .then(() => { toast(`Deleted ${label}`, "success"); fetchModels(); })
-                .catch((e: Error) => toast(`Delete failed: ${e.message}`, "error"));
-            }}
-            onSetAlias={(alias) => alias ? setAlias(m.id, alias) : clearAlias(m.id)}
-            onOpenParams={() => setParamsModelId(m.id)}
-            onOpenNotes={() => setNotesModelId(m.id)}
-            downloadProgress={activeDownloads[m.id]}
-          />
-        );
+        const itemProps = (m: ModelEntry) => ({
+          model: m,
+          alias: getAlias(m.id),
+          isActive: m.id === activeModelId && loadingModelId === null,
+          isLoading: m.id === loadingModelId,
+          loadStage,
+          isFavorite: isFavorite(m.id),
+          tags: modelNotes[m.id]?.tags ?? [],
+          onLoad: () => loadModel(m.id),
+          onCancelLoad: cancelLoad,
+          onStop: stopModel,
+          onToggleFavorite: () => toggleFavorite(m.id),
+          onToggleHidden: () => {
+            api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
+          },
+          onDelete: () => {
+            const label = m.name;
+            if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
+            api.models.deleteFromDisk(m.id)
+              .then(() => { toast(`Deleted ${label}`, "success"); fetchModels(); })
+              .catch((e: Error) => toast(`Delete failed: ${e.message}`, "error"));
+          },
+          onSetAlias: (alias: string) => alias ? setAlias(m.id, alias) : clearAlias(m.id),
+          onOpenParams: () => setParamsModelId(m.id),
+          onOpenNotes: () => setNotesModelId(m.id),
+          downloadProgress: activeDownloads[m.id],
+        });
+        const renderItem = (m: ModelEntry) =>
+          viewMode === "list"
+            ? <ModelRow key={m.id} {...itemProps(m)} />
+            : <ModelCard key={m.id} {...itemProps(m)} />;
+
         const pinnedId = loadingModelId ?? activeModelId;
         const pinned = pinnedId ? filtered.find((m) => m.id === pinnedId) : undefined;
         const rest = pinned ? filtered.filter((m) => m.id !== pinned.id) : filtered;
+
+        // Wrap a list of items in the right container for the current
+        // view mode. Grid: responsive 1/2/3-col card grid. List: compact
+        // vertical stack.
+        const wrap = (items: React.ReactNode) =>
+          viewMode === "list" ? (
+            <div className="flex flex-col gap-1.5">{items}</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">{items}</div>
+          );
+
         return (
           <>
             {pinned && (
-              <LoadedHeader pinned={pinned} loading={!!loadingModelId}>
-                {renderCard(pinned)}
+              <LoadedHeader pinned={pinned} loading={!!loadingModelId} compact={viewMode === "list"}>
+                {renderItem(pinned)}
               </LoadedHeader>
             )}
             {pinned && rest.length > 0 && (
@@ -473,22 +525,20 @@ export default function ModelsPage() {
                         <span>{family}</span>
                         <span className="text-zinc-700">· {items.length}</span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        {items.map(renderCard)}
-                      </div>
+                      {wrap(items.map(renderItem))}
                     </section>
                   ))}
                 </div>
               );
             })() : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
-                {rest.map(renderCard)}
+              <>
+                {wrap(rest.map(renderItem))}
                 {filtered.length === 0 && (
-                  <div className="col-span-3 text-center text-zinc-500 py-16">
+                  <div className="text-center text-zinc-500 py-16">
                     {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </>
         );
@@ -907,11 +957,12 @@ function ModelChips({ model, showEditAlias, onEditAlias }: {
   onEditAlias: (e: React.MouseEvent) => void;
 }) {
   const parsed = parseModelName(model.name, model.quant);
-  const chips: Array<{ label: string; tone: "family" | "params" | "variant" | "quant" }> = [];
+  const chips: Array<{ label: string; tone: "family" | "params" | "variant" | "quant" | "uncensored" }> = [];
   if (parsed.family)  chips.push({ label: parsed.family,  tone: "family" });
   if (parsed.params)  chips.push({ label: parsed.params,  tone: "params" });
   if (parsed.variant) chips.push({ label: parsed.variant, tone: "variant" });
   if (parsed.quant)   chips.push({ label: parsed.quant,   tone: "quant" });
+  if (isUncensored(model.name)) chips.push({ label: "uncensored", tone: "uncensored" });
 
   // No chips parsed? Fall back to showing a truncated model name so the card isn't empty.
   if (chips.length === 0) {
@@ -923,10 +974,11 @@ function ModelChips({ model, showEditAlias, onEditAlias }: {
   }
 
   const toneClass = {
-    family:  "bg-indigo-500/15 text-indigo-200 border-indigo-500/25",
-    params:  "bg-zinc-800/80 text-zinc-200 border-white/10",
-    variant: "bg-fuchsia-500/10 text-fuchsia-200 border-fuchsia-500/25",
-    quant:   "bg-emerald-500/10 text-emerald-300 border-emerald-500/25",
+    family:     "bg-indigo-500/15 text-indigo-200 border-indigo-500/25",
+    params:     "bg-zinc-800/80 text-zinc-200 border-white/10",
+    variant:    "bg-fuchsia-500/10 text-fuchsia-200 border-fuchsia-500/25",
+    quant:      "bg-emerald-500/10 text-emerald-300 border-emerald-500/25",
+    uncensored: "bg-rose-500/10 text-rose-300 border-rose-500/30",
   } as const;
 
   return (
@@ -1487,9 +1539,159 @@ function GlobalParamsDialog({ onClose }: { onClose: () => void }) {
 // "Loaded <model> via <engine>" header for the pinned card section.
 // Pulls active_engine from the status store so it reflects what actually
 // answered the load request, not just what was configured.
-function LoadedHeader({ pinned, loading, children }: {
+// ── Model row (compact list view) ────────────────────────────────────────────
+// Mirrors ModelCard's prop shape so the page can pick between the two via a
+// view-mode toggle without duplicating callback wiring. Trimmed to the
+// scan-and-pick essentials; complex actions (alias edit, delete) live in
+// the params/notes dialogs reachable from the row's gear/note icons.
+function ModelRow({
+  model, alias, isActive, isLoading, isFavorite, onLoad, onCancelLoad, onStop,
+  onToggleFavorite, onToggleHidden, onOpenParams, onOpenNotes, downloadProgress,
+}: {
+  model: ModelEntry;
+  alias?: string;
+  isActive: boolean;
+  isLoading: boolean;
+  loadStage: string;
+  isFavorite: boolean;
+  tags: string[];
+  onLoad: () => void;
+  onCancelLoad: () => void;
+  onStop: () => void;
+  onToggleFavorite: () => void;
+  onToggleHidden: () => void;
+  onDelete: () => void;
+  onSetAlias: (alias: string) => void;
+  onOpenParams: () => void;
+  onOpenNotes: () => void;
+  downloadProgress?: { progress: number; message: string };
+}) {
+  const displayName = alias || model.name;
+  const uncen = isUncensored(model.name);
+  const clickable = !isActive && !isLoading && !downloadProgress;
+
+  return (
+    <div
+      className={cn(
+        "relative flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors group",
+        isActive
+          ? "border-emerald-500/30 bg-emerald-950/10"
+          : clickable
+            ? "border-white/[0.06] bg-zinc-950/40 hover:border-white/15 hover:bg-zinc-900/60 cursor-pointer"
+            : "border-white/[0.06] bg-zinc-950/40",
+        isFavorite && !isActive && "border-l-2 border-l-amber-500/40",
+        isLoading && "border-indigo-500/30 bg-indigo-950/5",
+        model.deprecated && !isActive && "opacity-60",
+      )}
+      onClick={clickable ? onLoad : undefined}
+      title={alias ? `${alias} — ${model.name}` : model.name}
+    >
+      {/* Status dot */}
+      <span
+        className={cn(
+          "w-2 h-2 rounded-full shrink-0",
+          isActive ? "bg-emerald-400 animate-pulse"
+            : isLoading ? "bg-indigo-400 animate-pulse"
+            : "bg-zinc-700 group-hover:bg-zinc-500",
+        )}
+      />
+
+      {/* Name + key flags */}
+      <div className="min-w-0 flex-1 flex items-center gap-2">
+        <span className="text-sm font-semibold text-zinc-100 truncate">{displayName}</span>
+        {uncen && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border bg-rose-500/10 text-rose-300 border-rose-500/30 shrink-0">
+            uncensored
+          </span>
+        )}
+        {model.deprecated && (
+          <span className="text-[10px] uppercase tracking-wide text-amber-300 shrink-0">deprecated</span>
+        )}
+        {model.node && model.node !== "local" && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 shrink-0">
+            @{model.node}
+          </span>
+        )}
+        {downloadProgress && (
+          <span className="flex items-center gap-1 text-[11px] text-amber-400 shrink-0">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            {Math.round((downloadProgress.progress ?? 0) * 100)}%
+          </span>
+        )}
+      </div>
+
+      {/* Metrics — fixed-width columns so eyes can scan vertically */}
+      <div className="hidden md:flex items-center gap-3 text-[11px] font-mono text-zinc-500 shrink-0">
+        <span className="w-10 text-right">{model.kind}</span>
+        <span className="w-16 text-right">{formatBytes(model.size_bytes ?? 0)}</span>
+        <span className="w-12 text-right">{formatContext(model.context_window ?? 0)}</span>
+        <span className="w-16 text-right">{model.avg_tps != null ? formatTps(model.avg_tps) : ""}</span>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {isLoading && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCancelLoad(); }}
+            className="p-1 rounded text-zinc-500 hover:text-rose-300 transition-colors"
+            title="Cancel load"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {isActive && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onStop(); }}
+            className="p-1 rounded text-zinc-500 hover:text-rose-300 transition-colors"
+            title="Stop / unload"
+          >
+            <Square className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
+          className="p-1 rounded text-zinc-500 hover:text-amber-300 transition-colors"
+          title={isFavorite ? "Unfavorite" : "Favorite"}
+        >
+          <Star className={cn("w-3.5 h-3.5", isFavorite && "fill-amber-400 text-amber-400")} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleHidden(); }}
+          className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
+          title={model.hidden ? "Unhide" : "Hide"}
+        >
+          {model.hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenParams(); }}
+          className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
+          title="Parameters"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
+          className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
+          title="Notes & tags"
+        >
+          <StickyNote className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Loading progress bar — hugs the bottom edge so it never offsets row height */}
+      {isLoading && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-800 overflow-hidden rounded-b-lg">
+          <div className="h-full bg-indigo-500 animate-pulse" style={{ width: "60%" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LoadedHeader({ pinned, loading, compact, children }: {
   pinned: ModelEntry;
   loading: boolean;
+  compact?: boolean;
   children: React.ReactNode;
 }) {
   const engine = useStatusStore((s) => s.status?.active_engine);
@@ -1511,9 +1713,11 @@ function LoadedHeader({ pinned, loading, children }: {
           </>
         )}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {children}
-      </div>
+      {compact ? (
+        <div>{children}</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{children}</div>
+      )}
     </section>
   );
 }
