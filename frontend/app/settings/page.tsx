@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useFavoritesStore } from "@/lib/stores/favorites";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, WEBHOOK_EVENTS } from "@/lib/api";
+import { api, WEBHOOK_EVENTS, type ModelEntry } from "@/lib/api";
 import type { CrucibleConfig, Webhook, PromptTemplate, NodeConfig, NodeStatus } from "@/lib/api";
+import { formatBytes, cn } from "@/lib/utils";
+import { Search, Eye, EyeOff } from "lucide-react";
 
 export default function SettingsPage() {
   const { config, loading, saving, error, fetchSettings, saveSettings } = useSettingsStore();
-  const { favoritesOnly, setFavoritesOnly, favorites } = useFavoritesStore();
   const [draft, setDraft] = useState<CrucibleConfig | null>(null);
 
   useEffect(() => {
@@ -127,17 +127,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Model Browser</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <Toggle
-            label="Show favorites only by default"
-            description={`Hide non-favorited models on the Models page. You have ${favorites.length} favorite${favorites.length === 1 ? "" : "s"}.`}
-            value={favoritesOnly}
-            onChange={setFavoritesOnly}
-          />
-        </CardContent>
-      </Card>
+      <VisibleModelsSection />
 
       <NodesSection draft={draft} setDraft={setDraft} />
 
@@ -625,5 +615,138 @@ function Toggle({
         />
       </button>
     </div>
+  );
+}
+
+// ── Visible Models ──────────────────────────────────────────────────────────
+// Single source of truth for which models appear on the Models page.
+// Replaces the old per-card Favorite + Hidden toggles. Each row's checkbox
+// flips the underlying model_notes.json `hidden` flag via the existing
+// PUT /api/models/{id}/hidden endpoint.
+function VisibleModelsSection() {
+  const [models, setModels] = useState<ModelEntry[]>([]);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const list = await api.models.list();
+      setModels(list);
+      setLoadErr(null);
+    } catch (e) {
+      setLoadErr(String(e));
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return models
+      .filter((m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [models, search]);
+
+  const visibleCount = models.filter((m) => !m.hidden).length;
+  const setVisible = async (m: ModelEntry, visible: boolean) => {
+    setBusyId(m.id);
+    try {
+      await api.models.setHidden(m.id, !visible);
+      // Optimistic update; we re-fetch anyway to stay in sync with the
+      // model_notes.json source of truth.
+      setModels((prev) => prev.map((x) => x.id === m.id ? { ...x, hidden: !visible } : x));
+    } catch (e) {
+      setLoadErr(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setAll = async (visible: boolean) => {
+    if (!confirm(`${visible ? "Show" : "Hide"} all ${models.length} models?`)) return;
+    for (const m of models) {
+      if (m.hidden === !visible) continue;
+      try { await api.models.setHidden(m.id, !visible); } catch { /* keep going */ }
+    }
+    await load();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Visible Models</span>
+          <span className="text-xs font-normal text-zinc-500">
+            {visibleCount} of {models.length} visible
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-zinc-500">
+          Choose which models appear on the Models page. Hidden models stay downloaded
+          and remain available to chat / benchmark / API consumers — they just won&apos;t
+          clutter the picker.
+        </p>
+        {loadErr && (
+          <div className="p-2 rounded-md bg-red-950/40 border border-red-500/20 text-red-300 text-xs">{loadErr}</div>
+        )}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
+            <Input
+              className="pl-8 h-8 text-sm"
+              placeholder="Filter…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={() => setAll(true)}
+            className="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700"
+          >
+            Show all
+          </button>
+          <button
+            onClick={() => setAll(false)}
+            className="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700"
+          >
+            Hide all
+          </button>
+        </div>
+        <div className="max-h-96 overflow-y-auto rounded-lg border border-white/[0.06] divide-y divide-white/[0.04]">
+          {filtered.length === 0 ? (
+            <div className="text-center text-xs text-zinc-500 py-6">
+              {models.length === 0 ? "Loading…" : "No models match the filter."}
+            </div>
+          ) : filtered.map((m) => {
+            const visible = !m.hidden;
+            const isBusy = busyId === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setVisible(m, !visible)}
+                disabled={isBusy}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
+                  visible ? "bg-zinc-950/40 hover:bg-zinc-900/60" : "bg-zinc-950/20 hover:bg-zinc-900/40 opacity-60",
+                  isBusy && "pointer-events-none opacity-40",
+                )}
+              >
+                <span className={cn(
+                  "shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors",
+                  visible ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-700",
+                )}>
+                  {visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                </span>
+                <span className="flex-1 min-w-0 text-sm text-zinc-200 truncate font-mono">{m.name}</span>
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wide w-12 text-right">{m.kind}</span>
+                <span className="text-[10px] text-zinc-500 font-mono w-16 text-right">{formatBytes(m.size_bytes ?? 0)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

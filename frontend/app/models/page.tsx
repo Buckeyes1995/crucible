@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useModelsStore } from "@/lib/stores/models";
 import { useStatusStore } from "@/lib/stores/status";
-import { useFavoritesStore } from "@/lib/stores/favorites";
 import { useAliasesStore } from "@/lib/stores/aliases";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
 import { parseModelName } from "@/lib/model-parse";
-import { RefreshCw, Square, Zap, BarChart2, Star, Pencil, Check, X, Settings2, StickyNote, Tag, EyeOff, Eye, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown, List, LayoutGrid } from "lucide-react";
+import { RefreshCw, Square, Zap, BarChart2, Pencil, Check, X, Settings2, StickyNote, Tag, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown, List, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { api, CAPABILITY_TAXONOMY, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
@@ -51,9 +50,6 @@ export default function ModelsPage() {
     models, loading, activeModelId, loadingModelId, loadStage, error,
     fetchModels, refreshModels, loadModel, cancelLoad, stopModel, syncStatus,
   } = useModelsStore();
-  const { favorites, favoritesOnly, toggle: toggleFavorite, isFavorite, setFavoritesOnly, sync: syncFavorites } = useFavoritesStore();
-  // One-shot hydration from the server (migrates any localStorage list up).
-  useEffect(() => { syncFavorites(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   const { getAlias, setAlias, clearAlias } = useAliasesStore();
 
   const [search, setSearch] = useState("");
@@ -100,7 +96,6 @@ export default function ModelsPage() {
     }
   }, [viewMode]);
   const [modelNotes, setModelNotes] = useState<Record<string, { notes: string; tags: string[] }>>({});
-  const [showHidden, setShowHidden] = useState(false);
   const [filterNode, setFilterNode] = useState<string | null>(null);
   const [activeDownloads, setActiveDownloads] = useState<Record<string, { progress: number; message: string }>>({});
   const [disk, setDisk] = useState<{ low: boolean; free_gb?: number; path?: string } | null>(null);
@@ -159,14 +154,12 @@ export default function ModelsPage() {
     return () => clearInterval(id);
   }, [syncStatus, fetchStatus, loadingModelId]);
 
-  const effectiveFavoritesOnly = favoritesOnly && favorites.length > 0;
-
-  const hiddenCount = models.filter(m => m.hidden).length;
-
+  // Visibility is now managed centrally in Settings — `m.hidden` is the
+  // single source of truth, no per-page toggle. Models marked hidden are
+  // excluded from this list entirely.
   const filtered = models
     .filter((m) => {
-      if (m.hidden && !showHidden) return false;
-      if (effectiveFavoritesOnly && !isFavorite(m.id)) return false;
+      if (m.hidden) return false;
       if (filterKind !== "all" && m.kind !== filterKind) return false;
       if (filterNode && (m.node ?? "local") !== filterNode) return false;
       const alias = getAlias(m.id) ?? "";
@@ -186,8 +179,6 @@ export default function ModelsPage() {
       const aActive = a.id === activeModelId ? 0 : 1;
       const bActive = b.id === activeModelId ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
-      // Favorites are visually distinct (amber border) but NOT position-pinned
-      // so an explicit sort choice is honored strictly.
       const mul = sortDir === "asc" ? 1 : -1;
       if (sortKey === "size") return mul * ((a.size_bytes ?? 0) - (b.size_bytes ?? 0));
       if (sortKey === "tps")  return mul * ((a.avg_tps ?? 0) - (b.avg_tps ?? 0));
@@ -206,7 +197,7 @@ export default function ModelsPage() {
           <div>
             <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Models</h1>
             <p className="text-xs text-zinc-500 mt-0.5">
-              {models.length} models · {favorites.length} favorited{hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""}
+              {filtered.length} of {models.length} shown · manage in Settings
             </p>
           </div>
         </div>
@@ -306,34 +297,6 @@ export default function ModelsPage() {
             </div>
           );
         })()}
-
-        <button
-          onClick={() => setFavoritesOnly(!favoritesOnly)}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-            effectiveFavoritesOnly
-              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-              : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-          )}
-        >
-          <Star className={cn("w-3.5 h-3.5", effectiveFavoritesOnly && "fill-amber-400")} />
-          Favorites{favorites.length > 0 && ` (${favorites.length})`}
-        </button>
-
-        {hiddenCount > 0 && (
-          <button
-            onClick={() => setShowHidden(v => !v)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-              showHidden
-                ? "bg-zinc-600/40 text-zinc-300 border border-zinc-500/40"
-                : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-            )}
-          >
-            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            {showHidden ? "Hiding hidden" : `Hidden (${hiddenCount})`}
-          </button>
-        )}
 
         {allTags.length > 0 && (
           <div className="flex gap-1 flex-wrap">
@@ -456,15 +419,10 @@ export default function ModelsPage() {
           isActive: m.id === activeModelId && loadingModelId === null,
           isLoading: m.id === loadingModelId,
           loadStage,
-          isFavorite: isFavorite(m.id),
           tags: modelNotes[m.id]?.tags ?? [],
           onLoad: () => loadModel(m.id),
           onCancelLoad: cancelLoad,
           onStop: stopModel,
-          onToggleFavorite: () => toggleFavorite(m.id),
-          onToggleHidden: () => {
-            api.models.setHidden(m.id, !m.hidden).then(() => fetchModels()).catch(() => {});
-          },
           onDelete: () => {
             const label = m.name;
             if (!confirm(`Delete "${label}" from disk?\n\nThis permanently removes the files at:\n${m.path}\n\nThis cannot be undone.`)) return;
@@ -535,7 +493,7 @@ export default function ModelsPage() {
                 {wrap(rest.map(renderItem))}
                 {filtered.length === 0 && (
                   <div className="text-center text-zinc-500 py-16">
-                    {effectiveFavoritesOnly ? "No favorites match — star a model or turn off the filter." : "No models match your filters."}
+                    No models match your filters. Manage which models are visible in <Link href="/settings" className="underline hover:text-zinc-300">Settings</Link>.
                   </div>
                 )}
               </>
@@ -582,20 +540,17 @@ export default function ModelsPage() {
 // ── Model card ────────────────────────────────────────────────────────────────
 
 function ModelCard({
-  model, alias, isActive, isLoading, loadStage, isFavorite, tags, onLoad, onCancelLoad, onStop, onToggleFavorite, onToggleHidden, onDelete, onSetAlias, onOpenParams, onOpenNotes, downloadProgress,
+  model, alias, isActive, isLoading, loadStage, tags, onLoad, onCancelLoad, onStop, onDelete, onSetAlias, onOpenParams, onOpenNotes, downloadProgress,
 }: {
   model: ModelEntry;
   alias?: string;
   isActive: boolean;
   isLoading: boolean;
   loadStage: string;
-  isFavorite: boolean;
   tags: string[];
   onLoad: () => void;
   onCancelLoad: () => void;
   onStop: () => void;
-  onToggleFavorite: () => void;
-  onToggleHidden: () => void;
   onDelete: () => void;
   onSetAlias: (alias: string) => void;
   onOpenParams: () => void;
@@ -634,7 +589,6 @@ function ModelCard({
         isActive
           ? "border-emerald-500/30 bg-emerald-950/10 cursor-default glow-emerald"
           : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer hover-lift",
-        isFavorite && !isActive && "border-amber-500/15",
         isLoading && "border-indigo-500/30 bg-indigo-950/5",
         model.deprecated && !isActive && "opacity-60 grayscale-[0.4]",
       )}
@@ -726,30 +680,6 @@ function ModelCard({
               title="Model parameters"
             >
               <Settings2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-              className={cn(
-                "p-0.5 rounded transition-colors",
-                isFavorite
-                  ? "text-amber-400 hover:text-amber-300"
-                  : "text-zinc-600 hover:text-amber-400"
-              )}
-              title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            >
-              <Star className={cn("w-4 h-4", isFavorite && "fill-amber-400")} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleHidden(); }}
-              className={cn(
-                "p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100",
-                model.hidden
-                  ? "text-zinc-400 hover:text-zinc-200 opacity-100"
-                  : "text-zinc-600 hover:text-zinc-400"
-              )}
-              title={model.hidden ? "Unhide model" : "Hide model"}
-            >
-              {model.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             </button>
             {(model.kind === "mlx" || model.kind === "gguf" || model.kind === "vllm") && model.node === "local" && (
               <button
@@ -1545,21 +1475,18 @@ function GlobalParamsDialog({ onClose }: { onClose: () => void }) {
 // scan-and-pick essentials; complex actions (alias edit, delete) live in
 // the params/notes dialogs reachable from the row's gear/note icons.
 function ModelRow({
-  model, alias, isActive, isLoading, isFavorite, onLoad, onCancelLoad, onStop,
-  onToggleFavorite, onToggleHidden, onOpenParams, onOpenNotes, downloadProgress,
+  model, alias, isActive, isLoading, onLoad, onCancelLoad, onStop,
+  onOpenParams, onOpenNotes, downloadProgress,
 }: {
   model: ModelEntry;
   alias?: string;
   isActive: boolean;
   isLoading: boolean;
   loadStage: string;
-  isFavorite: boolean;
   tags: string[];
   onLoad: () => void;
   onCancelLoad: () => void;
   onStop: () => void;
-  onToggleFavorite: () => void;
-  onToggleHidden: () => void;
   onDelete: () => void;
   onSetAlias: (alias: string) => void;
   onOpenParams: () => void;
@@ -1579,7 +1506,6 @@ function ModelRow({
           : clickable
             ? "border-white/[0.06] bg-zinc-950/40 hover:border-white/15 hover:bg-zinc-900/60 cursor-pointer"
             : "border-white/[0.06] bg-zinc-950/40",
-        isFavorite && !isActive && "border-l-2 border-l-amber-500/40",
         isLoading && "border-indigo-500/30 bg-indigo-950/5",
         model.deprecated && !isActive && "opacity-60",
       )}
@@ -1648,20 +1574,6 @@ function ModelRow({
             <Square className="w-3.5 h-3.5" />
           </button>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-          className="p-1 rounded text-zinc-500 hover:text-amber-300 transition-colors"
-          title={isFavorite ? "Unfavorite" : "Favorite"}
-        >
-          <Star className={cn("w-3.5 h-3.5", isFavorite && "fill-amber-400 text-amber-400")} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleHidden(); }}
-          className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
-          title={model.hidden ? "Unhide" : "Hide"}
-        >
-          {model.hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-        </button>
         <button
           onClick={(e) => { e.stopPropagation(); onOpenParams(); }}
           className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
