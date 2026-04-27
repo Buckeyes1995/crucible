@@ -88,56 +88,83 @@ class VLLMAdapter(BaseAdapter):
 
         asyncio.create_task(self._drain_stderr())
 
-        yield {"event": "stage", "data": {"stage": "loading", "message": "Loading weights…"}}
+        # Orphan-prevention guard: same pattern as llama_cpp / mlx_lm. If the
+        # SSE consumer drops mid-load (browser refresh, navigation, abort)
+        # we'd otherwise leave vllm serve holding the port and Crucible's
+        # active_adapter as None. `success` flips True only on the final
+        # yield (or on an error-after-stop where the process is already
+        # cleaned).
+        success = False
+        try:
+            yield {"event": "stage", "data": {"stage": "loading", "message": "Loading weights…"}}
 
-        await asyncio.sleep(2.0)
-        if self._process.returncode is not None:
-            stderr_tail = b"".join(self._stderr_buf).decode(errors="replace")[-600:]
-            yield {"event": "error", "data": {"message": f"vllm serve failed to start: {stderr_tail.strip() or 'unknown error'}"}}
-            return
+            await asyncio.sleep(2.0)
+            if self._process.returncode is not None:
+                stderr_tail = b"".join(self._stderr_buf).decode(errors="replace")[-600:]
+                yield {"event": "error", "data": {"message": f"vllm serve failed to start: {stderr_tail.strip() or 'unknown error'}"}}
+                return
 
-        t0 = time.monotonic()
-        ready = False
-        last_ping = t0
-        async with httpx.AsyncClient() as client:
-            # vLLM cold-start on Apple Silicon can be slow (MLX kernel compile + weights)
-            while time.monotonic() - t0 < 900:
-                if self._process.returncode is not None:
-                    yield {"event": "error", "data": {"message": "vllm serve exited unexpectedly"}}
-                    return
+            t0 = time.monotonic()
+            ready = False
+            last_ping = t0
+            async with httpx.AsyncClient() as client:
+                # vLLM cold-start on Apple Silicon can be slow (MLX kernel compile + weights)
+                while time.monotonic() - t0 < 900:
+                    if self._process.returncode is not None:
+                        yield {"event": "error", "data": {"message": "vllm serve exited unexpectedly"}}
+                        return
+                    try:
+                        r = await client.get(f"{self._base_url}/v1/models", timeout=2.0)
+                        if r.status_code == 200:
+                            ready = True
+                            data = r.json()
+                            items = data.get("data", [])
+                            if items:
+                                self._server_model_id = items[0].get("id", model_arg)
+                            else:
+                                self._server_model_id = model_arg
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1.5)
+                    now = time.monotonic()
+                    if now - last_ping >= 10:
+                        elapsed = int(now - t0)
+                        stderr_tail = b"".join(self._stderr_buf[-3:]).decode(errors="replace").strip()
+                        msg = f"Loading weights… ({elapsed}s)"
+                        if stderr_tail:
+                            last_line = stderr_tail.splitlines()[-1][:140]
+                            msg += f" — {last_line}"
+                        yield {"event": "stage", "data": {"stage": "loading", "message": msg}}
+                        last_ping = now
+
+            if not ready:
+                # stop() handles the kill — flip success so finally doesn't
+                # double-clean an already-stopped process.
+                await self.stop()
+                success = True
+                yield {"event": "error", "data": {"message": "Timed out waiting for vllm serve"}}
+                return
+
+            self._model = model
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            success = True
+            yield {"event": "done", "data": {"model_id": model.id, "elapsed_ms": elapsed_ms}}
+        finally:
+            if not success and self._process is not None and self._process.returncode is None:
                 try:
-                    r = await client.get(f"{self._base_url}/v1/models", timeout=2.0)
-                    if r.status_code == 200:
-                        ready = True
-                        data = r.json()
-                        items = data.get("data", [])
-                        if items:
-                            self._server_model_id = items[0].get("id", model_arg)
-                        else:
-                            self._server_model_id = model_arg
-                        break
+                    self._process.terminate()
+                    await asyncio.wait_for(self._process.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
                 except Exception:
                     pass
-                await asyncio.sleep(1.5)
-                now = time.monotonic()
-                if now - last_ping >= 10:
-                    elapsed = int(now - t0)
-                    stderr_tail = b"".join(self._stderr_buf[-3:]).decode(errors="replace").strip()
-                    msg = f"Loading weights… ({elapsed}s)"
-                    if stderr_tail:
-                        last_line = stderr_tail.splitlines()[-1][:140]
-                        msg += f" — {last_line}"
-                    yield {"event": "stage", "data": {"stage": "loading", "message": msg}}
-                    last_ping = now
-
-        if not ready:
-            await self.stop()
-            yield {"event": "error", "data": {"message": "Timed out waiting for vllm serve"}}
-            return
-
-        self._model = model
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        yield {"event": "done", "data": {"model_id": model.id, "elapsed_ms": elapsed_ms}}
+                self._process = None
+                self._model = None
+                self._server_model_id = None
 
     async def stop(self) -> None:
         if self._process and self._process.returncode is None:

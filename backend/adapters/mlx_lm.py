@@ -79,101 +79,127 @@ class MLXAdapter(BaseAdapter):
         # Drain stderr in background so the pipe doesn't block
         asyncio.create_task(self._drain_stderr())
 
-        yield {"event": "stage", "data": {"stage": "loading", "message": "Loading weights…"}}
+        # Orphan-prevention guard: if the SSE consumer drops mid-load (browser
+        # refresh, navigation, abort), we'd otherwise leave mlx_lm.server
+        # holding the port and Crucible's active_adapter as None. `success`
+        # flips True only on the final yield.
+        success = False
+        try:
+            yield {"event": "stage", "data": {"stage": "loading", "message": "Loading weights…"}}
 
-        # Brief pause — let the process either bind or fail before health-checking.
-        await asyncio.sleep(2.0)
-        if self._process.returncode is not None:
-            stderr_tail = b"".join(self._stderr_buf).decode(errors="replace")[-400:]
-            msg = f"mlx_lm.server failed to start: {stderr_tail.strip() or 'unknown error'}"
-            yield {"event": "error", "data": {"message": msg}}
-            return
+            # Brief pause — let the process either bind or fail before health-checking.
+            await asyncio.sleep(2.0)
+            if self._process.returncode is not None:
+                stderr_tail = b"".join(self._stderr_buf).decode(errors="replace")[-400:]
+                msg = f"mlx_lm.server failed to start: {stderr_tail.strip() or 'unknown error'}"
+                yield {"event": "error", "data": {"message": msg}}
+                return
 
-        # Wait for server to be ready (up to 600s — large models can take several minutes)
-        t0 = time.monotonic()
-        ready = False
-        last_ping = t0
-        async with httpx.AsyncClient() as client:
-            while time.monotonic() - t0 < 600:
-                if self._process.returncode is not None:
-                    yield {"event": "error", "data": {"message": "mlx_lm.server exited unexpectedly"}}
-                    return
+            # Wait for server to be ready (up to 600s — large models can take several minutes)
+            t0 = time.monotonic()
+            ready = False
+            last_ping = t0
+            async with httpx.AsyncClient() as client:
+                while time.monotonic() - t0 < 600:
+                    if self._process.returncode is not None:
+                        yield {"event": "error", "data": {"message": "mlx_lm.server exited unexpectedly"}}
+                        return
+                    try:
+                        r = await client.get(f"{self._base_url}/v1/models", timeout=2.0)
+                        if r.status_code == 200:
+                            ready = True
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1.0)
+                    # Send a heartbeat every 10s so the UI knows we're still alive
+                    now = time.monotonic()
+                    if now - last_ping >= 10:
+                        elapsed = int(now - t0)
+                        stderr_tail = b"".join(self._stderr_buf[-3:]).decode(errors="replace").strip()
+                        msg = f"Loading weights… ({elapsed}s)"
+                        if stderr_tail:
+                            last_line = stderr_tail.splitlines()[-1][:120]
+                            msg += f" — {last_line}"
+                        yield {"event": "stage", "data": {"stage": "loading", "message": msg}}
+                        last_ping = now
+
+            if not ready:
+                # stop() handles the kill — flip success so finally doesn't double-clean.
+                await self.stop()
+                success = True
+                yield {"event": "error", "data": {"message": "Timed out waiting for mlx_lm.server"}}
+                return
+
+            yield {"event": "stage", "data": {"stage": "warmup", "message": "Warming up…"}}
+
+            # Warmup: send a single inference request and wait up to 10 minutes.
+            # mlx_lm.server loads weights lazily on the first request, so this may
+            # block for the full model-load duration before returning.
+            # We run it as a Task so we can yield progress heartbeats while waiting.
+            server_model_id = model.path if model.path else model.name
+
+            async def _warmup_request() -> bool:
                 try:
-                    r = await client.get(f"{self._base_url}/v1/models", timeout=2.0)
-                    if r.status_code == 200:
-                        ready = True
-                        break
+                    async with httpx.AsyncClient(timeout=600.0) as c:
+                        r = await c.post(
+                            f"{self._base_url}/v1/chat/completions",
+                            json={
+                                "model": server_model_id,
+                                "messages": [{"role": "user", "content": "hi"}],
+                                "max_tokens": 16,
+                                "temperature": 0.0,
+                            },
+                        )
+                        if r.status_code == 200 and r.json().get("choices"):
+                            return True
                 except Exception:
                     pass
-                await asyncio.sleep(1.0)
-                # Send a heartbeat every 10s so the UI knows we're still alive
-                now = time.monotonic()
-                if now - last_ping >= 10:
-                    elapsed = int(now - t0)
-                    stderr_tail = b"".join(self._stderr_buf[-3:]).decode(errors="replace").strip()
-                    msg = f"Loading weights… ({elapsed}s)"
-                    if stderr_tail:
-                        last_line = stderr_tail.splitlines()[-1][:120]
-                        msg += f" — {last_line}"
-                    yield {"event": "stage", "data": {"stage": "loading", "message": msg}}
-                    last_ping = now
+                return False
 
-        if not ready:
-            await self.stop()
-            yield {"event": "error", "data": {"message": "Timed out waiting for mlx_lm.server"}}
-            return
+            warmup_task = asyncio.create_task(_warmup_request())
+            while not warmup_task.done():
+                if self._process.returncode is not None:
+                    warmup_task.cancel()
+                    yield {"event": "error", "data": {"message": "mlx_lm.server exited during warmup"}}
+                    return
+                elapsed = int(time.monotonic() - t0)
+                if elapsed > 600:
+                    warmup_task.cancel()
+                    await self.stop()
+                    success = True
+                    yield {"event": "error", "data": {"message": "mlx_lm.server warmup timed out after 10 minutes"}}
+                    return
+                yield {"event": "stage", "data": {"stage": "warmup", "message": f"Warming up… ({elapsed}s)"}}
+                await asyncio.sleep(5.0)
 
-        yield {"event": "stage", "data": {"stage": "warmup", "message": "Warming up…"}}
-
-        # Warmup: send a single inference request and wait up to 10 minutes.
-        # mlx_lm.server loads weights lazily on the first request, so this may
-        # block for the full model-load duration before returning.
-        # We run it as a Task so we can yield progress heartbeats while waiting.
-        server_model_id = model.path if model.path else model.name
-
-        async def _warmup_request() -> bool:
-            try:
-                async with httpx.AsyncClient(timeout=600.0) as c:
-                    r = await c.post(
-                        f"{self._base_url}/v1/chat/completions",
-                        json={
-                            "model": server_model_id,
-                            "messages": [{"role": "user", "content": "hi"}],
-                            "max_tokens": 16,
-                            "temperature": 0.0,
-                        },
-                    )
-                    if r.status_code == 200 and r.json().get("choices"):
-                        return True
-            except Exception:
-                pass
-            return False
-
-        warmup_task = asyncio.create_task(_warmup_request())
-        while not warmup_task.done():
-            if self._process.returncode is not None:
-                warmup_task.cancel()
-                yield {"event": "error", "data": {"message": "mlx_lm.server exited during warmup"}}
-                return
-            elapsed = int(time.monotonic() - t0)
-            if elapsed > 600:
-                warmup_task.cancel()
+            warmup_ok = warmup_task.result()
+            if not warmup_ok:
                 await self.stop()
-                yield {"event": "error", "data": {"message": "mlx_lm.server warmup timed out after 10 minutes"}}
+                success = True
+                yield {"event": "error", "data": {"message": "mlx_lm.server warmup failed — model may not be compatible"}}
                 return
-            yield {"event": "stage", "data": {"stage": "warmup", "message": f"Warming up… ({elapsed}s)"}}
-            await asyncio.sleep(5.0)
 
-        warmup_ok = warmup_task.result()
-        if not warmup_ok:
-            await self.stop()
-            yield {"event": "error", "data": {"message": "mlx_lm.server warmup failed — model may not be compatible"}}
-            return
-
-        self._model = model
-        self._server_model_id = server_model_id
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        yield {"event": "done", "data": {"model_id": model.id, "elapsed_ms": elapsed_ms}}
+            self._model = model
+            self._server_model_id = server_model_id
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            success = True
+            yield {"event": "done", "data": {"model_id": model.id, "elapsed_ms": elapsed_ms}}
+        finally:
+            if not success and self._process is not None and self._process.returncode is None:
+                try:
+                    self._process.terminate()
+                    await asyncio.wait_for(self._process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                self._process = None
+                self._model = None
+                self._server_model_id = None
 
     async def stop(self) -> None:
         if self._process and self._process.returncode is None:
