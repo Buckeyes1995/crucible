@@ -110,84 +110,112 @@ class LlamaCppAdapter(BaseAdapter):
             }
             return
 
-        yield {
-            "event": "stage",
-            "data": {"stage": "loading", "message": "Loading weights…"},
-        }
-
-        await asyncio.sleep(2.0)
-        if self._process.returncode is not None:
-            stderr_out = ""
-            if self._process.stderr:
-                try:
-                    raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
-                    stderr_out = raw.decode(errors="replace").strip()
-                except Exception:
-                    pass
-            msg = f"llama-server exited (code {self._process.returncode})"
-            if stderr_out:
-                last_lines = "\n".join(stderr_out.splitlines()[-5:])
-                msg += f":\n{last_lines}"
-            yield {"event": "error", "data": {"message": msg}}
-            return
-
-        t0 = time.monotonic()
-        ready = False
-        async with httpx.AsyncClient() as client:
-            while time.monotonic() - t0 < 180:
-                if self._process.returncode is not None:
-                    stderr_out = ""
-                    if self._process.stderr:
-                        try:
-                            raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
-                            stderr_out = raw.decode(errors="replace").strip()
-                        except Exception:
-                            pass
-                    msg = "llama-server exited unexpectedly"
-                    if stderr_out:
-                        last_lines = "\n".join(stderr_out.splitlines()[-5:])
-                        msg += f":\n{last_lines}"
-                    yield {"event": "error", "data": {"message": msg}}
-                    return
-                try:
-                    r = await client.get(f"{self._base_url}/health", timeout=2.0)
-                    if r.status_code == 200:
-                        ready = True
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(1.0)
-
-        if not ready:
-            await self.stop()
-            yield {
-                "event": "error",
-                "data": {"message": "Timed out waiting for llama-server"},
-            }
-            return
-
-        yield {"event": "stage", "data": {"stage": "warmup", "message": "Warming up…"}}
-
+        # From here on we own a live llama-server subprocess. If the
+        # generator exits without reaching the "done" yield (client
+        # disconnect, CancelledError, exception, early error return), we
+        # MUST kill the subprocess in a finally block — otherwise it
+        # keeps holding :8080 as an orphan, Crucible's active_adapter
+        # stays None, and the user's UI shows "no model loaded" while
+        # llama-server sits there warmed up. `success` flips True only
+        # on the final yield.
+        success = False
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                await client.post(
-                    f"{self._base_url}/v1/chat/completions",
-                    json={
-                        "model": "local",
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1,
-                        "temperature": 0.0,
-                    },
-                )
-        except Exception:
-            pass
+            yield {
+                "event": "stage",
+                "data": {"stage": "loading", "message": "Loading weights…"},
+            }
 
-        self._model = model
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        yield {
-            "event": "done",
-            "data": {"model_id": model.id, "elapsed_ms": elapsed_ms},
-        }
+            await asyncio.sleep(2.0)
+            if self._process.returncode is not None:
+                stderr_out = ""
+                if self._process.stderr:
+                    try:
+                        raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
+                        stderr_out = raw.decode(errors="replace").strip()
+                    except Exception:
+                        pass
+                msg = f"llama-server exited (code {self._process.returncode})"
+                if stderr_out:
+                    last_lines = "\n".join(stderr_out.splitlines()[-5:])
+                    msg += f":\n{last_lines}"
+                yield {"event": "error", "data": {"message": msg}}
+                return
+
+            t0 = time.monotonic()
+            ready = False
+            async with httpx.AsyncClient() as client:
+                while time.monotonic() - t0 < 180:
+                    if self._process.returncode is not None:
+                        stderr_out = ""
+                        if self._process.stderr:
+                            try:
+                                raw = await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)
+                                stderr_out = raw.decode(errors="replace").strip()
+                            except Exception:
+                                pass
+                        msg = "llama-server exited unexpectedly"
+                        if stderr_out:
+                            last_lines = "\n".join(stderr_out.splitlines()[-5:])
+                            msg += f":\n{last_lines}"
+                        yield {"event": "error", "data": {"message": msg}}
+                        return
+                    try:
+                        r = await client.get(f"{self._base_url}/health", timeout=2.0)
+                        if r.status_code == 200:
+                            ready = True
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1.0)
+
+            if not ready:
+                # stop() handles the kill; mark success so the finally
+                # below doesn't double-kill an already-cleaned process.
+                await self.stop()
+                success = True
+                yield {
+                    "event": "error",
+                    "data": {"message": "Timed out waiting for llama-server"},
+                }
+                return
+
+            yield {"event": "stage", "data": {"stage": "warmup", "message": "Warming up…"}}
+
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    await client.post(
+                        f"{self._base_url}/v1/chat/completions",
+                        json={
+                            "model": "local",
+                            "messages": [{"role": "user", "content": "hi"}],
+                            "max_tokens": 1,
+                            "temperature": 0.0,
+                        },
+                    )
+            except Exception:
+                pass
+
+            self._model = model
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            success = True
+            yield {
+                "event": "done",
+                "data": {"model_id": model.id, "elapsed_ms": elapsed_ms},
+            }
+        finally:
+            if not success and self._process is not None and self._process.returncode is None:
+                try:
+                    self._process.terminate()
+                    await asyncio.wait_for(self._process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                self._process = None
+                self._model = None
 
     async def stop(self) -> None:
         if self._process and self._process.returncode is None:
