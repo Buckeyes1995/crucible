@@ -52,6 +52,16 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <Field label="MLX models directory" value={draft.mlx_dir} onChange={(v) => set("mlx_dir", v)} />
           <Field label="GGUF models directory" value={draft.gguf_dir} onChange={(v) => set("gguf_dir", v)} />
+          <Field
+            label="Image models directory (ComfyUI checkpoints)"
+            value={draft.image_dir ?? ""}
+            onChange={(v) => set("image_dir", v)}
+          />
+          <Field
+            label="Video models directory (ComfyUI checkpoints)"
+            value={draft.video_dir ?? ""}
+            onChange={(v) => set("video_dir", v)}
+          />
         </CardContent>
       </Card>
 

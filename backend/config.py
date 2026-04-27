@@ -22,6 +22,10 @@ class AgentConfig(BaseModel):
 class CrucibleConfig(BaseModel):
     mlx_dir: str = "/Volumes/DataNVME/models/mlx"
     gguf_dir: str = "/Volumes/DataNVME/models/gguf"
+    # ComfyUI checkpoints dir — image/video models from /api/hf/download with
+    # kind="image"/"video" land here. Defaults match a stock ComfyUI install.
+    image_dir: str = "/Volumes/DataNVME/models/comfy/checkpoints"
+    video_dir: str = "/Volumes/DataNVME/models/comfy/checkpoints"
     llama_server: str = "~/.local/bin/llama-server"
     llama_port: int = 8080
     llama_compare_port: int = 8081

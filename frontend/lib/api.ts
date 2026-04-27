@@ -236,6 +236,8 @@ export type NodeStatus = {
 export type CrucibleConfig = {
   mlx_dir: string;
   gguf_dir: string;
+  image_dir?: string;
+  video_dir?: string;
   llama_server: string;
   llama_port: number;
   llama_compare_port: number;
@@ -694,7 +696,10 @@ export const api = {
     marketplace: () => get<MarketplaceData>("/benchmark/marketplace"),
   },
   hf: {
-    search: (q: string, limit = 20) => get<HFSearchResult[]>(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    search: (q: string, limit = 20, kind?: string) => {
+      const k = kind ? `&kind=${encodeURIComponent(kind)}` : "";
+      return get<HFSearchResult[]>(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}${k}`);
+    },
     startDownload: (repo_id: string, kind: string, dest_dir?: string, replace_model_id?: string) =>
       post<{ job_id: string; status: string }>("/hf/download", { repo_id, kind, dest_dir, replace_model_id }),
     listDownloads: () => get<DownloadJob[]>("/hf/downloads"),

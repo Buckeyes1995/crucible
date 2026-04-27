@@ -367,6 +367,11 @@ class DownloadManager:
             ignore = ["*.gguf", "*.bin", "original/*"]
         elif job.kind == "gguf":
             ignore = ["*.safetensors", "*.msgpack", "flax_model*", "tf_model*"]
+        elif job.kind in ("image", "video"):
+            # Diffusion checkpoints are typically a single .safetensors or .ckpt;
+            # skip framework variants (PyTorch .bin / TF / Flax) and metadata
+            # noise to keep ComfyUI's checkpoints dir clean.
+            ignore = ["*.bin", "*.msgpack", "flax_model*", "tf_model*", "*.onnx"]
 
         loop = asyncio.get_event_loop()
 

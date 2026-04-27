@@ -40,12 +40,28 @@ def _gguf_repo_size(repo_id: str) -> int | None:
 
 class StartDownloadRequest(BaseModel):
     repo_id: str
-    kind: str = "mlx"  # "mlx" | "gguf"
+    kind: str = "mlx"  # "mlx" | "gguf" | "image" | "video"
     dest_dir: str | None = None  # defaults from config
     # When set, this download replaces an existing local model. The downloader
     # stages into a sibling dir and atomically swaps on success so a partial
     # or no-op replace cannot clobber the existing copy.
     replace_model_id: str | None = None
+
+
+# HuggingFace pipeline_tag filters per kind. Used by /hf/search to narrow
+# results when the user picks a specific kind from the UI.
+_PIPELINE_TAGS = {
+    "image": ("text-to-image", "image-to-image"),
+    "video": ("text-to-video", "image-to-video"),
+}
+
+# Per-kind dest-dir resolver. Falls back to mlx_dir for unknown kinds so we
+# never error out — the registry just won't pick the file up automatically.
+def _dest_for_kind(kind: str, config) -> str:
+    if kind == "gguf":  return config.gguf_dir
+    if kind == "image": return config.image_dir
+    if kind == "video": return config.video_dir
+    return config.mlx_dir
 
 
 def _model_to_dict(m) -> dict:
@@ -64,8 +80,15 @@ def _model_to_dict(m) -> dict:
 
 
 @router.get("/hf/search")
-async def search_models(q: str, limit: int = 20, request: Request = None) -> list[dict]:
-    """Search HuggingFace for models matching query."""
+async def search_models(q: str, limit: int = 20, kind: str = "", request: Request = None) -> list[dict]:
+    """Search HuggingFace for models matching query.
+
+    When `kind` is "image" or "video", results are filtered by HF
+    pipeline_tag so the user doesn't have to wade through unrelated
+    text-generation models. Other kinds (mlx/gguf) leave the search
+    open since text-model authors rarely set pipeline_tag consistently
+    and the suffix-in-query trick already biases the results.
+    """
     try:
         from huggingface_hub import HfApi
         hf = HfApi()
@@ -73,6 +96,7 @@ async def search_models(q: str, limit: int = 20, request: Request = None) -> lis
 
         results: list[dict] = []
         seen_ids: set[str] = set()
+        pipeline_tags = _PIPELINE_TAGS.get(kind)
 
         # If the query looks like an exact repo ID (contains /), try direct lookup first
         q_stripped = q.strip()
@@ -91,15 +115,27 @@ async def search_models(q: str, limit: int = 20, request: Request = None) -> lis
                 except Exception:
                     pass
 
-        models = await loop.run_in_executor(
-            None,
-            lambda: list(hf.list_models(
-                search=q,
-                limit=limit,
-                sort="downloads",
-                expand=["downloads", "likes", "safetensors"],
-            ))
-        )
+        # When the user picked image/video, run one search per relevant
+        # pipeline_tag and merge — HF's list_models accepts a single tag per
+        # call, but most image/video work spans both text-to-* and
+        # *-to-* variants and we want both surfaced together.
+        async def _list_for_tag(tag: str | None):
+            return await loop.run_in_executor(
+                None,
+                lambda: list(hf.list_models(
+                    search=q,
+                    limit=limit,
+                    sort="downloads",
+                    pipeline_tag=tag,
+                    expand=["downloads", "likes", "safetensors"],
+                ))
+            )
+
+        if pipeline_tags:
+            tag_results = await asyncio.gather(*[_list_for_tag(t) for t in pipeline_tags])
+            models = [m for sub in tag_results for m in sub]
+        else:
+            models = await _list_for_tag(None)
 
         gguf_indices: list[int] = []
         for m in models:
@@ -128,10 +164,7 @@ async def search_models(q: str, limit: int = 20, request: Request = None) -> lis
 @router.post("/hf/download")
 async def start_download(body: StartDownloadRequest, request: Request) -> dict:
     config = request.app.state.config
-    if not body.dest_dir:
-        dest = config.mlx_dir if body.kind == "mlx" else config.gguf_dir
-    else:
-        dest = body.dest_dir
+    dest = body.dest_dir or _dest_for_kind(body.kind, config)
 
     job_id = download_manager.start_download(
         repo_id=body.repo_id,
