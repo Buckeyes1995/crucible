@@ -74,6 +74,18 @@ class LlamaCppAdapter(BaseAdapter):
             cmd += ["--cache-type-k", p["cache_type_k"]]
         if p.get("cache_type_v"):
             cmd += ["--cache-type-v", p["cache_type_v"]]
+        # Speculative decoding — pair the target model with a small draft.
+        # Flags map cleanly:
+        #   draft_model       → --model-draft <path-to-draft.gguf>
+        #   num_draft_tokens  → --draft-max <N>   (tokens per draft step,
+        #                       default 16; 4–8 is the typical sweet spot)
+        # The draft must use the same tokenizer as the target — usually a
+        # smaller quant of the same family (e.g. Qwen3-0.6B-Q4 drafting
+        # for Qwen3-35B-Q6_K).
+        if p.get("draft_model"):
+            cmd += ["--model-draft", str(p["draft_model"])]
+        if p.get("num_draft_tokens"):
+            cmd += ["--draft-max", str(p["num_draft_tokens"])]
         if p.get("extra_args"):
             cmd += p["extra_args"]
 

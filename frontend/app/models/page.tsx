@@ -954,8 +954,8 @@ const PARAM_DEFAULTS: Record<string, { label: string; type: "number" | "bool" | 
   enable_thinking:    { label: "Enable thinking",     type: "bool",                                                             tip: "Pass chat_template_kwargs={enable_thinking} to skip reasoning output on Qwen3.5/3.6" },
   preserve_thinking:  { label: "Preserve thinking",   type: "bool",                                                             tip: "Keep prior-turn <think> blocks in multi-turn prompts (Qwen3.5/3.6)" },
   cache_limit_gb:     { label: "Cache limit (GB)",    type: "number", step: 1,    min: 1,             placeholder: "unlimited",  kinds: ["mlx"] },
-  draft_model:        { label: "Draft model path",    type: "text",                                   placeholder: "e.g. /path/to/mlx/Qwen3-0.6B", kinds: ["mlx"], tip: "Small model for speculative decoding — must match tokenizer of main model" },
-  num_draft_tokens:   { label: "Draft tokens",        type: "number", step: 1,    min: 1,             placeholder: "off",        kinds: ["mlx"], tip: "Number of tokens the draft model generates per step (5–10 recommended)" },
+  draft_model:        { label: "Draft model path",    type: "text",                                   placeholder: "MLX dir or .gguf file path", kinds: ["mlx", "gguf"], tip: "Small model for speculative decoding — must share the target model's tokenizer (typically a smaller quant of the same family)" },
+  num_draft_tokens:   { label: "Draft tokens",        type: "number", step: 1,    min: 1,             placeholder: "off",        kinds: ["mlx", "gguf"], tip: "Tokens the draft model generates per step (4–8 is the sweet spot — too high wastes work on rejected drafts)" },
   batch_size:         { label: "Batch size (-b)",     type: "number", step: 64,   min: 1,             placeholder: "—",          kinds: ["gguf"] },
   ubatch_size:        { label: "μBatch size (-ub)",   type: "number", step: 64,   min: 1,             placeholder: "—",          kinds: ["gguf"] },
   threads:            { label: "Threads",             type: "number", step: 1,    min: 1,             placeholder: "—",          kinds: ["gguf"] },
@@ -1059,7 +1059,7 @@ function ModelParamsDialog({ model, onClose }: { model: ModelEntry; onClose: () 
 
               {model.kind === "gguf" && (
                 <Section title="llama-server">
-                  {visibleKeys.filter(([k]) => ["batch_size","ubatch_size","threads","flash_attn","cache_type_k","cache_type_v"].includes(k)).map(([key, meta]) => (
+                  {visibleKeys.filter(([k]) => ["batch_size","ubatch_size","threads","flash_attn","cache_type_k","cache_type_v","draft_model","num_draft_tokens"].includes(k)).map(([key, meta]) => (
                     <ParamRow key={key} paramKey={key} meta={meta} params={params} defaults={defaults} set={set} />
                   ))}
                 </Section>
