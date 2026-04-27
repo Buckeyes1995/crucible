@@ -57,4 +57,23 @@ async def kill_port(port: int, timeout: float = 5.0) -> None:
         except ProcessLookupError:
             pass
 
-    await asyncio.sleep(0.5)  # brief settle after kill
+    # The PID is dead but the kernel may not have fully released the listening
+    # socket yet — observed 2026-04-26: kill_port returned, the new spawn
+    # immediately tried to bind :8080, and got EADDRINUSE because the dying
+    # llama-server hadn't released the socket. Re-poll lsof until the port
+    # is genuinely unbound (or we hit the deadline).
+    verify_deadline = asyncio.get_event_loop().time() + 3.0
+    while asyncio.get_event_loop().time() < verify_deadline:
+        await asyncio.sleep(0.2)
+        try:
+            check = await asyncio.create_subprocess_exec(
+                "lsof", "-ti", f":{port}", "-sTCP:LISTEN",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            check_out, _ = await asyncio.wait_for(check.communicate(), timeout=2.0)
+        except Exception:
+            break  # lsof flaked — best-effort, proceed
+        if not check_out.strip():
+            return
+    log.warning("Port %d still has a listener after kill — proceeding anyway", port)
