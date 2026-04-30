@@ -142,6 +142,12 @@ async def agent_session(name: str, session_id: str, request: Request) -> Any:
     return await _proxy_json(_find(request, name), f"/sessions/{session_id}")
 
 
+@router.delete("/agents/{name}/sessions/{session_id}")
+async def agent_session_delete(name: str, session_id: str, request: Request) -> Any:
+    return await _proxy_json(_find(request, name), f"/sessions/{session_id}",
+                             method="DELETE")
+
+
 @router.get("/agents/{name}/cron")
 async def agent_cron(name: str, request: Request) -> Any:
     return await _proxy_json(_find(request, name), "/cron")

@@ -113,6 +113,25 @@ def all_hidden() -> dict[str, bool]:
     return {mid: entry.get("hidden", False) for mid, entry in data.items()}
 
 
+def set_order(ordered_ids: list[str]) -> None:
+    """Persist a manual ordering. Each id in `ordered_ids` gets an `order`
+    integer matching its index. IDs not in the list keep whatever order
+    they previously had (or stay unordered, sorting last in manual view)."""
+    data = _load()
+    for i, mid in enumerate(ordered_ids):
+        existing = data.get(mid, {"notes": "", "tags": [], "hidden": False})
+        existing["order"] = i
+        data[mid] = existing
+    _save(data)
+
+
+def all_order() -> dict[str, int]:
+    """Map of model_id → manual-order index for every model that has one."""
+    data = _load()
+    return {mid: entry["order"] for mid, entry in data.items()
+            if isinstance(entry.get("order"), int)}
+
+
 def all_tags() -> list[str]:
     """Return sorted list of all unique tags across all models."""
     data = _load()

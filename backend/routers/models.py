@@ -63,12 +63,15 @@ def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
     pref_map = model_notes.all_preferred_engines()
     caps_map = model_notes.all_capabilities()
     deprec_map = model_notes.all_deprecations()
+    order_map = model_notes.all_order()
     dflash_state = _load_omlx_dflash_state()
     # z-lab match uses the cache only (no network here). Refresh endpoint below re-fetches.
     zlab_repos = zlab._load_cache().get("repos", [])
     updates_state = hf_updates.all_state()
     for m in models:
         m.hidden = hidden_map.get(m.id, False)
+        if m.id in order_map:
+            m.order = order_map[m.id]
         m.capabilities = caps_map.get(m.id, [])
         dep = deprec_map.get(m.id)
         if dep:
@@ -94,6 +97,19 @@ def _annotate_hidden(models: list[ModelEntry]) -> list[ModelEntry]:
 @router.get("/models", response_model=list[ModelEntry])
 async def list_models(request: Request) -> list[ModelEntry]:
     return _annotate_hidden(request.app.state.registry.all())
+
+
+@router.put("/models/order")
+async def set_models_order(payload: dict) -> dict:
+    """Persist a manual ordering for the Models page. Body: {ids: [model_id, ...]}.
+    Each id is assigned an integer order matching its position. Frontend reads
+    `m.order` (set by _annotate_hidden) when sortKey === "manual"."""
+    ids = payload.get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="body must be {ids: [string]}")
+    model_notes.set_order(ids)
+    return {"status": "ok", "count": len(ids)}
 
 
 @router.post("/models/refresh", response_model=list[ModelEntry])

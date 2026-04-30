@@ -9,14 +9,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatBytes, formatContext, formatTps, cn } from "@/lib/utils";
-import { parseModelName } from "@/lib/model-parse";
-import { RefreshCw, Square, Zap, BarChart2, Pencil, Check, X, Settings2, StickyNote, Tag, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown, List, LayoutGrid } from "lucide-react";
+import { parseModelName, cleanModelName } from "@/lib/model-parse";
+import { RefreshCw, Square, Zap, BarChart2, Pencil, Check, X, Settings2, StickyNote, Tag, Bolt, Search, Cpu, Loader2, Trash2, MessageSquare, ArrowUp, ArrowDown, List, LayoutGrid, Eye } from "lucide-react";
 import Link from "next/link";
 import { api, CAPABILITY_TAXONOMY, type ModelEntry, type ModelParams } from "@/lib/api";
 import { toast } from "@/components/Toast";
-import { BenchSparkline } from "@/components/BenchSparkline";
 
-type SortKey = "name" | "size" | "tps";
+type SortKey = "name" | "size" | "tps" | "manual";
 type SortDir = "asc" | "desc";
 
 // Tokens that indicate "this and everything after is quant / engine / variant
@@ -47,7 +46,8 @@ function familyOf(name: string): string {
 
 export default function ModelsPage() {
   const {
-    models, loading, activeModelId, loadingModelId, loadStage, error,
+    models, loading, activeModelId, loadingModelId, loadStage,
+    loadProgressPct, loadElapsedMs, loadEstimatedMs, error,
     fetchModels, refreshModels, loadModel, cancelLoad, stopModel, syncStatus,
   } = useModelsStore();
   const { getAlias, setAlias, clearAlias } = useAliasesStore();
@@ -58,8 +58,36 @@ export default function ModelsPage() {
   const [sortKey, setSortKey] = useState<SortKey>(() => {
     if (typeof window === "undefined") return "name";
     const v = window.localStorage.getItem("crucible.models.sortKey");
-    return v === "size" || v === "tps" ? v : "name";
+    return v === "size" || v === "tps" || v === "manual" ? v : "name";
   });
+  // Drag state for manual reorder. dragId = card being dragged, dragOverId =
+  // card hovered as drop target. Both null when no drag in progress.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const reorderModels = useCallback(async (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const visibleIds = models
+      .filter((m) => !m.hidden)
+      .sort((a, b) => {
+        const ao = typeof a.order === "number" ? a.order : Number.POSITIVE_INFINITY;
+        const bo = typeof b.order === "number" ? b.order : Number.POSITIVE_INFINITY;
+        return ao - bo || a.name.localeCompare(b.name);
+      })
+      .map((m) => m.id);
+    const from = visibleIds.indexOf(sourceId);
+    const to = visibleIds.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    visibleIds.splice(from, 1);
+    visibleIds.splice(to, 0, sourceId);
+    try {
+      await api.models.setOrder(visibleIds);
+      // Refetch to pick up the new order field on each model
+      fetchModels();
+    } catch (e) {
+      toast(`Reorder failed: ${(e as Error).message}`, "error");
+    }
+  }, [models, fetchModels]);
   const [sortDir, setSortDir] = useState<SortDir>(() => {
     if (typeof window === "undefined") return "asc";
     const v = window.localStorage.getItem("crucible.models.sortDir");
@@ -180,6 +208,14 @@ export default function ModelsPage() {
       const bActive = b.id === activeModelId ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
       const mul = sortDir === "asc" ? 1 : -1;
+      if (sortKey === "manual") {
+        // Models without a manual order sort last (Infinity), preserving
+        // any new arrivals at the end of the list. Direction toggle still
+        // applies so users can flip ascending/descending.
+        const ao = typeof a.order === "number" ? a.order : Number.POSITIVE_INFINITY;
+        const bo = typeof b.order === "number" ? b.order : Number.POSITIVE_INFINITY;
+        return mul * (ao - bo);
+      }
       if (sortKey === "size") return mul * ((a.size_bytes ?? 0) - (b.size_bytes ?? 0));
       if (sortKey === "tps")  return mul * ((a.avg_tps ?? 0) - (b.avg_tps ?? 0));
       return mul * a.name.localeCompare(b.name);
@@ -210,6 +246,13 @@ export default function ModelsPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowGlobalParams(true)} className="gap-1.5">
             <Settings2 className="w-3.5 h-3.5" /> Defaults
           </Button>
+          <Link
+            href="/settings#visibility"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md font-medium text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-colors"
+            title="Choose which models appear on this page"
+          >
+            <Eye className="w-3.5 h-3.5" /> Visibility
+          </Link>
           <Button variant="secondary" size="sm" onClick={refreshModels} disabled={loading} className="gap-1.5">
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh
           </Button>
@@ -380,7 +423,7 @@ export default function ModelsPage() {
         </button>
         <div className="flex gap-1">
           <span className="text-xs text-zinc-500 self-center mr-1">Sort:</span>
-          {(["name", "size", "tps"] as SortKey[]).map((k) => {
+          {(["name", "size", "tps", "manual"] as SortKey[]).map((k) => {
             const active = sortKey === k;
             return (
               <button
@@ -419,6 +462,9 @@ export default function ModelsPage() {
           isActive: m.id === activeModelId && loadingModelId === null,
           isLoading: m.id === loadingModelId,
           loadStage,
+          loadProgressPct,
+          loadElapsedMs,
+          loadEstimatedMs,
           tags: modelNotes[m.id]?.tags ?? [],
           onLoad: () => loadModel(m.id),
           onCancelLoad: cancelLoad,
@@ -434,6 +480,18 @@ export default function ModelsPage() {
           onOpenParams: () => setParamsModelId(m.id),
           onOpenNotes: () => setNotesModelId(m.id),
           downloadProgress: activeDownloads[m.id],
+          dragEnabled: sortKey === "manual",
+          isDragging: dragId === m.id,
+          isDragOver: dragOverId === m.id && dragId !== null && dragId !== m.id,
+          onDragStart: () => setDragId(m.id),
+          onDragOver: () => { if (dragId && dragId !== m.id) setDragOverId(m.id); },
+          onDragLeave: () => { if (dragOverId === m.id) setDragOverId(null); },
+          onDragEnd: () => { setDragId(null); setDragOverId(null); },
+          onDrop: () => {
+            if (dragId && dragId !== m.id) reorderModels(dragId, m.id);
+            setDragId(null);
+            setDragOverId(null);
+          },
         });
         const renderItem = (m: ModelEntry) =>
           viewMode === "list"
@@ -540,13 +598,17 @@ export default function ModelsPage() {
 // ── Model card ────────────────────────────────────────────────────────────────
 
 function ModelCard({
-  model, alias, isActive, isLoading, loadStage, tags, onLoad, onCancelLoad, onStop, onDelete, onSetAlias, onOpenParams, onOpenNotes, downloadProgress,
+  model, alias, isActive, isLoading, loadStage, loadProgressPct, loadElapsedMs, loadEstimatedMs, tags, onLoad, onCancelLoad, onStop, onDelete, onSetAlias, onOpenParams, onOpenNotes, downloadProgress,
+  dragEnabled, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop,
 }: {
   model: ModelEntry;
   alias?: string;
   isActive: boolean;
   isLoading: boolean;
   loadStage: string;
+  loadProgressPct: number | null;
+  loadElapsedMs: number;
+  loadEstimatedMs: number | null;
   tags: string[];
   onLoad: () => void;
   onCancelLoad: () => void;
@@ -556,6 +618,14 @@ function ModelCard({
   onOpenParams: () => void;
   onOpenNotes: () => void;
   downloadProgress?: { progress: number; message: string };
+  dragEnabled?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: () => void;
+  onDragLeave?: () => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
 }) {
   const [editingAlias, setEditingAlias] = useState(false);
   const [aliasInput, setAliasInput] = useState(alias ?? "");
@@ -583,14 +653,42 @@ function ModelCard({
   };
 
   return (
+    <div
+      draggable={!!dragEnabled}
+      onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!dragEnabled) return;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", model.id);
+        onDragStart?.();
+      }}
+      onDragOver={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!dragEnabled) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        onDragOver?.();
+      }}
+      onDragLeave={() => onDragLeave?.()}
+      onDragEnd={() => onDragEnd?.()}
+      onDrop={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!dragEnabled) return;
+        e.preventDefault();
+        onDrop?.();
+      }}
+      className={cn(
+        "h-full",
+        isDragging && "opacity-40",
+        isDragOver && "ring-2 ring-indigo-400/70 shadow-[0_0_18px_rgba(99,102,241,0.45)] rounded-2xl",
+      )}
+    >
     <Card
       className={cn(
         "transition-all duration-200 group relative overflow-hidden h-full flex flex-col",
         isActive
-          ? "border-emerald-500/30 bg-emerald-950/10 cursor-default glow-emerald"
+          ? "border-emerald-500/40 bg-emerald-950/10 cursor-default shadow-[0_0_24px_rgba(16,185,129,0.45)] ring-1 ring-emerald-500/30"
           : "hover:border-white/[0.12] hover:bg-zinc-900/70 cursor-pointer hover-lift",
         isLoading && "border-indigo-500/30 bg-indigo-950/5",
         model.deprecated && !isActive && "opacity-60 grayscale-[0.4]",
+        dragEnabled && !isActive && "cursor-grab active:cursor-grabbing",
       )}
       onClick={!isActive && !isLoading && !editingAlias && !downloadProgress ? onLoad : undefined}
     >
@@ -699,9 +797,8 @@ function ModelCard({
           <Stat label="Context" value={formatContext(model.context_window)} />
           <div>
             <div className="text-zinc-500">Avg tok/s</div>
-            <div className="text-zinc-200 font-mono flex items-center gap-2">
-              <span>{formatTps(model.avg_tps)}</span>
-              <BenchSparkline modelId={model.id} />
+            <div className="text-zinc-200 font-mono">
+              {model.avg_tps != null ? model.avg_tps.toFixed(1) : "—"}
             </div>
           </div>
         </div>
@@ -724,22 +821,43 @@ function ModelCard({
           </div>
         ) : null}
 
-        {/* Loading bar */}
+        {/* Loading state — featured % so the user can see progress at a glance */}
         {isLoading && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-indigo-400 truncate">{loadStage || "Loading…"}</div>
+          <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-3">
+              {loadProgressPct != null ? (
+                <div className="font-mono text-3xl font-bold text-indigo-300 tabular-nums leading-none">
+                  {loadProgressPct}<span className="text-lg text-indigo-400/70">%</span>
+                </div>
+              ) : (
+                <div className="font-mono text-2xl font-bold text-indigo-300/60 leading-none">…</div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-indigo-200 truncate">{loadStage || "Loading…"}</div>
+                {loadEstimatedMs && loadElapsedMs > 0 && (
+                  <div className="text-[10px] text-indigo-400/70 font-mono mt-0.5">
+                    {Math.floor(loadElapsedMs / 1000)}s of ~{Math.floor(loadEstimatedMs / 1000)}s
+                  </div>
+                )}
+              </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onCancelLoad(); }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors shrink-0"
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-red-900/30 text-red-400 border border-red-500/30 hover:bg-red-900/50 hover:text-red-300 transition-colors"
                 title="Cancel loading"
               >
                 <Square className="w-2.5 h-2.5 fill-current" />
                 Cancel
               </button>
             </div>
-            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 rounded-full animate-pulse w-3/4" />
+            <div className="h-1.5 bg-zinc-900/80 rounded-full overflow-hidden">
+              {loadProgressPct != null ? (
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-indigo-400 rounded-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+                  style={{ width: `${loadProgressPct}%` }}
+                />
+              ) : (
+                <div className="h-full bg-indigo-500 rounded-full animate-pulse w-3/4" />
+              )}
             </div>
           </div>
         )}
@@ -834,7 +952,7 @@ function ModelCard({
         <div className="flex items-center gap-2 pt-1 border-t border-white/[0.03]">
           <Tooltip label={model.name} className="min-w-0 flex-1">
             <div className="text-xs font-mono text-zinc-500 truncate select-text">
-              {model.name}
+              {cleanModelName(model.name)}
             </div>
           </Tooltip>
           {isActive && (
@@ -851,6 +969,7 @@ function ModelCard({
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 }
 
@@ -898,7 +1017,7 @@ function ModelChips({ model, showEditAlias, onEditAlias }: {
   if (chips.length === 0) {
     return (
       <Tooltip label={model.name} className="min-w-0 flex-1">
-        <span className="text-sm font-semibold text-zinc-100 truncate block">{model.name}</span>
+        <span className="text-sm font-semibold text-zinc-100 truncate block">{cleanModelName(model.name)}</span>
       </Tooltip>
     );
   }
@@ -1483,6 +1602,9 @@ function ModelRow({
   isActive: boolean;
   isLoading: boolean;
   loadStage: string;
+  loadProgressPct: number | null;
+  loadElapsedMs: number;
+  loadEstimatedMs: number | null;
   tags: string[];
   onLoad: () => void;
   onCancelLoad: () => void;

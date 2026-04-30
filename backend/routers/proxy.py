@@ -146,6 +146,14 @@ async def proxy_chat(request: Request):
     except Exception:
         pass
 
+    # Magic model values — let clients defer the choice to whatever's loaded.
+    # Useful for hermes-agent, anything that doesn't want to track active model.
+    requested_lower = (body.get("model") or "").strip().lower()
+    if requested_lower in ("active", "auto", "current", ""):
+        cur = request.app.state.active_adapter
+        if cur and cur.model_id:
+            body["model"] = cur.model_id
+
     # Auto-load the requested model if it's not currently active.
     # Lets opencode / Qwen Code / any OpenAI client switch models by name
     # without having to load through Crucible's UI first.

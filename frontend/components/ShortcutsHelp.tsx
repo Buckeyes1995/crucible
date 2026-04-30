@@ -10,6 +10,7 @@ const SHORTCUTS: { group: string; rows: Row[] }[] = [
     group: "Global",
     rows: [
       { keys: ["?"], desc: "Show this shortcut list" },
+      { keys: ["⌘", "K"], desc: "Open command palette (any page)" },
       { keys: ["g", "m"], desc: "Go to Models" },
       { keys: ["g", "c"], desc: "Go to Chat" },
       { keys: ["g", "b"], desc: "Go to Benchmarks" },

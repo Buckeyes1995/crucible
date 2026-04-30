@@ -131,6 +131,14 @@ class MLXAdapter(BaseAdapter):
                 yield {"event": "error", "data": {"message": "Timed out waiting for mlx_lm.server"}}
                 return
 
+            # Best-effort load-time estimate. Used to compute progress_pct in
+            # heartbeats so the UI can render a real progress bar.
+            try:
+                import model_extras
+                estimate_ms = model_extras.predicted_load_ms(model.id, model.size_bytes)
+            except Exception:
+                estimate_ms = None
+
             yield {"event": "stage", "data": {"stage": "warmup", "message": "Warming up…"}}
 
             # Warmup: send a single inference request and wait up to 10 minutes.
@@ -163,15 +171,24 @@ class MLXAdapter(BaseAdapter):
                     warmup_task.cancel()
                     yield {"event": "error", "data": {"message": "mlx_lm.server exited during warmup"}}
                     return
-                elapsed = int(time.monotonic() - t0)
-                if elapsed > 600:
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                if elapsed_ms > 600_000:
                     warmup_task.cancel()
                     await self.stop()
                     success = True
                     yield {"event": "error", "data": {"message": "mlx_lm.server warmup timed out after 10 minutes"}}
                     return
-                yield {"event": "stage", "data": {"stage": "warmup", "message": f"Warming up… ({elapsed}s)"}}
-                await asyncio.sleep(5.0)
+                progress_pct = None
+                if estimate_ms and estimate_ms > 0:
+                    progress_pct = min(99, max(1, int(elapsed_ms / estimate_ms * 100)))
+                yield {"event": "stage", "data": {
+                    "stage": "warmup",
+                    "message": f"Warming up… ({elapsed_ms // 1000}s)",
+                    "elapsed_ms": elapsed_ms,
+                    "estimated_ms": estimate_ms,
+                    "progress_pct": progress_pct,
+                }}
+                await asyncio.sleep(2.0)
 
             warmup_ok = warmup_task.result()
             if not warmup_ok:

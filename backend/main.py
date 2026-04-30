@@ -46,13 +46,14 @@ from routers import (
     finetune,
     finetune_pipeline,
     humaneval,
+    images as images_router,
+    videos as videos_router,
     metrics_prom,
     metrics_ws,
     model_changelog,
     model_leaderboard,
     model_size,
     models,
-    news as news_router,
     projects as projects_router,
     agent_runs as agent_runs_router,
     rag2 as rag2_router,
@@ -80,7 +81,6 @@ from routers import (
     recommender_api,
     recommender_v2,
     recovery,
-    reddit as reddit_router,
     router_replay,
     response_cache,
     rss,
@@ -323,8 +323,6 @@ app.include_router(downloads.router, prefix="/api")
 app.include_router(store_router.router, prefix="/api")
 app.include_router(snippets_router.router, prefix="/api")
 app.include_router(auto_bench_router.router, prefix="/api")
-app.include_router(reddit_router.router, prefix="/api")
-app.include_router(news_router.router, prefix="/api")
 app.include_router(projects_router.router, prefix="/api")
 app.include_router(agent_runs_router.router, prefix="/api")
 app.include_router(rag2_router.router, prefix="/api")
@@ -335,6 +333,8 @@ app.include_router(finetune_jobs_router.router, prefix="/api")
 app.include_router(favorites_router.router, prefix="/api")
 app.include_router(clients_sync_router.router, prefix="/api")
 app.include_router(misc_router.router, prefix="/api")
+app.include_router(images_router.router, prefix="/api")
+app.include_router(videos_router.router, prefix="/api")
 app.include_router(ops_router.router, prefix="/api")
 app.include_router(vision_router.router, prefix="/api")
 app.include_router(model_chain_router.router, prefix="/api")

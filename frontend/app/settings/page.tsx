@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, WEBHOOK_EVENTS, type ModelEntry } from "@/lib/api";
 import type { CrucibleConfig, Webhook, PromptTemplate, NodeConfig, NodeStatus } from "@/lib/api";
 import { formatBytes, cn } from "@/lib/utils";
-import { Search, Eye, EyeOff } from "lucide-react";
+import { Search, Eye, EyeOff, Trash2 } from "lucide-react";
+import { toast } from "@/components/Toast";
 
 export default function SettingsPage() {
   const { config, loading, saving, error, fetchSettings, saveSettings } = useSettingsStore();
@@ -19,6 +20,27 @@ export default function SettingsPage() {
     fetchSettings();
   }, [fetchSettings]);
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
+
+  // Scroll to a hash target (e.g. /settings#visibility) once both the
+  // settings page AND the targeted async section have rendered. The browser
+  // can't scroll natively here because our content is inside a
+  // <main className="overflow-auto"> rather than the window, and the
+  // section's id appears only after model data loads.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash.slice(1);
+    if (!hash || !draft) return;
+    let tries = 0;
+    const tick = () => {
+      const el = document.getElementById(hash);
+      if (el) {
+        el.scrollIntoView({ block: "start", behavior: "smooth" });
+        return;
+      }
+      if (++tries < 30) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [draft]);
 
   if (loading || !draft) {
     return (
@@ -682,7 +704,27 @@ function VisibleModelsSection() {
     await load();
   };
 
+  const deleteFromDisk = async (m: ModelEntry) => {
+    const sizeStr = formatBytes(m.size_bytes ?? 0);
+    if (!confirm(
+      `Permanently delete "${m.name}" (${sizeStr}) from disk?\n\n` +
+      `Files at:\n${m.path || "(unknown path)"}\n\n` +
+      `This cannot be undone.`,
+    )) return;
+    setBusyId(m.id);
+    try {
+      await api.models.deleteFromDisk(m.id);
+      setModels((prev) => prev.filter((x) => x.id !== m.id));
+      toast(`Deleted ${m.name}`, "success");
+    } catch (e) {
+      toast(`Delete failed: ${(e as Error).message}`, "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
+    <div id="visibility" className="scroll-mt-6">
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
@@ -733,30 +775,54 @@ function VisibleModelsSection() {
             const visible = !m.hidden;
             const isBusy = busyId === m.id;
             return (
-              <button
+              <div
                 key={m.id}
-                onClick={() => setVisible(m, !visible)}
-                disabled={isBusy}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
+                  "group w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
                   visible ? "bg-zinc-950/40 hover:bg-zinc-900/60" : "bg-zinc-950/20 hover:bg-zinc-900/40 opacity-60",
                   isBusy && "pointer-events-none opacity-40",
                 )}
               >
-                <span className={cn(
-                  "shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors",
-                  visible ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-700",
-                )}>
-                  {visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                </span>
-                <span className="flex-1 min-w-0 text-sm text-zinc-200 truncate font-mono">{m.name}</span>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wide w-12 text-right">{m.kind}</span>
-                <span className="text-[10px] text-zinc-500 font-mono w-16 text-right">{formatBytes(m.size_bytes ?? 0)}</span>
-              </button>
+                <button
+                  onClick={() => setVisible(m, !visible)}
+                  disabled={isBusy}
+                  className="contents"
+                  aria-label={visible ? "Hide" : "Show"}
+                >
+                  <span className={cn(
+                    "shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors cursor-pointer",
+                    visible ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-700",
+                  )}>
+                    {visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                  </span>
+                  <span
+                    className="flex-1 min-w-0 text-sm text-zinc-200 font-mono overflow-hidden whitespace-nowrap text-left cursor-pointer"
+                    style={{ direction: "rtl", textOverflow: "ellipsis" }}
+                    title={m.name}
+                  >
+                    {/* RTL flips truncation to start-of-string. Wrap in a span
+                        forced back to LTR so the chars themselves render in
+                        normal order. */}
+                    <bdi style={{ direction: "ltr" }}>{m.name}</bdi>
+                  </span>
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wide w-12 text-right">{m.kind}</span>
+                  <span className="text-[10px] text-zinc-500 font-mono w-16 text-right">{formatBytes(m.size_bytes ?? 0)}</span>
+                </button>
+                <button
+                  onClick={() => deleteFromDisk(m)}
+                  disabled={isBusy}
+                  className="shrink-0 p-1.5 rounded-md text-zinc-600 hover:text-red-300 hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title={`Delete ${m.name} from disk`}
+                  aria-label="Delete from disk"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             );
           })}
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 }

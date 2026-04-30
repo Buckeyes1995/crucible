@@ -5,107 +5,9 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useStatusStore } from "@/lib/stores/status";
 import { useEffect, useState } from "react";
-import {
-  LayoutDashboard, Cpu, MessageSquare, GitCompare, Swords, Trophy,
-  Eye, FlaskConical, Zap, Bolt, Wrench, Activity, Timer, Calendar,
-  DollarSign, BarChart3, FolderOpen, ListOrdered, Hash, Download,
-  Clock, Bell, HeartPulse, Sparkles, GitBranch, Archive, Settings,
-  ChevronDown, Search, Bot, Pin, FileText, ScrollText, Info, Newspaper, Database,
-  Workflow,
-} from "lucide-react";
+import { ChevronDown, FlaskConical } from "lucide-react";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
-
-type NavItem = { href: string; label: string; icon: React.ReactNode };
-type NavGroup = { label: string; items: NavItem[]; defaultOpen?: boolean };
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "Overview",
-    defaultOpen: true,
-    items: [
-      { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
-      { href: "/models", label: "Models", icon: <Cpu className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "Inference",
-    defaultOpen: true,
-    items: [
-      { href: "/chat", label: "Chat", icon: <MessageSquare className="w-4 h-4" /> },
-      { href: "/chat/history", label: "History", icon: <Clock className="w-4 h-4" /> },
-      { href: "/snippets", label: "Snippets", icon: <Pin className="w-4 h-4" /> },
-      { href: "/reddit", label: "Reddit", icon: <MessageSquare className="w-4 h-4" /> },
-      { href: "/news", label: "News", icon: <Newspaper className="w-4 h-4" /> },
-      { href: "/logs", label: "Logs", icon: <FileText className="w-4 h-4" /> },
-      { href: "/audit", label: "Audit", icon: <ScrollText className="w-4 h-4" /> },
-      { href: "/ops", label: "Ops", icon: <Activity className="w-4 h-4" /> },
-      { href: "/usage", label: "Usage", icon: <DollarSign className="w-4 h-4" /> },
-      { href: "/usage/leaderboard", label: "Model Leaderboard", icon: <Trophy className="w-4 h-4" /> },
-      { href: "/visualizer", label: "Visualizer", icon: <Eye className="w-4 h-4" /> },
-      { href: "/batch-inference", label: "Batch", icon: <ListOrdered className="w-4 h-4" /> },
-      { href: "/runs", label: "Agent Runs", icon: <Bot className="w-4 h-4" /> },
-      { href: "/rag", label: "RAG", icon: <Database className="w-4 h-4" /> },
-      { href: "/prompts", label: "Prompts", icon: <FileText className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "Compare",
-    defaultOpen: true,
-    items: [
-      { href: "/chat/compare", label: "Side by Side", icon: <GitCompare className="w-4 h-4" /> },
-      { href: "/diff", label: "Model Diff", icon: <GitCompare className="w-4 h-4" /> },
-      { href: "/arena", label: "Arena", icon: <Swords className="w-4 h-4" /> },
-      { href: "/arena/review", label: "Review Queue", icon: <Swords className="w-4 h-4" /> },
-      { href: "/arena/leaderboard", label: "Leaderboard", icon: <Trophy className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "Benchmark",
-    items: [
-      { href: "/benchmark2", label: "New Run", icon: <Zap className="w-4 h-4" /> },
-      { href: "/benchmark/history", label: "History", icon: <BarChart3 className="w-4 h-4" /> },
-      { href: "/benchmark/diff", label: "Diff", icon: <GitCompare className="w-4 h-4" /> },
-      { href: "/evals", label: "Evals", icon: <FlaskConical className="w-4 h-4" /> },
-      { href: "/humaneval", label: "HumanEval", icon: <FlaskConical className="w-4 h-4" /> },
-      { href: "/dflash", label: "DFlash Bench", icon: <Bolt className="w-4 h-4" /> },
-      { href: "/optimizer", label: "Optimizer", icon: <FlaskConical className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "Analytics",
-    items: [
-      { href: "/profiler", label: "Profiler", icon: <Timer className="w-4 h-4" /> },
-      { href: "/heatmap", label: "Heatmap", icon: <Calendar className="w-4 h-4" /> },
-      { href: "/cost", label: "Cost", icon: <DollarSign className="w-4 h-4" /> },
-      { href: "/token-analytics", label: "Tokens", icon: <Hash className="w-4 h-4" /> },
-      { href: "/metrics", label: "Live Metrics", icon: <Activity className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "Manage",
-    items: [
-      { href: "/agents", label: "Agents", icon: <Bot className="w-4 h-4" /> },
-      { href: "/groups", label: "Groups", icon: <FolderOpen className="w-4 h-4" /> },
-      { href: "/store", label: "Store", icon: <Download className="w-4 h-4" /> },
-      { href: "/schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },
-      { href: "/automation", label: "Automation", icon: <Workflow className="w-4 h-4" /> },
-      { href: "/finetune/jobs", label: "Fine-tune Jobs", icon: <Sparkles className="w-4 h-4" /> },
-      { href: "/finetune", label: "Fine-tune", icon: <Wrench className="w-4 h-4" /> },
-      { href: "/recommender", label: "Recommender", icon: <Sparkles className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/health", label: "Health", icon: <HeartPulse className="w-4 h-4" /> },
-      { href: "/notifications", label: "Alerts", icon: <Bell className="w-4 h-4" /> },
-      { href: "/router", label: "Smart Router", icon: <GitBranch className="w-4 h-4" /> },
-      { href: "/backup", label: "Backup", icon: <Archive className="w-4 h-4" /> },
-      { href: "/settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
-      { href: "/about", label: "About", icon: <Info className="w-4 h-4" /> },
-    ],
-  },
-];
+import { NAV_GROUPS, ICONS, type NavGroup } from "@/lib/nav";
 
 function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: string }) {
   const hasActive = group.items.some(
@@ -124,13 +26,14 @@ function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: strin
       </button>
       {open && (
         <div className="space-y-px">
-          {group.items.map(({ href, label, icon }, i) => {
+          {group.items.map(({ href, label, iconKey }, i) => {
             const active = href === "/" ? pathname === "/" : (pathname === href || pathname.startsWith(href + "/"));
             // Auto-indent sub-routes: if another item in this same group is a
             // strict prefix of this item's path, render it as a nested child.
             const isSubItem = group.items.some(
               (other, j) => j !== i && href !== other.href && href.startsWith(other.href + "/"),
             );
+            const Icon = ICONS[iconKey];
             return (
               <Link
                 key={href}
@@ -143,7 +46,9 @@ function NavGroupSection({ group, pathname }: { group: NavGroup; pathname: strin
                     : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
                 )}
               >
-                <span className={cn("transition-colors", active ? "text-indigo-400" : "text-zinc-600")}>{icon}</span>
+                <span className={cn("transition-colors", active ? "text-indigo-400" : "text-zinc-600")}>
+                  <Icon className="w-4 h-4" />
+                </span>
                 {label}
               </Link>
             );

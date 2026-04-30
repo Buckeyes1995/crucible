@@ -184,12 +184,6 @@ GET    /api/agents/runs                  # list (project-scoped)
 GET    /api/agents/runs/{id}             # detail + steps
 DELETE /api/agents/runs/{id}
 
-# News digest (v3 #169)
-GET    /api/news                         # cached grouped digest
-POST   /api/news/refresh                 # SSE fetch + summarize
-GET+PUT/api/news/config                  # sources + filter + prompt
-DELETE /api/news/item/{id}
-
 # Store rails + detail (v4 store redesign phases 1–5)
 GET  /api/store/rails                    # themed shelves (featured / RAM-fits / …)
 GET  /api/store/samples/{kind}/{id}      # cached detail-page sample output
@@ -288,8 +282,6 @@ All SSE streams use `data: <json>\n\n` format with an `event` field indicating m
 | `~/.config/crucible/zlab_drafts.json` | Cached z-lab HF repo list (6h TTL) |
 | `~/.config/crucible/hf_updates.json` | Per-model origin HF repo + upstream lastModified tracking |
 | `~/.config/crucible/audit.log.jsonl` | Structured admin-action audit (v3 follow-up) |
-| `~/.config/crucible/news_config.json` | AI news digest source config (v3 #169) |
-| `~/.config/crucible/news_digest.json` | Cached summaries (6h TTL per item) |
 | `~/.config/crucible/store_samples.json` | Store detail-page sample outputs (v4 store phase 4) |
 | `~/.config/crucible/store_curated.json` | Optional editorial override for Featured (v4 store phase 5) |
 | `~/.config/crucible/rag/<slug>/` | RAG v2 BM25 index directory (meta/chunks/postings) |

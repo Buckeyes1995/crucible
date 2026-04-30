@@ -5,6 +5,8 @@ import { TopBar } from "@/components/TopBar";
 import { ToastContainer } from "@/components/Toast";
 import { RecoveryBanner } from "@/components/RecoveryBanner";
 import { ShortcutsHelp } from "@/components/ShortcutsHelp";
+import { CommandPalette } from "@/components/CommandPalette";
+import { ModelLoadProgress } from "@/components/ModelLoadProgress";
 import { FirstRunWizard } from "@/components/FirstRunWizard";
 import "./globals.css";
 
@@ -42,6 +44,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <ToastContainer />
         <ShortcutsHelp />
+        <CommandPalette />
+        <ModelLoadProgress />
         <FirstRunWizard />
       </body>
     </html>

@@ -24,6 +24,7 @@ export type ModelEntry = {
   capabilities?: string[];              // chips from the fixed taxonomy
   deprecated?: boolean;
   replacement_id?: string | null;
+  order?: number | null;                // manual-sort index (PUT /models/order)
 };
 
 export const CAPABILITY_TAXONOMY = [
@@ -507,6 +508,8 @@ export const api = {
       ),
     setHidden: (id: string, hidden: boolean) =>
       put<{ hidden: boolean }>(`/models/${encodeURIComponent(id)}/hidden`, { hidden }),
+    setOrder: (ids: string[]) =>
+      put<{ status: string; count: number }>(`/models/order`, { ids }),
     setPreferredEngine: (id: string, engine: string | null) =>
       put<{ preferred_engine: string | null }>(`/models/${encodeURIComponent(id)}/preferred-engine`, { engine }),
     deleteFromDisk: (id: string) =>
@@ -735,6 +738,8 @@ export const api = {
       get<AgentSession[]>(`/agents/${encodeURIComponent(name)}/sessions?limit=${limit}&offset=${offset}`),
     session: (name: string, id: string) =>
       get<Record<string, unknown>>(`/agents/${encodeURIComponent(name)}/sessions/${encodeURIComponent(id)}`),
+    deleteSession: (name: string, id: string) =>
+      del<{ deleted: string }>(`/agents/${encodeURIComponent(name)}/sessions/${encodeURIComponent(id)}`),
     logs: (name: string, tail = 500, since?: string) =>
       get<{ lines: string[]; tail: number; since: string | null }>(
         `/agents/${encodeURIComponent(name)}/logs?tail=${tail}${since ? `&since=${encodeURIComponent(since)}` : ""}`,

@@ -81,19 +81,27 @@ def record_load_timing(model_id: str, elapsed_ms: int, size_bytes: int) -> None:
 
 
 def predicted_load_ms(model_id: str, size_bytes: Optional[int]) -> Optional[int]:
-    """Best-effort prediction: use the median of recent timings for this model
-    if available, otherwise fall back to a rough size-based estimate
-    (~1GB/sec on this class of hardware — good enough for a UI hint)."""
+    """Best-effort prediction for the UI's progress bar.
+
+    Two estimators, take the MAX so the bar doesn't fall behind reality:
+
+    - Historical: max of the last 5 recorded timings (not median — the
+      median gets poisoned by warm loads where oMLX already had the model
+      in memory and "loaded" in <2s).
+    - Size-based floor: assume ~1 GB/sec sustained read from cold cache.
+
+    Returning the larger of the two means a 60GB model never claims 99%
+    after 1.5 seconds just because the last warm reload was that fast."""
+    floor_ms = 0
+    if size_bytes and size_bytes > 0:
+        floor_ms = int((size_bytes / (1024 ** 3)) * 1000)
     data: dict[str, list[dict]] = _read(TIMINGS_FILE, {})
     hist = data.get(model_id, [])
     if hist:
-        vals = sorted(h["elapsed_ms"] for h in hist)
-        mid = vals[len(vals) // 2]
-        return int(mid)
-    if size_bytes and size_bytes > 0:
-        # 1GB/sec is generous for cold cache; use as a upper-ish bound.
-        return int((size_bytes / (1024 ** 3)) * 1000)
-    return None
+        recent = sorted(h["elapsed_ms"] for h in hist[-5:])
+        hist_ms = int(recent[-1])  # max of last 5
+        return max(hist_ms, floor_ms) if floor_ms else hist_ms
+    return floor_ms or None
 
 
 def timings_summary() -> dict[str, dict]:

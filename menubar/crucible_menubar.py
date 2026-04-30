@@ -156,7 +156,6 @@ class CrucibleMenuBar(rumps.App):
             ("Prompts", "/prompts"),
             ("Evals", "/evals"),
             ("RAG", "/rag"),
-            ("News", "/news"),
             ("Automation", "/automation"),
             ("Benchmark history", "/benchmark/history"),
             ("Models page", "/models"),

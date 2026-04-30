@@ -185,13 +185,13 @@ export default function DashboardPage() {
             label="Chat" description="Talk to the active model" />
           <QuickAction href="/arena" icon={<Swords className="w-4 h-4" />}
             label="Arena" description="Blind model battle" />
-          <QuickAction href="/benchmark2" icon={<Zap className="w-4 h-4" />}
+          <QuickAction href="/benchmark?tab=run" icon={<Zap className="w-4 h-4" />}
             label="Benchmark" description="Test model performance" />
           <QuickAction href="/profiler" icon={<Timer className="w-4 h-4" />}
             label="Profiler" description="Inference breakdown" />
-          <QuickAction href="/recommender" icon={<Sparkles className="w-4 h-4" />}
+          <QuickAction href="/store?tab=recommender" icon={<Sparkles className="w-4 h-4" />}
             label="Recommender" description="Optimize your library" />
-          <QuickAction href="/health" icon={<Activity className="w-4 h-4" />}
+          <QuickAction href="/observability?tab=health" icon={<Activity className="w-4 h-4" />}
             label="Health Check" description="System status" />
         </div>
       </div>
@@ -205,7 +205,7 @@ export default function DashboardPage() {
               <Trophy className="w-4 h-4 text-amber-400" />
               <h3 className="text-sm font-semibold text-zinc-200">Arena Leaders</h3>
             </div>
-            <Link href="/arena/leaderboard" className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
+            <Link href="/arena?tab=leaderboard" className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
               View all →
             </Link>
           </div>
@@ -234,7 +234,7 @@ export default function DashboardPage() {
               <Zap className="w-4 h-4 text-cyan-400" />
               <h3 className="text-sm font-semibold text-zinc-200">Recent Benchmarks</h3>
             </div>
-            <Link href="/benchmark/history" className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
+            <Link href="/benchmark?tab=history" className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
               View all →
             </Link>
           </div>

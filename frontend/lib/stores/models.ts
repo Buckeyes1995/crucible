@@ -9,6 +9,9 @@ type ModelsState = {
   loading: boolean;
   loadingModelId: string | null;
   loadStage: string;
+  loadProgressPct: number | null;     // 0-99 during warmup; null when unknown
+  loadElapsedMs: number;              // elapsed since load started
+  loadEstimatedMs: number | null;     // adapter's predicted total
   error: string | null;
 
   fetchModels: () => Promise<void>;
@@ -47,6 +50,9 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
   loading: false,
   loadingModelId: null,
   loadStage: "",
+  loadProgressPct: null,
+  loadElapsedMs: 0,
+  loadEstimatedMs: null,
   error: null,
 
   syncStatus: async () => {
@@ -88,7 +94,10 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
     // (#167) — otherwise the chat page falsely shows "No model loaded"
     // when the prior model is still warm on the inference engine.
     const prev = (get() as { activeModelId: string | null }).activeModelId;
-    set({ loadingModelId: id, loadStage: "starting", error: null, activeModelId: null });
+    set({
+      loadingModelId: id, loadStage: "starting", error: null, activeModelId: null,
+      loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null,
+    });
     const loadingToastId = toast(`Loading ${id.replace(/^mlx:/, "")}…`, "loading", 0);
     let gotCompletion = false;
 
@@ -96,7 +105,7 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
       const msg = explainLoadError(raw);
       import("@/components/Toast").then(({ toastUpdate }) =>
         toastUpdate(loadingToastId, msg, "error"));
-      set({ error: msg, loadingModelId: null, loadStage: "", activeModelId: prev });
+      set({ error: msg, loadingModelId: null, loadStage: "", loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null, activeModelId: prev });
     };
 
     // Abort path: if THIS controller is still the tracked one, nobody else
@@ -108,7 +117,7 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
       if (gotCompletion) return;
       if (_loadAbortController !== controller) return;
       _loadAbortController = null;
-      set({ loadingModelId: null, loadStage: "", activeModelId: prev });
+      set({ loadingModelId: null, loadStage: "", loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null, activeModelId: prev });
       import("@/components/Toast").then(({ toastUpdate }) =>
         toastUpdate(loadingToastId, `${id.replace(/^mlx:/, "")} load cancelled`, "info"));
     };
@@ -134,15 +143,26 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
           const event = data.event as string;
           const payload = data.data as Record<string, unknown> | undefined;
           if (event === "stage") {
-            set({ loadStage: (payload?.message as string) ?? "" });
+            set({
+              loadStage: (payload?.message as string) ?? "",
+              loadProgressPct: typeof payload?.progress_pct === "number"
+                ? (payload.progress_pct as number)
+                : null,
+              loadElapsedMs: typeof payload?.elapsed_ms === "number"
+                ? (payload.elapsed_ms as number)
+                : 0,
+              loadEstimatedMs: typeof payload?.estimated_ms === "number"
+                ? (payload.estimated_ms as number)
+                : null,
+            });
           } else if (event === "done") {
             gotCompletion = true;
             import("@/components/Toast").then(({ toastUpdate }) =>
               toastUpdate(loadingToastId, `${id.replace(/^mlx:/, "")} loaded`, "success"));
             api.status().then((s) => {
-              set({ activeModelId: s.active_model_id, loadingModelId: null, loadStage: "" });
+              set({ activeModelId: s.active_model_id, loadingModelId: null, loadStage: "", loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null });
             }).catch(() => {
-              set({ activeModelId: id, loadingModelId: null, loadStage: "" });
+              set({ activeModelId: id, loadingModelId: null, loadStage: "", loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null });
             });
           } else if (event === "error") {
             gotCompletion = true;
@@ -181,7 +201,7 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
   cancelLoad: async () => {
     _loadAbortController?.abort();
     _loadAbortController = null;
-    set({ loadingModelId: null, loadStage: "", error: null });
+    set({ loadingModelId: null, loadStage: "", loadProgressPct: null, loadElapsedMs: 0, loadEstimatedMs: null, error: null });
     // Also tell the backend to stop — this kills the subprocess
     await api.models.stop().catch(() => {});
   },

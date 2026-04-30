@@ -3,6 +3,21 @@
 // regex rules and fall back to the raw name in the Full ID row if nothing
 // catches. The parser never throws; unknowns just return empty fields.
 
+// Strip noise from a model name for display: drop directory prefixes
+// (e.g. "Qwen3-1.7B-GGUF/Qwen3-1.7B-Q6_K" → "Qwen3-1.7B-Q6_K"),
+// shard suffixes ("…-00001-of-00004"), and trailing ".gguf"/".safetensors"
+// extensions. Returns the cleaned base name only.
+export function cleanModelName(raw: string): string {
+  if (!raw) return raw;
+  // Last path segment only — directory parts are noise on the card.
+  let s = raw.split("/").pop() ?? raw;
+  // Drop file extension if it leaked in.
+  s = s.replace(/\.(gguf|safetensors|bin)$/i, "");
+  // Strip shard suffixes: "-00001-of-00004" or ".00001-of-00004".
+  s = s.replace(/[-.]\d{3,5}-of-\d{3,5}$/i, "");
+  return s;
+}
+
 export type ParsedModel = {
   family: string | null;    // e.g. "Qwen3.5", "gpt-oss", "Llama-3"
   params: string | null;    // e.g. "30B", "7B·A3B" for MoE, "20B"

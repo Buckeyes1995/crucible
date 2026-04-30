@@ -94,6 +94,16 @@ class OMLXAdapter(BaseAdapter):
     async def load(self, model: ModelEntry) -> AsyncGenerator[dict, None]:
         model_name = Path(model.path).name if model.path else model.name
 
+        # Best-effort load-time estimate. Used to compute progress_pct in
+        # heartbeats so the UI can render a real progress bar instead of a
+        # spinner. Falls back to a size-based extrapolation when this model
+        # has never been loaded before.
+        try:
+            import model_extras
+            estimate_ms = model_extras.predicted_load_ms(model.id, model.size_bytes)
+        except Exception:
+            estimate_ms = None
+
         yield {"event": "stage", "data": {"stage": "starting", "message": "Starting oMLX…"}}
 
         if not await self._is_running():
@@ -122,29 +132,63 @@ class OMLXAdapter(BaseAdapter):
             except Exception:
                 pass
 
-        # Trigger load by sending a warmup request — oMLX loads on first use
+        # Trigger load by sending a warmup request — oMLX loads on first use.
+        # Big models (60GB+) can take 1-3 minutes to warm up. We MUST emit
+        # heartbeat events while waiting, otherwise idle-timeouts in any
+        # intermediary (Next.js proxy, Cloudflare tunnel, browser fetch) kill
+        # the SSE stream → route handler never sets active_adapter → UI is
+        # stuck on "loading" forever even though oMLX has the model in memory.
         t0 = time.monotonic()
+        client = httpx.AsyncClient(timeout=600.0)
+        warmup_task = asyncio.create_task(
+            client.post(
+                f"{self._base_url}/v1/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "temperature": 0.0,
+                },
+            )
+        )
         try:
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                r = await client.post(
-                    f"{self._base_url}/v1/chat/completions",
-                    headers=self._headers(),
-                    json={
-                        "model": model_name,
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1,
-                        "temperature": 0.0,
-                    },
-                )
-                if r.status_code not in (200, 201):
+            # Heartbeat every 2s until the warmup completes. The shorter
+            # interval lets the UI's progress % advance smoothly.
+            while not warmup_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(warmup_task), timeout=2.0)
+                except asyncio.TimeoutError:
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)
+                    progress_pct = None
+                    if estimate_ms and estimate_ms > 0:
+                        # Cap at 99 so we never claim 100% before the real
+                        # "done" event fires.
+                        progress_pct = min(99, max(1, int(elapsed_ms / estimate_ms * 100)))
                     yield {
-                        "event": "error",
-                        "data": {"message": f"oMLX load failed: {r.text[:300]}"},
+                        "event": "stage",
+                        "data": {
+                            "stage": "loading",
+                            "message": f"Loading {model_name}… ({elapsed_ms // 1000}s)",
+                            "elapsed_ms": elapsed_ms,
+                            "estimated_ms": estimate_ms,
+                            "progress_pct": progress_pct,
+                        },
                     }
-                    return
+            r = warmup_task.result()
+            if r.status_code not in (200, 201):
+                yield {
+                    "event": "error",
+                    "data": {"message": f"oMLX load failed: {r.text[:300]}"},
+                }
+                return
         except Exception as e:
+            if not warmup_task.done():
+                warmup_task.cancel()
             yield {"event": "error", "data": {"message": f"oMLX warmup failed: {e}"}}
             return
+        finally:
+            await client.aclose()
 
         self._model = model
         self._server_model_id = model_name

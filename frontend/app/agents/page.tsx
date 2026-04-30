@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, readSSE, type AgentListEntry, type AgentStatus, type AgentCronJob, type AgentSession } from "@/lib/api";
+import Link from "next/link";
+import { api, type AgentListEntry, type AgentStatus, type AgentCronJob, type AgentSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/Toast";
 import {
   Bot, Plus, Trash2, Pause, Play as PlayIcon, RotateCw, FileText, Loader2, Trash, ChevronDown, ChevronRight,
-  MessageSquare, Send, X, Square,
+  MessageSquare, X,
 } from "lucide-react";
 
 function fmtAgo(iso: string | null | undefined): string {
@@ -29,8 +30,6 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [logsFor, setLogsFor] = useState<string | null>(null);
-  const [chatFor, setChatFor] = useState<string | null>(null);
-  const [chatStates, setChatStates] = useState<Record<string, { messages: ChatMsg[]; sessionId: string | null }>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -87,7 +86,6 @@ export default function AgentsPage() {
               onRemoved={refresh}
               onAction={refresh}
               onOpenLogs={() => setLogsFor(a.name)}
-              onOpenChat={() => setChatFor(a.name)}
             />
           ))}
         </div>
@@ -95,20 +93,6 @@ export default function AgentsPage() {
 
       {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
       {logsFor && <LogsModal name={logsFor} onClose={() => setLogsFor(null)} />}
-      {chatFor && (
-        <ChatModal
-          name={chatFor}
-          onClose={() => setChatFor(null)}
-          state={chatStates[chatFor] ?? { messages: [], sessionId: null }}
-          setState={(updater) =>
-            setChatStates((prev) => {
-              const current = prev[chatFor] ?? { messages: [], sessionId: null };
-              const next = typeof updater === "function" ? updater(current) : updater;
-              return { ...prev, [chatFor]: next };
-            })
-          }
-        />
-      )}
     </div>
   );
 }
@@ -116,13 +100,12 @@ export default function AgentsPage() {
 // ─── Agent card ──────────────────────────────────────────────────────────────
 
 function AgentCard({
-  agent, onRemoved, onAction, onOpenLogs, onOpenChat,
+  agent, onRemoved, onAction, onOpenLogs,
 }: {
   agent: AgentListEntry;
   onRemoved: () => void;
   onAction: () => void;
   onOpenLogs: () => void;
-  onOpenChat: () => void;
 }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -260,9 +243,18 @@ function AgentCard({
           {busy === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
           Restart
         </Button>
-        <Button variant="secondary" size="sm" className="gap-1" onClick={onOpenChat} disabled={!agent.reachable || !running}>
+        <Link
+          href={`/agents/${encodeURIComponent(agent.name)}`}
+          className={cn(
+            "inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md font-medium transition-all",
+            agent.reachable && running
+              ? "bg-indigo-600 hover:bg-indigo-500 text-white"
+              : "bg-zinc-800/40 text-zinc-600 pointer-events-none",
+          )}
+          aria-disabled={!agent.reachable || !running}
+        >
           <MessageSquare className="w-3.5 h-3.5" /> Chat
-        </Button>
+        </Link>
         <Button variant="secondary" size="sm" className="gap-1" onClick={onOpenLogs} disabled={!agent.reachable}>
           <FileText className="w-3.5 h-3.5" /> Logs
         </Button>
@@ -412,218 +404,6 @@ function Field({ label, value, onChange, placeholder, type = "text" }: {
         placeholder={placeholder}
         className="w-full bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 font-mono focus:outline-none focus:border-indigo-500/40"
       />
-    </div>
-  );
-}
-
-type ChatMsg = { role: "user" | "assistant"; content: string; error?: boolean };
-type ChatState = { messages: ChatMsg[]; sessionId: string | null };
-
-function ChatModal({ name, onClose, state, setState }: {
-  name: string;
-  onClose: () => void;
-  state: ChatState;
-  setState: (updater: ChatState | ((prev: ChatState) => ChatState)) => void;
-}) {
-  const { messages, sessionId } = state;
-  const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickRef = useRef(true);
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Track whether the user is pinned to the bottom; if so, auto-scroll on new content.
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  };
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !stickRef.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages]);
-
-  // On open (or when switching agents), jump to the bottom so re-opened history lands at the latest turn.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    stickRef.current = true;
-  }, [name]);
-
-  const send = async () => {
-    const prompt = input.trim();
-    if (!prompt || streaming) return;
-    setInput("");
-    stickRef.current = true; // sending implies the user wants to watch the new reply
-    setState((s) => ({ ...s, messages: [...s.messages, { role: "user", content: prompt }, { role: "assistant", content: "" }] }));
-    setStreaming(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let finishedClean = false;
-
-    try {
-      const resp = await api.agents.chat(name, { prompt, session_id: sessionId }, controller.signal);
-      if (!resp.ok) {
-        const text = await resp.text();
-        setState((s) => {
-          const copy = [...s.messages];
-          copy[copy.length - 1] = { role: "assistant", content: `error: ${resp.status} ${text.slice(0, 400)}`, error: true };
-          return { ...s, messages: copy };
-        });
-        return;
-      }
-      await readSSE(resp, (evt) => {
-        const e = evt as { event?: string; line?: string; session_id?: string | null; message?: string };
-        if (e.event === "line" && typeof e.line === "string") {
-          setState((s) => {
-            const copy = [...s.messages];
-            const last = copy[copy.length - 1];
-            copy[copy.length - 1] = { ...last, content: last.content + (last.content ? "\n" : "") + e.line };
-            return { ...s, messages: copy };
-          });
-        } else if (e.event === "done") {
-          const doneEvt = evt as { session_id?: string | null; exit_code?: number };
-          if (doneEvt.session_id) setState((s) => ({ ...s, sessionId: doneEvt.session_id! }));
-          if (doneEvt.exit_code && doneEvt.exit_code !== 0) {
-            setState((s) => {
-              const copy = [...s.messages];
-              const last = copy[copy.length - 1];
-              copy[copy.length - 1] = {
-                ...last,
-                content: (last.content ? last.content + "\n\n" : "") + `[hermes exited with code ${doneEvt.exit_code} — likely hit --max-turns]`,
-                error: true,
-              };
-              return { ...s, messages: copy };
-            });
-          }
-          // Cloudflare tunnels sometimes hold the stream open after the
-          // sidecar closes it. The "done" event is our real signal that
-          // the turn is over — abort the fetch ourselves so we don't sit
-          // on a zombie connection.
-          finishedClean = true;
-          controller.abort();
-        } else if (e.event === "error") {
-          setState((s) => {
-            const copy = [...s.messages];
-            copy[copy.length - 1] = { role: "assistant", content: e.message || "error", error: true };
-            return { ...s, messages: copy };
-          });
-        }
-      });
-    } catch (e) {
-      const err = e as Error;
-      // Clean "done" is implemented as a self-abort, so an AbortError after
-      // finishedClean is not an error — drop it.
-      if (finishedClean && (err.name === "AbortError" || controller.signal.aborted)) {
-        // nothing to do
-      } else {
-        setState((s) => {
-          const copy = [...s.messages];
-          const last = copy[copy.length - 1];
-          const aborted = err.name === "AbortError" || controller.signal.aborted;
-          copy[copy.length - 1] = aborted
-            ? { ...last, content: (last.content ? last.content + "\n\n" : "") + "[stopped by user]", error: true }
-            : { role: "assistant", content: `error: ${err.message}`, error: true };
-          return { ...s, messages: copy };
-        });
-      }
-    } finally {
-      setStreaming(false);
-      if (abortRef.current === controller) abortRef.current = null;
-    }
-  };
-
-  const stop = () => {
-    abortRef.current?.abort();
-  };
-
-  const resetSession = () => {
-    if (streaming) return;
-    setState({ messages: [], sessionId: null });
-  };
-
-  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-         onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-3xl h-[80vh] flex flex-col">
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.06]">
-          <MessageSquare className="w-4 h-4 text-indigo-400" />
-          <h2 className="text-sm font-semibold text-zinc-100">{name} · chat</h2>
-          {sessionId && (
-            <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-              sid {sessionId.slice(-8)}
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="xs" onClick={resetSession} disabled={streaming || (!sessionId && messages.length === 0)}>
-              New session
-            </Button>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-auto px-5 py-4 space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-xs text-zinc-600 italic text-center mt-12">
-              Send a prompt to start a conversation with {name}.
-              <div className="mt-1 text-zinc-700">Enter to send · Shift+Enter for newline</div>
-            </div>
-          ) : (
-            messages.map((m, i) => (
-              <div key={i} className={cn("flex flex-col gap-1", m.role === "user" ? "items-end" : "items-start")}>
-                <span className="text-[10px] uppercase tracking-wider text-zinc-600">
-                  {m.role === "user" ? "you" : name}
-                </span>
-                <div className={cn(
-                  "rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words max-w-[85%] font-mono leading-relaxed",
-                  m.role === "user" ? "bg-indigo-500/10 border border-indigo-500/20 text-zinc-100"
-                                    : m.error ? "bg-red-950/30 border border-red-500/30 text-red-300"
-                                              : "bg-zinc-800/50 border border-white/5 text-zinc-200",
-                )}>
-                  {m.content || (streaming && i === messages.length - 1 ? (
-                    <span className="inline-flex items-center gap-1.5 text-zinc-500">
-                      <Loader2 className="w-3 h-3 animate-spin" /> thinking…
-                    </span>
-                  ) : "")}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-white/[0.06] flex items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKey}
-            placeholder="Ask hermes to set up a skill, tweak cron, or explain a recent session…"
-            rows={2}
-            className="flex-1 bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 font-mono resize-none focus:outline-none focus:border-indigo-500/40"
-            disabled={streaming}
-          />
-          {streaming ? (
-            <Button variant="destructive" size="sm" onClick={stop} className="gap-1" title="Abort the current turn">
-              <Square className="w-3.5 h-3.5 fill-current" /> Stop
-            </Button>
-          ) : (
-            <Button variant="primary" size="sm" onClick={send} disabled={!input.trim()} className="gap-1">
-              <Send className="w-3.5 h-3.5" /> Send
-            </Button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

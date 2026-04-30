@@ -26,6 +26,7 @@ class ModelEntry(BaseModel):
     capabilities: list[str] = []         # capability chips from the fixed taxonomy (code/reasoning/...)
     deprecated: bool = False             # user-flagged as deprecated
     replacement_id: Optional[str] = None # recommended replacement model id, if any
+    order: Optional[int] = None          # manual-sort index (set via PUT /models/order)
 
 
 class ChatMessage(BaseModel):
